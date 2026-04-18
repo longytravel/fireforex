@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Virtual envs
+.venv/
+venv/
+env/
+
+# Build / dist
+build/
+dist/
+
+# Artifacts from sweeps/backtests
+artifacts/
+optuna_*.db
+*.log
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Data (never commit parquet / raw market data)
+*.parquet
+*.feather
+*.arrow
+data/
