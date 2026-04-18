@@ -1,3 +1,4 @@
+from . import _bootstrap  # must be first — pins CPU affinity before numba loads
 from .params import Params, suggest_params, DEFAULT_PARAMS
 from .data import load_ohlc
 from .strategy import compute_signals
