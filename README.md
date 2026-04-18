@@ -34,11 +34,17 @@ pip install -r requirements.txt
 # Single backtest with default 50-param set
 python scripts/run_single.py
 
+# See it visually — opens an interactive chart in your browser
+python scripts/show_backtest.py --start 2024-01-01 --end 2024-06-30
+
 # Optuna sweep (1000 trials, 50-param Bayesian search)
 python scripts/run_sweep.py --trials 1000 --jobs 16
 
 # Raw speed benchmark (how many backtests/sec on your laptop)
 python scripts/bench.py --n 100
+
+# Smoke tests
+pytest tests/ -v
 ```
 
 ## What's in the strategy
