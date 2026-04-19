@@ -1,0 +1,17 @@
+[package]
+name = "ff_core"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "ff_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.24", features = ["extension-module"] }
+numpy = "0.24"
+rayon = "1.10"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1

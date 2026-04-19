@@ -1,0 +1,18 @@
+{
+  "_meta": {
+    "ea_path": "eas/complex01.py",
+    "layer_name": "golden",
+    "optimizer": "random",
+    "seed": 42,
+    "n_trials": 500,
+    "description": "Pinned regression fixture \u2014 complex01 seed=42 n=500. Created 2026-04-19 after golden file was found missing."
+  },
+  "metrics": {
+    "trades_best": 181,
+    "win_rate_pct": 72.9282,
+    "total_pips": 1285,
+    "expectancy_pips_per_trade": 7.1008,
+    "max_drawdown_pct": 20.5657,
+    "profit_factor": 1.5336
+  }
+}

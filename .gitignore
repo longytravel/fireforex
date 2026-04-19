@@ -1,0 +1,32 @@
+# Rust build artefacts
+target/
+*.pyd
+*.so
+
+# Python
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+
+# Run artefacts (keep history.csv + baseline.json; drop heavy npz)
+artifacts/runs/
+artifacts/signal_cache/
+artifacts/comparison.html
+artifacts/volatility_cache.json
+artifacts/data_inventory.json
+
+# Playwright cache
+.playwright-mcp/
+
+# Editor / OS
+.idea/
+.vscode/
+.claude/
+Thumbs.db
+.DS_Store
+
+# Local dev scaffolding
+artifacts/_kill.ps1
+artifacts/server.log
+artifacts/server.err

@@ -1,0 +1,1689 @@
+// Fire Forex single-page frontend — MT5-style optimisation workbench.
+// Plain ES modules, no bundler, no framework.
+
+const $ = (id) => document.getElementById(id);
+
+// Server always generates the full superset schema (level 10). The "Complexity"
+// slider is a client-side convenience that pre-fills group tickboxes + step
+// multiplier. User tickboxes remain authoritative on top.
+const FULL_SCHEMA_LEVEL = 10;
+
+const state = {
+  pairs: {},
+  recipe: { pair: null, main_tf: null, sub_tf: null, name: null,
+            start_date: null, end_date: null },
+  presetLevel: 6,
+  overrides: { groups: {}, knobs: {}, signal_families: {}, global: { step_multiplier: 1.0 } },
+  featurePreset: 'balanced',
+  bundle: null,
+  explain: {},
+  baseline: null,
+  jobId: null,
+  pollTimer: null,
+  lastJob: null,
+  inventory: null,
+  dlJobId: null,
+  dlTimer: null,
+};
+
+const ALL_OPTIONAL_GROUPS = ['trailing', 'breakeven', 'partial', 'stale', 'session', 'max_bars'];
+const ALL_SIGNAL_FAMILIES = ['ema_cross', 'macd_cross', 'donchian'];
+
+// Feature-set presets drive BOTH which optional groups are on AND which signal
+// families are loaded. Dropping a signal family is the main way to cut runtime.
+const FEATURE_PRESETS = {
+  minimal:  { groups: [],                                  families: ['ema_cross'] },
+  balanced: { groups: ['trailing', 'breakeven'],           families: ['ema_cross', 'macd_cross'] },
+  all:      { groups: null,                                families: null },
+};
+
+function levelToStepMult(level) {
+  // 1 → very coarse · 10 → very fine
+  if (level <= 2) return 3.0;
+  if (level <= 4) return 2.0;
+  if (level <= 6) return 1.0;
+  if (level <= 8) return 0.5;
+  return 0.25;
+}
+
+function levelToGroupsOn(level) {
+  if (level <= 2) return [];
+  if (level === 3) return ['trailing'];
+  if (level === 4) return ['trailing', 'breakeven'];
+  if (level === 5) return ['trailing', 'breakeven', 'max_bars'];
+  if (level === 6) return ['trailing', 'breakeven', 'max_bars', 'partial'];
+  if (level === 7) return ['trailing', 'breakeven', 'max_bars', 'partial', 'stale'];
+  if (level === 8) return ['trailing', 'breakeven', 'max_bars', 'partial', 'stale', 'session'];
+  return ALL_OPTIONAL_GROUPS;
+}
+
+function levelToFamiliesOn(level) {
+  if (level <= 2) return ['ema_cross'];
+  if (level <= 6) return ['ema_cross', 'macd_cross'];
+  return ALL_SIGNAL_FAMILIES;
+}
+
+// ── fetch helpers ──────────────────────────────────────────────────────
+
+async function api(path, opts = {}) {
+  const r = await fetch(path, {
+    headers: { 'Content-Type': 'application/json' },
+    ...opts,
+  });
+  if (!r.ok) {
+    let detail = r.statusText;
+    try { detail = (await r.json()).detail || detail; } catch {}
+    throw new Error(`${r.status} ${detail}`);
+  }
+  return r.json();
+}
+
+const debounce = (fn, ms = 300) => {
+  let t;
+  return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); };
+};
+
+const escapeAttr = (s) => String(s).replace(/"/g, '&quot;');
+const escapeHtml = (s) => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+
+// ── tabs ───────────────────────────────────────────────────────────────
+
+function switchTab(name) {
+  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('tab-active', b.dataset.tab === name));
+  document.querySelectorAll('.pane').forEach(p => p.classList.toggle('hidden', p.dataset.pane !== name));
+  if (name === 'history') refreshHistory();
+  if (name === 'data') refreshInventory();
+  if (name === 'results' && state.lastJob?.result?.equity_curve?.length) {
+    // Canvas element measures incorrectly while hidden; redraw after the pane is visible.
+    requestAnimationFrame(() => drawEquityCurve(state.lastJob.result.equity_curve));
+  }
+}
+
+// ── tooltips ───────────────────────────────────────────────────────────
+
+const tooltip = {
+  el: null, title: null, range: null, why: null,
+  init() {
+    this.el = $('tooltip');
+    this.title = $('tip-title');
+    this.range = $('tip-range');
+    this.why = $('tip-why');
+    document.addEventListener('mouseover', (e) => {
+      const t = e.target.closest('[data-help]');
+      if (!t) return this.hide();
+      const key = t.dataset.help;
+      const info = state.explain[key];
+      if (!info) return this.hide();
+      this.title.textContent = info.title || key;
+      this.range.textContent = info.range || '';
+      this.why.textContent = info.why || '';
+      this.el.classList.remove('hidden');
+      this.place(e);
+    });
+    document.addEventListener('mousemove', (e) => {
+      if (!this.el.classList.contains('hidden')) this.place(e);
+    });
+    document.addEventListener('mouseout', (e) => {
+      if (!e.relatedTarget || !e.relatedTarget.closest || !e.relatedTarget.closest('[data-help]')) this.hide();
+    });
+  },
+  place(e) {
+    const x = Math.min(window.innerWidth - 340, e.clientX + 14);
+    const y = Math.min(window.innerHeight - 140, e.clientY + 16);
+    this.el.style.left = x + 'px';
+    this.el.style.top = y + 'px';
+  },
+  hide() { this.el.classList.add('hidden'); },
+};
+
+// ── boot ───────────────────────────────────────────────────────────────
+
+async function boot() {
+  tooltip.init();
+
+  try {
+    const [{ pairs }, { items }, { baseline }, { version }] = await Promise.all([
+      api('/api/pairs'),
+      api('/api/explain-bundle'),
+      api('/api/baseline'),
+      api('/api/version'),
+    ]);
+    state.pairs = pairs;
+    state.explain = items;
+    state.baseline = baseline;
+    const vp = document.getElementById('version-pill');
+    if (vp && version) vp.textContent = version;
+  } catch (e) {
+    setServerStatus(false, e.message);
+    return;
+  }
+  updateBaselinePill();
+
+  populatePairSelect();
+  const defaultPair = state.pairs.EUR_USD ? 'EUR_USD' : Object.keys(state.pairs)[0];
+  $('pair').value = defaultPair;
+  state.recipe.pair = defaultPair;
+  populateTfSelects();
+  $('main_tf').value = 'H1';
+  state.recipe.main_tf = 'H1';
+  $('sub_tf').value = 'M1';
+  state.recipe.sub_tf = 'M1';
+
+  wireEvents();
+  applyLevelPreset(state.presetLevel);   // kicks off the first refresh
+}
+
+function setServerStatus(ok, msg = '') {
+  const pill = $('server-pill');
+  if (ok) {
+    pill.textContent = 'connected';
+    pill.className = 'text-[11px] px-2 py-0.5 rounded-full bg-ok-500/10 text-ok-400 border border-ok-500/30';
+  } else {
+    pill.textContent = msg || 'offline';
+    pill.title = msg;
+    pill.className = 'text-[11px] px-2 py-0.5 rounded-full bg-bad-500/10 text-bad-400 border border-bad-500/30';
+  }
+}
+
+function populatePairSelect() {
+  const sel = $('pair');
+  sel.innerHTML = '';
+  for (const p of Object.keys(state.pairs)) {
+    const opt = document.createElement('option');
+    opt.value = p; opt.textContent = p.replace('_', '/');
+    sel.appendChild(opt);
+  }
+}
+
+function populateTfSelects() {
+  const tfs = state.pairs[state.recipe.pair] || [];
+  const mainTfOpts = tfs.filter(t => !['W'].includes(t));
+  fillSelect('main_tf', mainTfOpts, state.recipe.main_tf);
+  const subTfOpts = tfs.filter(t => !['W', 'D'].includes(t));
+  fillSelect('sub_tf', subTfOpts, state.recipe.sub_tf);
+}
+
+function fillSelect(id, values, selected) {
+  const sel = $(id);
+  sel.innerHTML = '';
+  for (const v of values) {
+    const o = document.createElement('option');
+    o.value = v; o.textContent = v;
+    if (v === selected) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+
+// ── wiring ─────────────────────────────────────────────────────────────
+
+function wireEvents() {
+  document.getElementById('tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tab]'); if (!b) return;
+    switchTab(b.dataset.tab);
+  });
+
+  $('pair').addEventListener('change', () => {
+    state.recipe.pair = $('pair').value;
+    populateTfSelects();
+    state.recipe.main_tf = $('main_tf').value;
+    state.recipe.sub_tf = $('sub_tf').value;
+    refreshDefaults();
+  });
+  $('main_tf').addEventListener('change', () => {
+    state.recipe.main_tf = $('main_tf').value;
+    refreshDefaults();
+  });
+  $('sub_tf').addEventListener('change', () => {
+    state.recipe.sub_tf = $('sub_tf').value;
+    refreshDefaults();
+  });
+
+  $('start_date').addEventListener('change', () => {
+    state.recipe.start_date = $('start_date').value || null;
+    updateRangeInfo();
+  });
+  $('end_date').addEventListener('change', () => {
+    state.recipe.end_date = $('end_date').value || null;
+    updateRangeInfo();
+  });
+  $('range-full').addEventListener('click', () => {
+    $('start_date').value = '';
+    $('end_date').value = '';
+    state.recipe.start_date = null;
+    state.recipe.end_date = null;
+    updateRangeInfo();
+  });
+  $('range-last-year').addEventListener('click', () => {
+    const end = new Date();
+    const start = new Date(end); start.setFullYear(end.getFullYear() - 1);
+    const iso = (d) => d.toISOString().slice(0, 10);
+    $('start_date').value = iso(start);
+    $('end_date').value = iso(end);
+    state.recipe.start_date = iso(start);
+    state.recipe.end_date = iso(end);
+    updateRangeInfo();
+  });
+
+  // ── Data tab ──
+  $('inventory-rescan').addEventListener('click', () => refreshInventory(true));
+  $('inventory-body').addEventListener('click', (e) => {
+    const tr = e.target.closest('tr[data-pair]'); if (!tr) return;
+    runHealthCheck(tr.dataset.pair, tr.dataset.tf);
+  });
+  $('download-form').addEventListener('submit', (e) => { e.preventDefault(); submitDownload(); });
+  $('dl-cancel').addEventListener('click', cancelDownload);
+
+  $('level').addEventListener('input', () => {
+    state.presetLevel = parseInt($('level').value, 10);
+    $('level-value').textContent = String(state.presetLevel);
+    applyLevelPreset(state.presetLevel);
+  });
+
+  document.getElementById('step-granularity').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mult]'); if (!b) return;
+    document.querySelectorAll('#step-granularity .seg-btn').forEach(x => x.classList.remove('seg-active'));
+    b.classList.add('seg-active');
+    // Clear per-knob step overrides so the new multiplier is visible
+    for (const p of Object.keys(state.overrides.knobs || {})) {
+      if (state.overrides.knobs[p]) delete state.overrides.knobs[p].step;
+      if (state.overrides.knobs[p] && Object.keys(state.overrides.knobs[p]).length === 0)
+        delete state.overrides.knobs[p];
+    }
+    state.overrides.global.step_multiplier = parseFloat(b.dataset.mult);
+    refreshDefaults();
+  });
+
+  document.getElementById('feature-preset').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-preset]'); if (!b) return;
+    applyFeaturePreset(b.dataset.preset);
+  });
+
+  $('reset-overrides').addEventListener('click', () => {
+    state.overrides = { groups: {}, knobs: {}, global: { step_multiplier: 1.0 } };
+    applyLevelPreset(state.presetLevel);
+  });
+
+  $('run-btn').addEventListener('click', onRunClick);
+  $('pin-baseline-btn').addEventListener('click', onPinBaseline);
+  $('clear-baseline-btn').addEventListener('click', onClearBaseline);
+  $('scatter-metric').addEventListener('change', onScatterMetricChange);
+  $('scatter-canvas').addEventListener('click', onScatterCanvasClick);
+  $('scatter-reset').addEventListener('click', onScatterReset);
+  $('scatter-jump-best').addEventListener('click', onScatterJumpBest);
+  // Redraw the scatter when the canvas becomes visible (e.g. after the
+  // user switches to the Results tab) or the window resizes. Without this,
+  // drawing during a hidden pane produces a zero-size canvas with no dots.
+  if (typeof ResizeObserver !== 'undefined') {
+    const ro = new ResizeObserver(() => drawScatter());
+    ro.observe($('scatter-canvas'));
+  }
+  window.addEventListener('resize', () => drawScatter());
+}
+
+const debouncedRefresh = debounce(refreshDefaults, 300);
+
+function applyFeaturePreset(name) {
+  state.featurePreset = name;
+  document.querySelectorAll('#feature-preset .seg-btn').forEach(b => b.classList.toggle('seg-active', b.dataset.preset === name));
+  const preset = FEATURE_PRESETS[name];
+  state.overrides.groups = {};
+  if (preset.groups !== null) {
+    for (const g of ALL_OPTIONAL_GROUPS) state.overrides.groups[g] = preset.groups.includes(g);
+  } else {
+    for (const g of ALL_OPTIONAL_GROUPS) state.overrides.groups[g] = true;
+  }
+  state.overrides.signal_families = {};
+  if (preset.families !== null) {
+    for (const f of ALL_SIGNAL_FAMILIES) state.overrides.signal_families[f] = preset.families.includes(f);
+  } else {
+    for (const f of ALL_SIGNAL_FAMILIES) state.overrides.signal_families[f] = true;
+  }
+  refreshDefaults();
+}
+
+function applyLevelPreset(level) {
+  // Changing the preset wipes per-knob min/step/max overrides so the new
+  // step sizes are actually visible in the table.
+  state.overrides.knobs = {};
+  state.overrides.global.step_multiplier = levelToStepMult(level);
+  document.querySelectorAll('#step-granularity .seg-btn').forEach(x => {
+    x.classList.toggle('seg-active', Math.abs(parseFloat(x.dataset.mult) - state.overrides.global.step_multiplier) < 1e-6);
+  });
+  const onG = new Set(levelToGroupsOn(level));
+  state.overrides.groups = {};
+  for (const g of ALL_OPTIONAL_GROUPS) state.overrides.groups[g] = onG.has(g);
+  const onF = new Set(levelToFamiliesOn(level));
+  state.overrides.signal_families = {};
+  for (const f of ALL_SIGNAL_FAMILIES) state.overrides.signal_families[f] = onF.has(f);
+  const matchName = level <= 2 ? 'minimal' : level <= 6 ? 'balanced' : 'all';
+  state.featurePreset = matchName;
+  document.querySelectorAll('#feature-preset .seg-btn').forEach(b => b.classList.toggle('seg-active', b.dataset.preset === matchName));
+  refreshDefaults();
+}
+
+// ── defaults refresh ───────────────────────────────────────────────────
+
+async function refreshDefaults() {
+  const { pair, main_tf, sub_tf } = state.recipe;
+  if (!pair || !main_tf) return;
+  try {
+    const bundle = await api('/api/defaults', {
+      method: 'POST',
+      body: JSON.stringify({ pair, main_tf, sub_tf, level: FULL_SCHEMA_LEVEL, overrides: state.overrides }),
+    });
+    state.bundle = bundle;
+    renderPreview(bundle.preflight);
+    renderFeatures(bundle.flat_schema);
+    renderSignals(bundle.flat_schema);
+    setServerStatus(true);
+  } catch (e) {
+    setServerStatus(false, e.message);
+  }
+}
+
+// ── preview tiles ──────────────────────────────────────────────────────
+
+function fmtNum(n, decimals = 1) {
+  if (n === null || n === undefined) return '—';
+  const a = Math.abs(n);
+  if (a >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (a >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  if (Number.isInteger(n)) return String(n);
+  return n.toFixed(decimals);
+}
+
+function fmtDuration(s) {
+  if (s == null || !isFinite(s)) return '—';
+  if (s < 60) return s.toFixed(1) + 's';
+  const m = Math.floor(s / 60), r = Math.round(s % 60);
+  return `${m}m ${r}s`;
+}
+
+function renderPreview(pf) {
+  const lib = pf?.signals?.library_size ?? null;
+  $('prev-lib').textContent = lib != null ? lib.toLocaleString() : '—';
+  $('prev-lib-sub').textContent = lib != null ? 'signal variants to test' : 'variants';
+
+  const eng = pf?.engine ?? {};
+  const dMin = eng.eff_dims_min, dMean = eng.eff_dims_mean, dMax = eng.eff_dims_max;
+  if (dMean != null) {
+    $('prev-dims').textContent = `${Math.round(dMean)} knobs`;
+    $('prev-dims-sub').textContent = (dMin === dMax)
+      ? 'every trial tunes this many'
+      : `${dMin}–${dMax} depending on which on/off features fire each trial`;
+  } else {
+    $('prev-dims').textContent = '—';
+    $('prev-dims-sub').textContent = '';
+  }
+
+  const low = pf?.estimates?.total_s_low ?? null;
+  const high = pf?.estimates?.total_s_high ?? null;
+  if (low != null && high != null) $('prev-runtime').textContent = fmtDuration((low + high) / 2);
+  else $('prev-runtime').textContent = '—';
+}
+
+// ── features / knobs rendering ─────────────────────────────────────────
+
+const GROUP_FRIENDLY_NAMES = {
+  stop_loss:    'Stop loss',
+  take_profit:  'Take profit',
+  trailing:     'Trailing stop',
+  chandelier:   'Chandelier stop (peak-anchored ATR trail)',
+  breakeven:    'Breakeven (move stop to entry when in profit)',
+  partial:      'Partial close (take some off the table)',
+  stale:        'Stale exit (kill stuck trades)',
+  session:      'Trading hours filter',
+  days:         'Days of the week to trade',
+  max_bars:     'Hard cap on how long a trade can live',
+};
+
+const GROUP_SUBHEAD = {
+  stop_loss:   'Pick a fixed pip distance OR an ATR multiple — the optimiser tries both.',
+  take_profit: 'Pick a risk:reward ratio, an ATR multiple, or fixed pips — all are tried.',
+  trailing:    'Moves the stop along behind a winning trade.',
+  chandelier:  'Anchors the stop to the highest-high (or lowest-low) since entry, minus an ATR multiple. Ratchets one-way — never loosens.',
+  breakeven:   'Once the trade is healthy in profit, the stop jumps to near the entry price.',
+  partial:     'Closes part of the position at an interim target to lock some pips in.',
+  stale:       'Exits trades that are going nowhere in flat, low-volatility markets.',
+  session:     'Only trade within a chosen hour window (UTC).',
+  max_bars:    'A safety net — every trade closes if it lives longer than this.',
+  days:        'Which days of the week the strategy is allowed to trade.',
+};
+
+// Collapsible section groupings — each section is a <details> in the UI.
+// Any group not listed here falls into an "Other" section at the end.
+const FEATURE_SECTIONS = [
+  { key: 'targets',    title: 'Targets (stop / take-profit)',    groups: ['stop_loss', 'take_profit'] },
+  { key: 'stop_mgmt',  title: 'Stop management',                  groups: ['trailing', 'chandelier', 'breakeven'] },
+  { key: 'lifecycle',  title: 'Trade lifecycle',                  groups: ['partial', 'stale', 'max_bars'] },
+  { key: 'filters',    title: 'Time & session filters',           groups: ['session', 'days'] },
+];
+
+const KNOB_LABELS = {
+  // Stop loss
+  'stop_loss.fixed.pips':                             'Fixed stop distance (pips)',
+  'stop_loss.atr.mult':                               'ATR-scaled stop (× ATR)',
+  // Take profit
+  'take_profit.rr.ratio':                             'Risk : reward ratio',
+  'take_profit.atr.mult':                             'ATR-scaled target (× ATR)',
+  'take_profit.fixed.pips':                           'Fixed target distance (pips)',
+  // Trailing
+  'trailing.when_on.mode.fixed.distance':             'Trailing distance (pips)',
+  'trailing.when_on.mode.atr.mult':                   'Trailing distance (× ATR)',
+  'trailing.when_on.activate':                        'Start trailing after this much profit (pips)',
+  // Breakeven
+  'breakeven.when_on.trigger':                        'Move stop to breakeven after (pips profit)',
+  'breakeven.when_on.offset':                         'Breakeven offset from entry (pips)',
+  // Partial
+  'partial.when_on.pct':                              'How much of the position to close (%)',
+  'partial.when_on.trigger':                          'Trigger partial close at (pips profit)',
+  // Stale
+  'stale.when_on.bars':                               'Max bars before stall exit',
+  'stale.when_on.atr_thresh':                         'Volatility threshold (× ATR)',
+  // Session
+  'session.when_on.hours_start':                      'Trading start hour (UTC 0–23)',
+  'session.when_on.hours_end':                        'Trading end hour (UTC 0–23)',
+  // Max bars
+  'max_bars.when_on.bars':                            'Hard cap on bars per trade',
+  // Chandelier
+  'chandelier.when_on.activate':                      'Arm chandelier after this much profit (pips)',
+  'chandelier.when_on.atr_mult':                      'Chandelier distance from peak (× ATR)',
+  // Signals
+  'ema_cross.fast':                                   'Fast EMA period',
+  'ema_cross.slow':                                   'Slow EMA period',
+  'macd_cross.fast':                                  'MACD fast EMA',
+  'macd_cross.slow':                                  'MACD slow EMA',
+  'macd_cross.signal':                                'MACD signal line',
+  'donchian.lookback':                                'Donchian lookback bars',
+};
+
+const FAMILY_LABELS = {
+  ema_cross:  { title: 'EMA crossover',    sub: 'Buy when a fast EMA crosses above a slow EMA. Sell when it crosses below.' },
+  macd_cross: { title: 'MACD crossover',   sub: 'A smoother version of EMA cross using the MACD signal line.' },
+  donchian:   { title: 'Donchian breakout', sub: 'Buy when price breaks above the N-bar high. Sell when below the N-bar low.' },
+};
+
+const DAYS_LABELS = { 31: 'Mon–Fri', 63: 'Mon–Sat', 127: 'All week (Mon–Sun)' };
+
+function segAtPath(path, flatList) {
+  return flatList.find(e => e.path === path);
+}
+
+function renderFeatures(flat) {
+  const container = $('features');
+  container.innerHTML = '';
+  const engine = flat.engine || [];
+  // Group flat entries by top-level segment.
+  const groups = new Map();
+  for (const e of engine) {
+    const top = e.path.split('.')[0];
+    if (!groups.has(top)) groups.set(top, []);
+    groups.get(top).push(e);
+  }
+
+  const rendered = new Set();
+  for (const section of FEATURE_SECTIONS) {
+    const cards = [];
+    for (const name of section.groups) {
+      if (!groups.has(name)) continue;
+      rendered.add(name);
+      cards.push(renderFeatureCard(name, groups.get(name)));
+    }
+    if (cards.length === 0) continue;
+    container.appendChild(renderFeatureSection(section.key, section.title, cards));
+  }
+
+  // Anything the sections don't claim goes into a catch-all "Other"
+  // section at the bottom, so new knobs added to the engine never
+  // disappear from the UI.
+  const orphans = [];
+  for (const [name, entries] of groups) {
+    if (rendered.has(name)) continue;
+    orphans.push(renderFeatureCard(name, entries));
+  }
+  if (orphans.length) {
+    container.appendChild(renderFeatureSection('other', 'Other', orphans));
+  }
+}
+
+function renderFeatureSection(key, title, cards) {
+  const wrap = document.createElement('details');
+  wrap.className = 'feature-section';
+  // Persist open/closed state per-section across page reloads.
+  const storageKey = `ff.section.${key}.open`;
+  const saved = localStorage.getItem(storageKey);
+  wrap.open = saved === null ? true : saved === '1';
+  wrap.addEventListener('toggle', () => {
+    localStorage.setItem(storageKey, wrap.open ? '1' : '0');
+  });
+
+  const summary = document.createElement('summary');
+  summary.className = 'feature-section__summary';
+  summary.innerHTML = `
+    <span class="feature-section__chevron">▸</span>
+    <span class="feature-section__title">${title}</span>
+    <span class="feature-section__count">${cards.length} feature${cards.length === 1 ? '' : 's'}</span>
+  `;
+  wrap.appendChild(summary);
+
+  const body = document.createElement('div');
+  body.className = 'feature-section__body';
+  for (const card of cards) body.appendChild(card);
+  wrap.appendChild(body);
+
+  return wrap;
+}
+
+function renderFeatureCard(name, entries) {
+  const root = document.createElement('div');
+  root.className = 'feature-row';
+
+  const header = document.createElement('div');
+  header.className = 'flex items-center gap-3 px-4 py-2.5';
+
+  const top = entries.find(e => e.path === name);
+  const headerLabel = GROUP_FRIENDLY_NAMES[name] || name;
+  const sub = GROUP_SUBHEAD[name] || '';
+  let toggle = '<span class="w-5"></span>';
+  let status = '';
+
+  if (top && top.kind === 'group') {
+    const enabled = top.enabled !== false;
+    toggle = `<input type="checkbox" class="group-toggle" data-path="${escapeAttr(name)}" ${enabled ? 'checked' : ''} />`;
+    status = enabled
+      ? '<span class="text-ok-400 text-[10px] uppercase tracking-wider">ON</span>'
+      : '<span class="text-slate-500 text-[10px] uppercase tracking-wider">OFF</span>';
+  }
+
+  header.innerHTML = `
+    ${toggle}
+    <div class="flex-1">
+      <div class="flex items-center gap-2">
+        <div class="font-semibold text-slate-200" data-help="${escapeAttr(name)}">${headerLabel} <span class="help-dot">?</span></div>
+        ${status}
+      </div>
+      ${sub ? `<div class="text-[11px] text-slate-500 mt-0.5">${sub}</div>` : ''}
+    </div>
+  `;
+  root.appendChild(header);
+
+  const body = document.createElement('div');
+  body.className = 'px-4 pb-3';
+
+  if (name === 'days' && top && top.kind === 'choice') {
+    body.appendChild(renderDaysRow(top));
+  } else {
+    const leaves = entries.filter(e => e !== top && (e.kind === 'float' || e.kind === 'int'));
+    if (!leaves.length) {
+      body.innerHTML = '<div class="text-[11px] text-slate-500 italic">(nothing to tune here)</div>';
+    } else {
+      const tbl = document.createElement('div');
+      tbl.className = 'knob-table';
+      tbl.innerHTML = `
+        <div class="knob-head">
+          <div></div>
+          <div>Parameter</div>
+          <div class="text-right" data-help="min">Min <span class="help-dot">?</span></div>
+          <div class="text-right" data-help="step">Step <span class="help-dot">?</span></div>
+          <div class="text-right" data-help="max">Max <span class="help-dot">?</span></div>
+        </div>
+      `;
+      for (const leaf of leaves) tbl.appendChild(renderKnobRow(leaf));
+      body.appendChild(tbl);
+    }
+  }
+  root.appendChild(body);
+
+  if (top && top.kind === 'group' && top.enabled === false) {
+    body.classList.add('opacity-40', 'pointer-events-none');
+  }
+  return root;
+}
+
+function renderSignals(flat) {
+  const c = $('signals');
+  c.innerHTML = '';
+  const signals = flat.signals || [];
+  // Always show every registered family so the user can tick one back on
+  // even if the current overrides have dropped it.
+  const present = new Map();
+  for (const e of signals) {
+    const family = e.path.split('.')[0];
+    if (!present.has(family)) present.set(family, []);
+    present.get(family).push(e);
+  }
+  const familyRows = [];
+  for (const family of ALL_SIGNAL_FAMILIES) {
+    const enabled = state.overrides.signal_families?.[family] !== false;
+    const entries = present.get(family) || [];
+    const body = entries.filter(e => e.kind === 'int' || e.kind === 'float');
+    const meta = FAMILY_LABELS[family] || { title: family, sub: '' };
+
+    const row = document.createElement('div');
+    row.className = 'feature-row';
+    const header = document.createElement('div');
+    header.className = 'flex items-center gap-3 px-4 py-2.5';
+    header.innerHTML = `
+      <input type="checkbox" class="family-toggle" data-family="${escapeAttr(family)}" ${enabled ? 'checked' : ''} />
+      <div class="flex-1">
+        <div class="flex items-center gap-2">
+          <div class="font-semibold text-slate-200" data-help="signals.${family}">${meta.title} <span class="help-dot">?</span></div>
+          <span class="${enabled ? 'text-ok-400' : 'text-slate-500'} text-[10px] uppercase tracking-wider">${enabled ? 'ON' : 'OFF'}</span>
+        </div>
+        <div class="text-[11px] text-slate-500 mt-0.5">${meta.sub}</div>
+      </div>
+    `;
+    row.appendChild(header);
+
+    const wrap = document.createElement('div');
+    wrap.className = 'px-4 pb-3';
+    if (!enabled) {
+      wrap.innerHTML = '<div class="text-[11px] text-slate-500 italic">Tick the box above to include this signal family.</div>';
+    } else if (!body.length) {
+      wrap.innerHTML = '<div class="text-[11px] text-slate-500 italic">(no tunable knobs)</div>';
+    } else {
+      const tbl = document.createElement('div');
+      tbl.className = 'knob-table';
+      tbl.innerHTML = `
+        <div class="knob-head">
+          <div></div>
+          <div>Parameter</div>
+          <div class="text-right" data-help="min">Min <span class="help-dot">?</span></div>
+          <div class="text-right" data-help="step">Step <span class="help-dot">?</span></div>
+          <div class="text-right" data-help="max">Max <span class="help-dot">?</span></div>
+        </div>
+      `;
+      body.map(renderKnobRow).forEach(tr => tbl.appendChild(tr));
+      wrap.appendChild(tbl);
+    }
+    row.appendChild(wrap);
+    familyRows.push(row);
+  }
+  if (familyRows.length) {
+    c.appendChild(renderFeatureSection('signals', 'Signal families', familyRows));
+  }
+}
+
+function renderKnobRow(leaf) {
+  const row = document.createElement('div');
+  row.className = 'knob-row';
+  const minOv = state.overrides.knobs?.[leaf.path] || {};
+  const enabled = minOv.enabled !== false;
+  const stepStr = leaf.step == null ? '' : String(leaf.step);
+  const label = KNOB_LABELS[leaf.path] || prettifyPath(leaf.path);
+  row.innerHTML = `
+    <label class="flex items-center" title="Include this parameter in the optimisation"><input type="checkbox" class="knob-enabled" data-path="${escapeAttr(leaf.path)}" ${enabled ? 'checked' : ''} /></label>
+    <div class="text-slate-200">${label}</div>
+    <input type="number" class="knob-input knob-min" data-field="min" data-path="${escapeAttr(leaf.path)}" value="${leaf.min}" step="any" />
+    <input type="number" class="knob-input knob-step" data-field="step" data-path="${escapeAttr(leaf.path)}" value="${stepStr}" min="0" step="any" placeholder="auto" />
+    <input type="number" class="knob-input knob-max" data-field="max" data-path="${escapeAttr(leaf.path)}" value="${leaf.max}" step="any" />
+  `;
+  return row;
+}
+
+function renderDaysRow(leaf) {
+  const wrap = document.createElement('div');
+  wrap.className = 'text-xs text-slate-300 py-1';
+  const parts = (leaf.values || []).map(v => DAYS_LABELS[v] || String(v));
+  wrap.innerHTML = `<span class="text-slate-400">Will try:</span> ${parts.join(' · ')}`;
+  return wrap;
+}
+
+function prettifyPath(path) {
+  // Fallback for unrecognised paths — drop internal plumbing, title-case.
+  return path.split('.').filter(p => p !== 'when_on').map(p =>
+    p.replace(/_/g, ' ')
+  ).join(' · ');
+}
+
+// Delegated listeners for knob/group changes
+document.addEventListener('change', (e) => {
+  const t = e.target;
+  if (t.classList?.contains('group-toggle')) {
+    const p = t.dataset.path;
+    state.overrides.groups[p] = t.checked;
+    debouncedRefresh();
+  } else if (t.classList?.contains('family-toggle')) {
+    const f = t.dataset.family;
+    state.overrides.signal_families[f] = t.checked;
+    debouncedRefresh();
+  } else if (t.classList?.contains('knob-enabled')) {
+    const p = t.dataset.path;
+    state.overrides.knobs[p] = state.overrides.knobs[p] || {};
+    state.overrides.knobs[p].enabled = t.checked;
+    debouncedRefresh();
+  } else if (t.classList?.contains('knob-input')) {
+    const p = t.dataset.path;
+    const field = t.dataset.field;
+    state.overrides.knobs[p] = state.overrides.knobs[p] || {};
+    if (t.value === '') {
+      state.overrides.knobs[p][field] = null;
+    } else {
+      let v = parseFloat(t.value);
+      if (!Number.isFinite(v)) v = 0;
+      if (field === 'step' && v < 0) { v = 0; t.value = '0'; }
+      state.overrides.knobs[p][field] = v;
+    }
+    debouncedRefresh();
+  }
+});
+
+// ── run flow ───────────────────────────────────────────────────────────
+
+async function onRunClick() {
+  if (!state.recipe.pair) return;
+  const btn = $('run-btn');
+  btn.disabled = true; btn.textContent = 'Starting…';
+  $('progress-wrap').classList.remove('hidden');
+  setProgress(0, 'queued');
+  try {
+    const body = {
+      recipe: { ...state.recipe, level: FULL_SCHEMA_LEVEL },
+      overrides: state.overrides,
+      n_trials: parseInt($('n_trials').value, 10),
+      seed: parseInt($('seed').value, 10),
+      layer_name: $('layer_name').value || null,
+      start_date: state.recipe.start_date || null,
+      end_date: state.recipe.end_date || null,
+    };
+    const { job_id } = await api('/api/run', { method: 'POST', body: JSON.stringify(body) });
+    state.jobId = job_id;
+    pollJob();
+  } catch (e) {
+    setProgress(0, 'error: ' + e.message);
+    btn.disabled = false; btn.textContent = 'Run backtest';
+  }
+}
+
+function setProgress(frac, msg, elapsedS) {
+  $('progress-bar').style.width = (Math.max(0, Math.min(1, frac)) * 100).toFixed(0) + '%';
+  const pctTxt = (Math.max(0, Math.min(1, frac)) * 100).toFixed(0) + '%';
+  const elapsedTxt = elapsedS != null ? ` · ${fmtDuration(elapsedS)}` : '';
+  $('progress-pct').textContent = pctTxt + elapsedTxt;
+  $('progress-msg').textContent = msg || '';
+}
+
+async function pollJob() {
+  if (!state.jobId) return;
+  clearTimeout(state.pollTimer);
+  try {
+    const j = await api(`/api/jobs/${state.jobId}`);
+    const elapsed = j.started_at ? ((j.finished_at || Date.now() / 1000) - j.started_at) : null;
+    setProgress(j.progress || 0, j.message || j.status, elapsed);
+    if (j.status === 'running') {
+      state.pollTimer = setTimeout(pollJob, 500);
+    } else if (j.status === 'done') {
+      renderResults(j);
+      finishRun();
+      refreshHistory();
+      switchTab('results');
+    } else if (j.status === 'error') {
+      setProgress(0, 'error: ' + (j.error || '').split('\n')[0], elapsed);
+      finishRun();
+    }
+  } catch (e) {
+    setProgress(0, 'poll error: ' + e.message);
+    finishRun();
+  }
+}
+
+function finishRun() {
+  const btn = $('run-btn');
+  btn.disabled = false; btn.textContent = 'Run backtest';
+}
+
+// ── results ────────────────────────────────────────────────────────────
+
+const KPI_DEFS = [
+  { key: 'trades',            label: 'Trades',        fmt: (v) => fmtNum(v, 0) },
+  { key: 'win_rate_pct',      label: 'Win rate',      fmt: (v) => v == null ? '—' : `${Number(v).toFixed(1)}%` },
+  { key: 'total_pips',        label: 'Total pips',    fmt: (v) => fmtNum(v, 1) },
+  { key: 'expectancy_pips',   label: 'Expectancy',    fmt: (v) => v == null ? '—' : `${Number(v).toFixed(2)} pips` },
+  { key: 'max_dd_pct',        label: 'Max DD',        fmt: (v) => v == null ? '—' : `${Number(v).toFixed(1)}%` },
+  { key: 'profit_factor',     label: 'Profit factor', fmt: (v) => v == null ? '—' : Number(v).toFixed(2) },
+  { key: 'sharpe',            label: 'Sharpe',        fmt: (v) => v == null ? '—' : Number(v).toFixed(2) },
+  { key: 'return_pct',        label: 'Return %',      fmt: (v) => v == null ? '—' : `${Number(v).toFixed(1)}%` },
+];
+
+function renderResults(job) {
+  state.lastJob = job;
+  $('no-results').classList.add('hidden');
+  $('results-body').classList.remove('hidden');
+
+  const r = job.result || {};
+  const runtime = (job.finished_at && job.started_at) ? (job.finished_at - job.started_at).toFixed(1) : '?';
+  $('results-sub').textContent = `Layer: ${r.layer ?? '?'} · ${runtime}s · ${job.recipe?.pair}/${job.recipe?.main_tf}/${job.recipe?.sub_tf}`;
+
+  const kpiEl = $('kpis');
+  kpiEl.innerHTML = '';
+  const kpis = r.kpis || {};
+  const delta = r.baseline_delta || null;
+  for (const def of KPI_DEFS) {
+    const v = kpis[def.key];
+    const d = delta ? delta[def.key] : null;
+    const tile = document.createElement('div');
+    tile.className = 'kpi-tile';
+    tile.setAttribute('data-help', def.key);
+    let deltaHtml = '';
+    if (d && d.delta != null) {
+      const good = isBetter(def.key, d.delta);
+      const cls = good ? 'text-ok-400' : (d.delta === 0 ? 'text-slate-500' : 'text-bad-400');
+      const sign = d.delta > 0 ? '+' : '';
+      deltaHtml = `<div class="kpi-delta ${cls}">${sign}${Number(d.delta).toFixed(2)} vs baseline</div>`;
+    }
+    tile.innerHTML = `
+      <div class="kpi-label">${def.label} <span class="help-dot">?</span></div>
+      <div class="kpi-value">${def.fmt(v)}</div>
+      ${deltaHtml}
+    `;
+    kpiEl.appendChild(tile);
+  }
+
+  drawEquityCurve(r.equity_curve || []);
+  $('equity-sub').textContent = "Cumulative pips across the best variant's trades.";
+  const bp = (r.best_params_english || []).join('\n');
+  $('best-params').textContent = bp || '(no details)';
+
+  state.viewingTrial = false;
+  $('scatter-reset').disabled = true;
+  loadScatterForRun(runFileBasename(r.run_file));
+}
+
+function runFileBasename(p) {
+  if (!p) return null;
+  return String(p).split(/[\\/]/).pop();
+}
+
+function isBetter(key, delta) {
+  // More is better, except drawdown — less is better.
+  const inverted = new Set(['max_dd_pct']);
+  return inverted.has(key) ? delta < 0 : delta > 0;
+}
+
+function drawEquityCurve(series) {
+  const canvas = $('equity-canvas');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  const W = canvas.width = Math.floor(rect.width * dpr);
+  const H = canvas.height = Math.floor(rect.height * dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  if (!series || series.length < 2) {
+    ctx.fillStyle = '#64748b'; ctx.font = `${12 * dpr}px sans-serif`;
+    ctx.fillText('no equity data', 12 * dpr, 20 * dpr);
+    return;
+  }
+
+  const pad = { l: 40 * dpr, r: 12 * dpr, t: 12 * dpr, b: 18 * dpr };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+  const lo = Math.min(...series), hi = Math.max(...series);
+  const rng = Math.max(1e-9, hi - lo);
+  const xs = (i) => pad.l + (i / (series.length - 1)) * plotW;
+  const ys = (v) => pad.t + (1 - (v - lo) / rng) * plotH;
+
+  ctx.strokeStyle = '#1a2030'; ctx.lineWidth = 1;
+  for (let g = 0; g <= 4; g++) {
+    const y = pad.t + (g / 4) * plotH;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+  }
+  if (lo < 0 && hi > 0) {
+    ctx.strokeStyle = '#2a3548'; ctx.setLineDash([4 * dpr, 4 * dpr]);
+    ctx.beginPath(); ctx.moveTo(pad.l, ys(0)); ctx.lineTo(W - pad.r, ys(0)); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  ctx.strokeStyle = '#ff7a18'; ctx.lineWidth = 1.6 * dpr;
+  ctx.beginPath();
+  for (let i = 0; i < series.length; i++) {
+    const x = xs(i), y = ys(series[i]);
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.fillStyle = '#64748b'; ctx.font = `${10 * dpr}px sans-serif`;
+  ctx.fillText(`${lo.toFixed(1)}`, 2 * dpr, H - 4 * dpr);
+  ctx.fillText(`${hi.toFixed(1)}`, 2 * dpr, pad.t + 10 * dpr);
+}
+
+// ── scatter ────────────────────────────────────────────────────────────
+// Per-trial scatter of the current run. X=trial index, Y=user-selected
+// metric column. Colour = diverging gradient centred on pinned baseline's
+// best quality score (green above, red below); falls back to a neutral
+// palette if no baseline is pinned. Click a dot → fetch that trial's
+// equity curve + metrics and replace the equity chart + KPI tiles above.
+// Fallback labels for legacy API responses missing metric_labels.
+const SCATTER_METRIC_LABELS_FALLBACK = {
+  trades: 'Trades', win_rate: 'Win rate', profit_factor: 'Profit factor',
+  sharpe: 'Sharpe', sortino: 'Sortino', max_dd_pct: 'Max DD %',
+  return_pct: 'Return %', r_squared: 'R²', ulcer: 'Ulcer',
+  quality: 'Quality v1 (legacy)', total_pips: 'Total pips',
+};
+
+function labelFor(key, ss) {
+  if (ss && ss.data && ss.data.metric_labels && ss.data.metric_columns) {
+    const i = ss.data.metric_columns.indexOf(key);
+    if (i >= 0) return ss.data.metric_labels[i];
+  }
+  return SCATTER_METRIC_LABELS_FALLBACK[key] || key;
+}
+
+// Metrics where LOWER is better — argmin instead of argmax on Jump-to-best.
+const SCATTER_METRIC_LOWER_IS_BETTER = new Set([
+  'max_dd_pct', 'ulcer', 'max_consec_loss',
+]);
+
+const SCATTER_METRIC_TOOLTIPS = {
+  quality: 'Composite: ln(1+Sortino) · clamp(K-Ratio/3,0,1) · min(PF,5) · trades_f / (Ulcer+5). Codex-reviewed formula shipped 2026-04-19 — see docs/metrics.md.',
+  quality_v2: 'Alias of Quality — kept for NPZ schema stability. Hidden from the UI dropdown.',
+  dsr: 'Deflated Sharpe (Lopez de Prado). Corrects PSR for best-of-N selection bias. Recommended default objective for random sweeps.',
+  psr: 'Probabilistic Sharpe — prob(true Sharpe > 0) given observed N, skew, kurtosis.',
+  sqn: 'System Quality Number (Van Tharp): √N · mean(R) / std(R). Catches low-N lucky trials.',
+  k_ratio: 'Kestner 2013: slope / (stderr·√n) of equity regression. Significance of the up-slope — complementary to R² linearity.',
+  calmar: 'Annualised PnL / |Max DD|. Catches single catastrophic drawdowns.',
+  recovery: 'Total PnL / |Max DD|. Non-annualised Calmar.',
+  upi: 'Return % / Ulcer Index. Rewards smooth recoveries.',
+  tail_ratio: '|P95| / |P5| of per-trade pnl. Catches negative skew.',
+  omega: 'Σmax(r,0) / Σmax(-r,0). At τ=0 this equals Profit Factor; τ configurability pending.',
+  expectancy_r: 'Mean per-trade R-multiple. Unit-free across pairs.',
+  expectancy_pips: 'Mean per-trade pnl in pips.',
+  max_consec_loss: 'Longest losing streak — psychological tradability.',
+  avg_hold_bars: 'Placeholder — per-trial bar-duration tracking not wired yet.',
+  trades_per_day: 'Placeholder — per-trial bar-duration tracking not wired yet.',
+};
+
+function populateScatterDropdown(ss) {
+  const sel = $('scatter-metric');
+  if (!sel || !ss.data || !ss.data.metric_columns) return;
+  const prevValue = sel.value || 'total_pips';
+  const keys = ss.data.metric_columns;
+  const labels = ss.data.metric_labels || keys;
+  const groups = ss.data.metric_groups || keys.map(() => 'Metrics');
+  const byGroup = new Map();
+  const groupOrder = ['Return', 'Risk-Adjusted', 'Risk', 'Overfit-Aware', 'Composite', 'Activity', 'Forex'];
+  for (let i = 0; i < keys.length; i++) {
+    const g = groups[i];
+    if (g === '_hidden') continue;  // alias/deprecated slots — keep in API, hide from UI.
+    if (!byGroup.has(g)) byGroup.set(g, []);
+    byGroup.get(g).push({ key: keys[i], label: labels[i] });
+  }
+  sel.innerHTML = '';
+  const seen = new Set();
+  const orderedGroups = [
+    ...groupOrder.filter(g => byGroup.has(g)),
+    ...[...byGroup.keys()].filter(g => !groupOrder.includes(g)),
+  ];
+  for (const g of orderedGroups) {
+    if (seen.has(g)) continue;
+    seen.add(g);
+    const og = document.createElement('optgroup');
+    og.label = g;
+    for (const { key, label } of byGroup.get(g)) {
+      const opt = document.createElement('option');
+      opt.value = key;
+      opt.textContent = label;
+      if (SCATTER_METRIC_TOOLTIPS[key]) opt.title = SCATTER_METRIC_TOOLTIPS[key];
+      og.appendChild(opt);
+    }
+    sel.appendChild(og);
+  }
+  sel.value = keys.includes(prevValue) ? prevValue : (keys.includes('total_pips') ? 'total_pips' : keys[0]);
+}
+
+function scatterState() {
+  if (!state.scatter) state.scatter = { runFile: null, data: null, points: [] };
+  return state.scatter;
+}
+
+async function loadScatterForRun(runFile) {
+  const ss = scatterState();
+  ss.runFile = runFile;
+  ss.data = null; ss.points = [];
+  $('scatter-jump-best').disabled = true;
+  if (!runFile) { drawScatter(); return; }
+  try {
+    const res = await fetch(`/api/runs/${encodeURIComponent(runFile)}/scatter`);
+    if (!res.ok) { drawScatter(); return; }
+    ss.data = await res.json();
+  } catch {
+    ss.data = null;
+  }
+  if (ss.data) populateScatterDropdown(ss);
+  $('scatter-jump-best').disabled = !(ss.data && ss.data.metrics.length);
+  drawScatter();
+}
+
+function onScatterMetricChange() { drawScatter(); }
+
+function currentScatterMetricIdx() {
+  const sel = $('scatter-metric').value;
+  const ss = scatterState();
+  if (!ss.data) return -1;
+  return ss.data.metric_columns.indexOf(sel);
+}
+
+function fallbackMetricIdx(ss) {
+  // Prefer quality, then profit_factor, then first column.
+  const prefer = ['quality', 'profit_factor', 'sharpe', 'trades'];
+  for (const name of prefer) {
+    const i = ss.data.metric_columns.indexOf(name);
+    if (i >= 0) return { idx: i, name };
+  }
+  return { idx: 0, name: ss.data.metric_columns[0] };
+}
+
+function drawScatter() {
+  const canvas = $('scatter-canvas');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  // Canvas may still be display:none / zero-size if we render before the
+  // tab is made visible. Defer via rAF; the resize observer will also
+  // catch the eventual reveal.
+  if (rect.width < 10 || rect.height < 10) {
+    if (!scatterState()._pending) {
+      scatterState()._pending = true;
+      requestAnimationFrame(() => { scatterState()._pending = false; drawScatter(); });
+    }
+    return;
+  }
+  const W = canvas.width = Math.floor(rect.width * dpr);
+  const H = canvas.height = Math.floor(rect.height * dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const ss = scatterState();
+  const legend = $('scatter-legend');
+  if (!ss.data || !ss.data.metrics.length) {
+    ctx.fillStyle = '#64748b'; ctx.font = `${12 * dpr}px sans-serif`;
+    ctx.fillText('run a backtest to see per-trial scatter', 12 * dpr, 20 * dpr);
+    legend.textContent = '';
+    ss.points = [];
+    return;
+  }
+
+  let mi = currentScatterMetricIdx();
+  let fallbackMsg = '';
+  if (mi < 0) {
+    const fb = fallbackMetricIdx(ss);
+    mi = fb.idx;
+    fallbackMsg = ` · "${$('scatter-metric').value}" not in this run, showing ${fb.name} (restart the server if you just updated)`;
+  }
+  const rows = ss.data.metrics;
+  const indices = ss.data.indices;
+  const sel = $('scatter-metric').value;
+  const isQuality = sel === 'quality';
+  const baselineQ = ss.data.baseline_quality;
+
+  const ysRaw = rows.map(r => r[mi]);
+  const ysValid = ysRaw.filter(v => v != null && Number.isFinite(v));
+  if (!ysValid.length) {
+    ctx.fillStyle = '#64748b'; ctx.font = `${12 * dpr}px sans-serif`;
+    ctx.fillText(`no data for "${labelFor($('scatter-metric').value, ss)}" in this run`, 12 * dpr, 20 * dpr);
+    legend.textContent = '';
+    ss.points = [];
+    return;
+  }
+  let lo = Math.min(...ysValid), hi = Math.max(...ysValid);
+  const degenerate = (lo === hi);
+  if (degenerate) {
+    // All trials produced the same value for this metric (common when a
+    // losing sweep collapses every quality score to 0). Pad the axis so
+    // the dots sit on a visible line instead of a zero-height strip.
+    const pad = Math.abs(lo) > 1 ? Math.abs(lo) * 0.1 : 0.5;
+    lo -= pad; hi += pad;
+  }
+  const pad = { l: 44 * dpr, r: 12 * dpr, t: 12 * dpr, b: 22 * dpr };
+  const plotW = W - pad.l - pad.r;
+  const plotH = H - pad.t - pad.b;
+  const nTotal = ss.data.n_trials;
+  const xPos = (trialIdx) => pad.l + (trialIdx / Math.max(1, nTotal - 1)) * plotW;
+  const yPos = (v) => pad.t + (1 - (v - lo) / (hi - lo)) * plotH;
+
+  // Gridlines.
+  ctx.strokeStyle = '#1a2030'; ctx.lineWidth = 1;
+  for (let g = 0; g <= 4; g++) {
+    const y = pad.t + (g / 4) * plotH;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+  }
+
+  // Baseline reference line when plotting quality and a baseline is pinned.
+  if (isQuality && baselineQ != null && baselineQ >= lo && baselineQ <= hi) {
+    ctx.strokeStyle = '#64748b'; ctx.setLineDash([4 * dpr, 4 * dpr]);
+    ctx.beginPath(); ctx.moveTo(pad.l, yPos(baselineQ)); ctx.lineTo(W - pad.r, yPos(baselineQ)); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = '#94a3b8'; ctx.font = `${10 * dpr}px sans-serif`;
+    ctx.fillText(`baseline ${baselineQ.toFixed(3)}`, W - pad.r - 90 * dpr, yPos(baselineQ) - 4 * dpr);
+  }
+
+  // Dots. Colour encodes quality vs baseline (diverging) regardless of the
+  // Y metric — keeps visual meaning consistent across dropdown changes.
+  const qCol = ss.data.metric_columns.indexOf('quality');
+  const qualities = rows.map(r => r[qCol]);
+  const qLo = Math.min(...qualities), qHi = Math.max(...qualities);
+  const pivot = (baselineQ != null) ? baselineQ : (qLo + qHi) / 2;
+  const r = 3.2 * dpr;
+  const points = [];
+  for (let i = 0; i < rows.length; i++) {
+    const v = rows[i][mi];
+    if (v == null || !Number.isFinite(v)) continue;
+    const trialIdx = indices[i];
+    const x = xPos(trialIdx);
+    const y = yPos(v);
+    ctx.fillStyle = scatterColor(qualities[i], pivot, qLo, qHi);
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2); ctx.fill();
+    points.push({ x, y, trialIdx });
+  }
+  ss.points = points;
+
+  // Axis labels.
+  ctx.fillStyle = '#64748b'; ctx.font = `${10 * dpr}px sans-serif`;
+  ctx.fillText(hi.toFixed(3), 2 * dpr, pad.t + 10 * dpr);
+  ctx.fillText(lo.toFixed(3), 2 * dpr, H - pad.b + 12 * dpr);
+  ctx.fillText('trial #', pad.l, H - 4 * dpr);
+  ctx.fillText(labelFor(sel, ss), 2 * dpr, 10 * dpr);
+
+  // Legend text.
+  const decim = ss.data.n_points < ss.data.n_trials
+    ? ` · showing ${ss.data.n_points} of ${ss.data.n_trials} trials (strided)`
+    : ` · ${ss.data.n_trials} trials`;
+  const shownMetric = ss.data.metric_columns[mi];
+  const degenMsg = degenerate ? ` · all trials share the same ${shownMetric} value (${ys[0].toFixed(3)})` : '';
+  legend.textContent = (baselineQ != null)
+    ? `Colour = quality vs baseline (${baselineQ.toFixed(3)}): red below, green above${decim}${fallbackMsg}${degenMsg}`
+    : `Colour = quality (no baseline pinned)${decim}${fallbackMsg}${degenMsg}`;
+}
+
+function scatterColor(q, pivot, qLo, qHi) {
+  // Diverging red → neutral → green, normalised so the furthest side from
+  // pivot hits full saturation.
+  const down = Math.max(1e-9, pivot - qLo);
+  const up = Math.max(1e-9, qHi - pivot);
+  let t;
+  if (q >= pivot) {
+    t = Math.min(1, (q - pivot) / up);
+    return `rgb(${Math.round(120 - 80 * t)},${Math.round(160 + 60 * t)},${Math.round(120 - 80 * t)})`;
+  }
+  t = Math.min(1, (pivot - q) / down);
+  return `rgb(${Math.round(160 + 60 * t)},${Math.round(120 - 80 * t)},${Math.round(120 - 80 * t)})`;
+}
+
+function onScatterCanvasClick(e) {
+  const ss = scatterState();
+  if (!ss.points.length) return;
+  const canvas = $('scatter-canvas');
+  const rect = canvas.getBoundingClientRect();
+  const dpr = window.devicePixelRatio || 1;
+  const cx = (e.clientX - rect.left) * dpr;
+  const cy = (e.clientY - rect.top) * dpr;
+  let best = null, bestD2 = Infinity;
+  for (const p of ss.points) {
+    const dx = p.x - cx, dy = p.y - cy;
+    const d2 = dx * dx + dy * dy;
+    if (d2 < bestD2) { bestD2 = d2; best = p; }
+  }
+  const hitRadius = 12 * dpr;
+  if (best && bestD2 <= hitRadius * hitRadius) {
+    showTrial(best.trialIdx);
+  }
+}
+
+async function showTrial(trialIdx) {
+  const ss = scatterState();
+  if (!ss.runFile) return;
+  try {
+    const res = await fetch(`/api/runs/${encodeURIComponent(ss.runFile)}/trial/${trialIdx}`);
+    if (!res.ok) throw new Error(await res.text());
+    const d = await res.json();
+    renderTrialView(d);
+  } catch (err) {
+    console.error('trial fetch failed', err);
+  }
+}
+
+function renderTrialView(trial) {
+  state.viewingTrial = true;
+  $('scatter-reset').disabled = false;
+  const equity = trial.equity || [];
+  drawEquityCurve(equity);
+  $('equity-sub').textContent = `Trial #${trial.trial_idx} · ${trial.n_trades} trades`;
+
+  // Swap KPI tiles with per-trial values. Derive win_rate_pct, total_pips,
+  // expectancy from the trial metrics row + equity curve (Rust metrics
+  // expose win_rate as a fraction; total pips is the final equity value).
+  const m = trial.metrics || {};
+  const totalPips = equity.length ? equity[equity.length - 1] : 0;
+  const trades = m.trades || 0;
+  const kpis = {
+    trades: trades,
+    win_rate_pct: m.win_rate != null ? (m.win_rate <= 1 ? m.win_rate * 100 : m.win_rate) : null,
+    total_pips: totalPips,
+    expectancy_pips: trades ? totalPips / trades : 0,
+    max_dd_pct: m.max_dd_pct,
+    profit_factor: m.profit_factor,
+    sharpe: m.sharpe,
+    return_pct: m.return_pct,
+  };
+  const kpiEl = $('kpis');
+  kpiEl.innerHTML = '';
+  for (const def of KPI_DEFS) {
+    const tile = document.createElement('div');
+    tile.className = 'kpi-tile';
+    tile.setAttribute('data-help', def.key);
+    tile.innerHTML = `
+      <div class="kpi-label">${def.label} <span class="help-dot">?</span></div>
+      <div class="kpi-value">${def.fmt(kpis[def.key])}</div>
+      <div class="kpi-delta text-slate-500">trial #${trial.trial_idx}</div>
+    `;
+    kpiEl.appendChild(tile);
+  }
+}
+
+function onScatterReset() {
+  if (state.lastJob) renderResults(state.lastJob);
+}
+
+function onScatterJumpBest() {
+  // Jump to the best trial by the currently-selected Y-axis metric,
+  // with two safety rules so "best" always means a *winning* trial:
+  //   1. Profitability gate: skip trials with total_pips <= 0 (or when
+  //      total_pips is unavailable, fall back to profit_factor > 1).
+  //      Metrics like R², K-Ratio, Tail Ratio can be maximised by trials
+  //      that are mathematically "clean" but lose money.
+  //   2. Direction: metrics in SCATTER_METRIC_LOWER_IS_BETTER (max_dd_pct,
+  //      ulcer, max_consec_loss) are argmin, not argmax.
+  // If no profitable trial exists, fall back to unconstrained best and
+  // flag the caveat in the legend.
+  const ss = scatterState();
+  if (!ss.data) return;
+  const sel = $('scatter-metric').value;
+  const objCol = ss.data.metric_columns.indexOf(sel);
+  if (objCol < 0) return;
+  const rCol = ss.data.metric_columns.indexOf('return_pct');
+  const qCol = ss.data.metric_columns.indexOf('quality');
+  const pipsCol = ss.data.metric_columns.indexOf('total_pips');
+  const pfCol = ss.data.metric_columns.indexOf('profit_factor');
+  const lowerBetter = SCATTER_METRIC_LOWER_IS_BETTER.has(sel);
+  const dir = lowerBetter ? -1 : 1;
+
+  const isProfitable = (row) => {
+    if (pipsCol >= 0) {
+      const p = row[pipsCol];
+      if (p != null && Number.isFinite(p)) return p > 0;
+    }
+    if (pfCol >= 0) {
+      const pf = row[pfCol];
+      if (pf != null && Number.isFinite(pf)) return pf > 1.0;
+    }
+    return true; // unable to determine — don't gate
+  };
+
+  const pickFrom = (filter) => {
+    let bestIdx = -1, bestScore = -Infinity;
+    for (let i = 0; i < ss.data.metrics.length; i++) {
+      const row = ss.data.metrics[i];
+      const v = row[objCol];
+      if (v == null || !Number.isFinite(v)) continue;
+      if (filter && !filter(row)) continue;
+      const r = rCol >= 0 ? (row[rCol] || 0) : 0;
+      const q = qCol >= 0 ? (row[qCol] || 0) : 0;
+      // Lexicographic: direction·objective >> return_pct >> quality.
+      const score = (dir * v) * 1e18 + r * 1e6 + q;
+      if (score > bestScore) { bestScore = score; bestIdx = i; }
+    }
+    return bestIdx;
+  };
+
+  let bestIdx = pickFrom(isProfitable);
+  const legend = $('scatter-legend');
+  if (bestIdx < 0) {
+    // No profitable trial — fall back to best overall and warn the user.
+    bestIdx = pickFrom(null);
+    if (bestIdx >= 0 && legend) {
+      legend.textContent = `no profitable trials in this run — showing best ${sel} overall (still a loser)`;
+    }
+  }
+  if (bestIdx >= 0) showTrial(ss.data.indices[bestIdx]);
+}
+
+// ── baseline ───────────────────────────────────────────────────────────
+
+async function onPinBaseline() {
+  if (!state.jobId) return;
+  try {
+    const { baseline } = await api('/api/baseline', {
+      method: 'POST',
+      body: JSON.stringify({ job_id: state.jobId }),
+    });
+    state.baseline = baseline;
+    updateBaselinePill();
+    if (state.lastJob) renderResults(state.lastJob);
+  } catch (e) {
+    alert('failed to pin baseline: ' + e.message);
+  }
+}
+
+async function onClearBaseline() {
+  try {
+    await api('/api/baseline', { method: 'DELETE' });
+    state.baseline = null;
+    updateBaselinePill();
+    if (state.lastJob) renderResults(state.lastJob);
+  } catch (e) {
+    alert('failed to clear baseline: ' + e.message);
+  }
+}
+
+function updateBaselinePill() {
+  const pill = $('baseline-pill');
+  if (state.baseline) {
+    pill.textContent = `baseline: ${state.baseline.layer || '—'}`;
+    pill.className = 'text-[11px] px-2 py-0.5 rounded-full bg-flame-500/10 text-flame-400 border border-flame-500/40';
+  } else {
+    pill.textContent = 'no baseline';
+    pill.className = 'text-[11px] px-2 py-0.5 rounded-full bg-ink-800 text-slate-400 border border-ink-600';
+  }
+}
+
+// ── history ────────────────────────────────────────────────────────────
+
+async function refreshHistory() {
+  try {
+    const { rows } = await api('/api/history');
+    const body = $('history-body');
+    body.innerHTML = '';
+    const last = rows.slice(-30).reverse();
+    for (const r of last) {
+      const tr = document.createElement('tr');
+      const runFile = escapeAttr(r.run_file || '');
+      tr.innerHTML = `
+        <td class="px-2 py-1.5 text-center">
+          <input type="checkbox" class="history-row-cb accent-flame-500" data-run-file="${runFile}" ${runFile ? '' : 'disabled'} />
+        </td>
+        <td class="px-3 py-1.5 text-slate-400">${escapeHtml(r.datetime)}</td>
+        <td class="px-3 py-1.5 text-slate-200">${escapeHtml(r.layer)}</td>
+        <td class="px-3 py-1.5 text-slate-400">${escapeHtml(r.pair)}/${escapeHtml(r.main_tf)}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums">${escapeHtml(r.n_trials || '')}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums">${r.total_pips ? (+r.total_pips).toFixed(0) : '—'}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums">${r.max_dd_pct ? (+r.max_dd_pct).toFixed(1) : '—'}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums">${r.profit_factor ? (+r.profit_factor).toFixed(2) : '—'}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums">${r.sharpe ? (+r.sharpe).toFixed(2) : '—'}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums">${r.return_pct ? (+r.return_pct).toFixed(1) : '—'}</td>
+        <td class="px-3 py-1.5 text-right">
+          <button class="pin-history-btn text-[11px] px-2 py-0.5 rounded border border-ink-600 hover:border-flame-500 hover:text-flame-400 transition" data-run-file="${runFile}">Pin</button>
+        </td>
+      `;
+      body.appendChild(tr);
+    }
+    // reset header checkbox + delete button enabled state
+    const sel = document.getElementById('history-select-all');
+    if (sel) sel.checked = false;
+    updateDeleteSelectedEnabled();
+  } catch {}
+}
+
+function getCheckedRunFiles() {
+  return Array.from(document.querySelectorAll('.history-row-cb:checked'))
+    .map((cb) => cb.dataset.runFile)
+    .filter(Boolean);
+}
+
+function updateDeleteSelectedEnabled() {
+  const btn = document.getElementById('history-delete-selected');
+  if (!btn) return;
+  btn.disabled = getCheckedRunFiles().length === 0;
+}
+
+async function pinHistoryRow(runFile) {
+  try {
+    const { baseline } = await api('/api/baseline', {
+      method: 'POST',
+      body: JSON.stringify({ run_file: runFile }),
+    });
+    state.baseline = baseline;
+    updateBaselinePill();
+    if (state.lastJob) renderResults(state.lastJob);
+  } catch (e) {
+    alert('failed to pin baseline: ' + e.message);
+  }
+}
+
+async function deleteSelectedRuns() {
+  const runFiles = getCheckedRunFiles();
+  if (!runFiles.length) return;
+  if (!confirm(`Delete ${runFiles.length} run(s)? This removes the row from history and the .npz file.`)) return;
+  try {
+    await api('/api/history/delete', { method: 'POST', body: JSON.stringify({ run_files: runFiles }) });
+    await refreshHistory();
+  } catch (e) {
+    alert('delete failed: ' + e.message);
+  }
+}
+
+async function clearAllHistory() {
+  if (!confirm('Delete ALL history and every saved run file? This cannot be undone.')) return;
+  try {
+    await api('/api/history/clear', { method: 'POST', body: JSON.stringify({}) });
+    await refreshHistory();
+  } catch (e) {
+    alert('clear failed: ' + e.message);
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const pinBtn = e.target.closest?.('.pin-history-btn');
+  if (pinBtn) { pinHistoryRow(pinBtn.dataset.runFile); return; }
+  if (e.target.id === 'history-delete-selected') { deleteSelectedRuns(); return; }
+  if (e.target.id === 'history-clear-all')       { clearAllHistory();   return; }
+});
+
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'history-select-all') {
+    const on = !!e.target.checked;
+    document.querySelectorAll('.history-row-cb').forEach((cb) => {
+      if (!cb.disabled) cb.checked = on;
+    });
+    updateDeleteSelectedEnabled();
+    return;
+  }
+  if (e.target.classList?.contains('history-row-cb')) {
+    updateDeleteSelectedEnabled();
+  }
+});
+
+// ── Data tab ───────────────────────────────────────────────────────────
+
+function updateRangeInfo() {
+  const el = $('range-info'); if (!el) return;
+  const { start_date, end_date } = state.recipe;
+  if (!start_date && !end_date) { el.textContent = 'full history'; return; }
+  el.textContent = `${start_date || '…'} → ${end_date || '…'}`;
+}
+
+function fmtMB(bytes) {
+  if (!bytes) return '—';
+  return (bytes / (1024 * 1024)).toFixed(1);
+}
+
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return String(iso).slice(0, 10);
+}
+
+function fmtMtime(ts) {
+  if (!ts) return '—';
+  const d = new Date(ts * 1000);
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+function statusChip(s) {
+  const cls = {
+    ok:   'bg-ok-500/10 text-ok-400 border-ok-500/30',
+    thin: 'bg-flame-500/10 text-flame-400 border-flame-500/30',
+    empty:'bg-bad-500/10 text-bad-400 border-bad-500/30',
+    error:'bg-bad-500/10 text-bad-400 border-bad-500/30',
+  }[s] || 'bg-ink-800 text-slate-400 border-ink-600';
+  return `<span class="px-1.5 py-0.5 rounded text-[10px] border ${cls}">${escapeHtml(s)}</span>`;
+}
+
+async function refreshInventory(force = false) {
+  const btn = $('inventory-rescan');
+  if (btn) { btn.disabled = true; btn.textContent = force ? 'Rescanning…' : 'Loading…'; }
+  try {
+    const ep = force ? '/api/data/inventory/rescan' : '/api/data/inventory';
+    const opts = force ? { method: 'POST', body: '{}' } : {};
+    const { files } = await api(ep, opts);
+    state.inventory = files;
+    renderInventoryTable(files);
+    populateDownloadPairSelect(files);
+  } catch (e) {
+    $('inventory-body').innerHTML = `<tr><td colspan="9" class="px-3 py-3 text-bad-400">${escapeHtml(e.message)}</td></tr>`;
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Rescan'; }
+  }
+}
+
+function renderInventoryTable(files) {
+  const tbody = $('inventory-body');
+  if (!files.length) {
+    tbody.innerHTML = '<tr><td colspan="9" class="px-3 py-3 text-slate-500">no parquet files found</td></tr>';
+    $('inventory-summary').textContent = '0 files';
+    return;
+  }
+  const rows = files.map((r) => `
+    <tr data-pair="${escapeAttr(r.pair)}" data-tf="${escapeAttr(r.tf)}"
+        class="cursor-pointer hover:bg-ink-800/50">
+      <td class="px-3 py-1.5 text-slate-200">${escapeHtml(r.pair)}</td>
+      <td class="px-3 py-1.5 text-slate-400">${escapeHtml(r.tf)}</td>
+      <td class="px-3 py-1.5 text-right tabular-nums">${(r.bars || 0).toLocaleString()}</td>
+      <td class="px-3 py-1.5 text-slate-400">${escapeHtml(fmtDate(r.start_ts))}</td>
+      <td class="px-3 py-1.5 text-slate-400">${escapeHtml(fmtDate(r.end_ts))}</td>
+      <td class="px-3 py-1.5 text-right tabular-nums">${escapeHtml(fmtMB(r.size_bytes))}</td>
+      <td class="px-3 py-1.5 text-slate-500">${escapeHtml(fmtMtime(r.mtime))}</td>
+      <td class="px-3 py-1.5">${r.has_spread ? '✓' : '—'}</td>
+      <td class="px-3 py-1.5">${statusChip(r.status || 'ok')}</td>
+    </tr>`).join('');
+  tbody.innerHTML = rows;
+  const totalBytes = files.reduce((s, r) => s + (r.size_bytes || 0), 0);
+  $('inventory-summary').textContent = `${files.length} files · ${(totalBytes / (1024 ** 3)).toFixed(2)} GB`;
+}
+
+function populateDownloadPairSelect(files) {
+  const sel = $('dl-pair'); if (!sel) return;
+  const pairs = Array.from(new Set(files.map(r => r.pair))).sort();
+  const prev = sel.value;
+  sel.innerHTML = '';
+  for (const p of pairs) {
+    const o = document.createElement('option'); o.value = p; o.textContent = p.replace('_', '/');
+    sel.appendChild(o);
+  }
+  if (pairs.includes(prev)) sel.value = prev;
+  else if (pairs.includes('EUR_USD')) sel.value = 'EUR_USD';
+}
+
+async function runHealthCheck(pair, tf) {
+  const body = $('health-body');
+  $('health-subtitle').textContent = `${pair} ${tf} — running…`;
+  body.innerHTML = '<div class="text-slate-500">scanning…</div>';
+  try {
+    const rep = await api(`/api/data/health/${pair}/${tf}`);
+    renderHealthReport(rep);
+  } catch (e) {
+    body.innerHTML = `<div class="text-bad-400">${escapeHtml(e.message)}</div>`;
+  }
+}
+
+function renderHealthReport(r) {
+  $('health-subtitle').textContent =
+    `${r.pair} ${r.tf} — ${r.bars?.toLocaleString() || 0} bars · ${fmtDate(r.range?.start)} → ${fmtDate(r.range?.end)}`;
+  const sect = (title, obj) => {
+    const pairs = Object.entries(obj || {})
+      .map(([k, v]) => `<div class="flex justify-between"><span class="text-slate-500">${escapeHtml(k)}</span><span class="tabular-nums">${escapeHtml(String(v))}</span></div>`).join('');
+    return `<div class="bg-ink-800/40 rounded p-2 border border-ink-700/60"><div class="text-[10px] uppercase text-slate-400 mb-1">${escapeHtml(title)}</div>${pairs || '<div class="text-slate-600 text-[11px]">n/a</div>'}</div>`;
+  };
+  const gaps = (r.gap_samples || []).filter(g => !g._more);
+  const moreCount = (r.gap_samples || []).find(g => g._more)?._more || 0;
+  const gapsHtml = gaps.length === 0
+    ? '<div class="text-slate-500">no non-weekend gaps detected</div>'
+    : gaps.map(g => `<div class="flex justify-between text-[11px]"><span class="text-slate-400">${escapeHtml(g.from)} → ${escapeHtml(g.to)}</span><span class="tabular-nums text-flame-400">${escapeHtml(g.gap_minutes)}m</span></div>`).join('')
+      + (moreCount ? `<div class="text-slate-500 mt-1">+${moreCount} more</div>` : '');
+  $('health-body').innerHTML = `
+    <div class="flex items-center gap-2 mb-3">
+      <span class="text-xs text-slate-400">Summary:</span>
+      ${statusChip(r.summary || 'ok')}
+    </div>
+    <div class="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs">
+      ${sect('NaN counts', r.nan_counts)}
+      ${sect('OHLC violations', r.ohlc_violations)}
+      ${sect('Timestamps', r.timestamp_issues)}
+      ${sect('Spread', r.spread)}
+    </div>
+    <div class="mt-3">
+      <div class="text-[10px] uppercase text-slate-400 mb-1">Gap samples (weekend-filtered)</div>
+      ${gapsHtml}
+    </div>`;
+}
+
+async function submitDownload() {
+  const body = {
+    pair: $('dl-pair').value,
+    tf: $('dl-tf').value,
+    start: $('dl-start').value,
+    end: $('dl-end').value,
+    append: $('dl-append').checked,
+  };
+  if (!body.pair || !body.start || !body.end) {
+    $('dl-status').textContent = 'pair, start and end are required';
+    return;
+  }
+  try {
+    $('dl-log').textContent = '';
+    $('dl-status').textContent = 'starting…';
+    $('dl-submit').disabled = true;
+    $('dl-cancel').classList.remove('hidden');
+    const { job_id } = await api('/api/data/download', { method: 'POST', body: JSON.stringify(body) });
+    state.dlJobId = job_id;
+    pollDownloadJob();
+  } catch (e) {
+    $('dl-status').textContent = 'error: ' + e.message;
+    $('dl-submit').disabled = false;
+    $('dl-cancel').classList.add('hidden');
+  }
+}
+
+async function pollDownloadJob() {
+  if (!state.dlJobId) return;
+  clearTimeout(state.dlTimer);
+  try {
+    const j = await api(`/api/data/download/${state.dlJobId}`);
+    $('dl-status').textContent = `${j.status} — ${j.message || ''}`;
+    if (Array.isArray(j.tail_lines)) $('dl-log').textContent = j.tail_lines.join('\n');
+    $('dl-log').scrollTop = $('dl-log').scrollHeight;
+    if (j.status === 'running') {
+      state.dlTimer = setTimeout(pollDownloadJob, 1000);
+    } else {
+      $('dl-submit').disabled = false;
+      $('dl-cancel').classList.add('hidden');
+      state.dlJobId = null;
+      refreshInventory(true);
+    }
+  } catch (e) {
+    $('dl-status').textContent = 'poll error: ' + e.message;
+    state.dlTimer = setTimeout(pollDownloadJob, 2000);
+  }
+}
+
+async function cancelDownload() {
+  if (!state.dlJobId) return;
+  try {
+    await api(`/api/data/download/${state.dlJobId}/cancel`, { method: 'POST', body: '{}' });
+  } catch (e) {
+    $('dl-status').textContent = 'cancel error: ' + e.message;
+  }
+}
+
+// ── go ─────────────────────────────────────────────────────────────────
+
+boot();

@@ -1,0 +1,325 @@
+{
+  "name": "complex01",
+  "data": {
+    "pair": "EUR_USD",
+    "main_tf": "H1",
+    "sub_tf": "M1"
+  },
+  "execution": {
+    "pip_value": null,
+    "commission_pips": 0.3,
+    "max_spread_pips": 10.0,
+    "slippage_pips": 0.0,
+    "atr_period": 14
+  },
+  "signals": {
+    "ema_cross": {
+      "fast": {
+        "type": "IntRange",
+        "min": 5,
+        "max": 32,
+        "step": 5
+      },
+      "slow": {
+        "type": "IntRange",
+        "min": 21,
+        "max": 180,
+        "step": 30
+      }
+    },
+    "macd_cross": {
+      "fast": {
+        "type": "IntRange",
+        "min": 8,
+        "max": 16,
+        "step": 4
+      },
+      "slow": {
+        "type": "IntRange",
+        "min": 24,
+        "max": 48,
+        "step": 12
+      },
+      "signal": {
+        "type": "IntRange",
+        "min": 5,
+        "max": 9,
+        "step": 2
+      }
+    },
+    "donchian": {
+      "lookback": {
+        "type": "IntRange",
+        "min": 20,
+        "max": 120,
+        "step": 25
+      }
+    }
+  },
+  "engine_schema": {
+    "stop_loss": {
+      "type": "Branch",
+      "selector": {
+        "type": "Choice",
+        "values": [
+          "fixed",
+          "atr"
+        ]
+      },
+      "arms": {
+        "fixed": {
+          "pips": {
+            "type": "FloatRange",
+            "min": 5,
+            "max": 100,
+            "scale": "log"
+          }
+        },
+        "atr": {
+          "mult": {
+            "type": "FloatRange",
+            "min": 0.5,
+            "max": 4.0,
+            "scale": "linear"
+          }
+        }
+      }
+    },
+    "take_profit": {
+      "type": "Branch",
+      "selector": {
+        "type": "Choice",
+        "values": [
+          "rr",
+          "atr",
+          "fixed"
+        ]
+      },
+      "arms": {
+        "rr": {
+          "ratio": {
+            "type": "FloatRange",
+            "min": 0.5,
+            "max": 4.0,
+            "scale": "linear"
+          }
+        },
+        "atr": {
+          "mult": {
+            "type": "FloatRange",
+            "min": 0.5,
+            "max": 8.0,
+            "scale": "linear"
+          }
+        },
+        "fixed": {
+          "pips": {
+            "type": "FloatRange",
+            "min": 5,
+            "max": 200,
+            "scale": "log"
+          }
+        }
+      }
+    },
+    "trailing": {
+      "type": "Group",
+      "test": {
+        "type": "Choice",
+        "values": [
+          true,
+          false
+        ]
+      },
+      "on_value": true,
+      "when_on": {
+        "mode": {
+          "type": "Branch",
+          "selector": {
+            "type": "Choice",
+            "values": [
+              "fixed",
+              "atr"
+            ]
+          },
+          "arms": {
+            "fixed": {
+              "distance": {
+                "type": "FloatRange",
+                "min": 5,
+                "max": 50,
+                "scale": "log"
+              }
+            },
+            "atr": {
+              "mult": {
+                "type": "FloatRange",
+                "min": 0.3,
+                "max": 3.0,
+                "scale": "linear"
+              }
+            }
+          }
+        },
+        "activate": {
+          "type": "FloatRange",
+          "min": 5,
+          "max": 80,
+          "scale": "log"
+        }
+      }
+    },
+    "breakeven": {
+      "type": "Group",
+      "test": {
+        "type": "Choice",
+        "values": [
+          true,
+          false
+        ]
+      },
+      "on_value": true,
+      "when_on": {
+        "trigger": {
+          "type": "FloatRange",
+          "min": 5,
+          "max": 40,
+          "scale": "log"
+        },
+        "offset": {
+          "type": "FloatRange",
+          "min": -2,
+          "max": 10,
+          "scale": "linear"
+        }
+      }
+    },
+    "partial": {
+      "type": "Group",
+      "test": {
+        "type": "Choice",
+        "values": [
+          true,
+          false
+        ]
+      },
+      "on_value": true,
+      "when_on": {
+        "pct": {
+          "type": "FloatRange",
+          "min": 20,
+          "max": 75,
+          "scale": "linear"
+        },
+        "trigger": {
+          "type": "FloatRange",
+          "min": 5,
+          "max": 80,
+          "scale": "log"
+        }
+      }
+    },
+    "chandelier": {
+      "type": "Group",
+      "test": {
+        "type": "Choice",
+        "values": [
+          true,
+          false
+        ]
+      },
+      "on_value": true,
+      "when_on": {
+        "activate": {
+          "type": "FloatRange",
+          "min": 5,
+          "max": 25,
+          "scale": "log"
+        },
+        "atr_mult": {
+          "type": "FloatRange",
+          "min": 2.0,
+          "max": 4.0,
+          "scale": "linear"
+        }
+      }
+    },
+    "stale": {
+      "type": "Group",
+      "test": {
+        "type": "Choice",
+        "values": [
+          true,
+          false
+        ]
+      },
+      "on_value": true,
+      "when_on": {
+        "bars": {
+          "type": "IntRange",
+          "min": 20,
+          "max": 200,
+          "step": 10
+        },
+        "atr_thresh": {
+          "type": "FloatRange",
+          "min": 0.3,
+          "max": 2.5,
+          "scale": "linear"
+        }
+      }
+    },
+    "session": {
+      "type": "Group",
+      "test": {
+        "type": "Choice",
+        "values": [
+          true,
+          false
+        ]
+      },
+      "on_value": true,
+      "when_on": {
+        "hours_start": {
+          "type": "IntRange",
+          "min": 0,
+          "max": 23,
+          "step": 1
+        },
+        "hours_end": {
+          "type": "IntRange",
+          "min": 0,
+          "max": 23,
+          "step": 1
+        }
+      }
+    },
+    "days": {
+      "type": "Choice",
+      "values": [
+        31,
+        63,
+        127
+      ]
+    },
+    "max_bars": {
+      "type": "Group",
+      "test": {
+        "type": "Choice",
+        "values": [
+          true,
+          false
+        ]
+      },
+      "on_value": true,
+      "when_on": {
+        "bars": {
+          "type": "IntRange",
+          "min": 48,
+          "max": 500,
+          "step": 24
+        }
+      }
+    }
+  }
+}

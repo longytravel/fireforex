@@ -1,0 +1,8 @@
+# Fire Forex local web UI dependencies.
+# Everything else (numpy, pandas, backtester_core) already lives in .venv
+# and is managed by the existing Fire Forex runtime setup.
+fastapi>=0.110
+uvicorn[standard]>=0.29
+pyyaml>=6.0
+pytest>=8.0
+httpx>=0.27

@@ -1,0 +1,45 @@
+{
+  "name": "baseline_v2",
+  "data": {
+    "pair": "EUR_USD",
+    "main_tf": "H1",
+    "sub_tf": "M1"
+  },
+  "execution": {
+    "pip_value": null,
+    "commission_pips": 0.3,
+    "max_spread_pips": 10.0,
+    "slippage_pips": 0.0,
+    "atr_period": 14
+  },
+  "signals": {
+    "ema_cross": {
+      "fast": {
+        "type": "Choice",
+        "values": [
+          12
+        ]
+      },
+      "slow": {
+        "type": "Choice",
+        "values": [
+          50
+        ]
+      }
+    }
+  },
+  "engine_schema": {
+    "sl_atr_mult": {
+      "type": "FloatRange",
+      "min": 0.8,
+      "max": 4.0,
+      "scale": "linear"
+    },
+    "tp_rr_ratio": {
+      "type": "FloatRange",
+      "min": 0.8,
+      "max": 4.0,
+      "scale": "linear"
+    }
+  }
+}

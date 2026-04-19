@@ -1,0 +1,17 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "fire_forex"
+version = "0.1.0"
+requires-python = ">=3.12"
+
+[tool.maturin]
+manifest-path = "core/Cargo.toml"
+module-name = "ff_core"
+
+[tool.pytest.ini_options]
+markers = [
+    "slow: long-running end-to-end tests (~1s+); skip with -m 'not slow'",
+]

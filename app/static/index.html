@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fire Forex</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            ink: { 950: '#07090d', 900: '#0c1016', 800: '#131822', 700: '#1a2030', 600: '#263044', 500: '#364058' },
+            flame: { 300: '#ffb672', 400: '#ff9f45', 500: '#ff7a18', 600: '#e35a00' },
+            ok: { 400: '#3fd09a', 500: '#22c186' },
+            bad: { 400: '#ff6a7a', 500: '#f14256' },
+          },
+        },
+      },
+    };
+  </script>
+  <link rel="stylesheet" href="/static/styles.css?v=v6chandelier-sig" />
+</head>
+<body class="bg-ink-950 text-slate-200 min-h-screen antialiased">
+
+  <!-- ═══ HEADER ═════════════════════════════════════════════════════ -->
+  <header class="border-b border-ink-700/60 bg-ink-900/80 sticky top-0 z-20 backdrop-blur">
+    <div class="mx-auto max-w-7xl px-5 py-3 flex items-center gap-4">
+      <span class="text-flame-500 text-lg">🔥</span>
+      <h1 class="text-base font-semibold tracking-wide">Fire Forex</h1>
+      <span class="text-xs text-slate-500 ml-1 truncate hidden md:inline">local optimisation workbench</span>
+
+      <nav class="ml-4 flex gap-1" id="tabs">
+        <button data-tab="params"   class="tab-btn tab-active">Parameters</button>
+        <button data-tab="run"      class="tab-btn">Run</button>
+        <button data-tab="results"  class="tab-btn">Results</button>
+        <button data-tab="history"  class="tab-btn">History</button>
+        <button data-tab="data"     class="tab-btn">Data</button>
+      </nav>
+
+      <div class="ml-auto flex items-center gap-2 text-[11px]">
+        <span id="version-pill"  class="px-2 py-0.5 rounded-full bg-flame-500/10 text-flame-400 border border-flame-500/30 font-mono" title="Engine version">engine …</span>
+        <span id="baseline-pill" class="px-2 py-0.5 rounded-full bg-ink-800 text-slate-400 border border-ink-600" data-help="baseline">no baseline</span>
+        <span id="server-pill"   class="px-2 py-0.5 rounded-full bg-ok-500/10 text-ok-400 border border-ok-500/30">connected</span>
+      </div>
+    </div>
+  </header>
+
+  <main class="mx-auto max-w-7xl px-5 py-6">
+
+    <!-- ═══ TAB: PARAMETERS ════════════════════════════════════════ -->
+    <section data-pane="params" class="pane space-y-4">
+
+      <!-- Market selection -->
+      <div class="card">
+        <div class="card-head">
+          <h2 class="card-title">Market</h2>
+          <span class="card-sub">Pick the pair and timeframes. All are discovered from your data folder.</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+          <label class="field">
+            <span class="field-label" data-help="pair">Pair <span class="help-dot">?</span></span>
+            <select id="pair" class="field-input"></select>
+          </label>
+          <label class="field">
+            <span class="field-label" data-help="main_tf">Main timeframe <span class="help-dot">?</span></span>
+            <select id="main_tf" class="field-input"></select>
+          </label>
+          <label class="field">
+            <span class="field-label" data-help="sub_tf">Sub timeframe (fills) <span class="help-dot">?</span></span>
+            <select id="sub_tf" class="field-input"></select>
+          </label>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 px-4 pb-4 items-end">
+          <label class="field">
+            <span class="field-label">Start date</span>
+            <input id="start_date" type="date" class="field-input" />
+          </label>
+          <label class="field">
+            <span class="field-label">End date</span>
+            <input id="end_date" type="date" class="field-input" />
+          </label>
+          <div class="flex gap-2">
+            <button id="range-full" type="button" class="px-3 py-1.5 rounded border border-ink-600 text-slate-300 hover:border-flame-500 hover:text-flame-400 transition text-xs">Full history</button>
+            <button id="range-last-year" type="button" class="px-3 py-1.5 rounded border border-ink-600 text-slate-300 hover:border-flame-500 hover:text-flame-400 transition text-xs">Last year</button>
+            <span id="range-info" class="text-[11px] text-slate-500 self-center"></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Preset controls -->
+      <div class="card">
+        <div class="card-head">
+          <h2 class="card-title">Presets</h2>
+          <span class="card-sub">Set sensible defaults in one click. The tickboxes below still win.</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 p-4">
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="field-label" data-help="complexity">Complexity <span class="help-dot">?</span></span>
+              <span id="level-value" class="text-sm font-semibold text-flame-400 tabular-nums">6</span>
+            </div>
+            <input id="level" type="range" min="1" max="10" value="6" step="1" class="mt-2 w-full accent-flame-500" />
+            <div class="flex justify-between text-[10px] text-slate-500 mt-1">
+              <span>simple</span><span>everything</span>
+            </div>
+          </div>
+          <div>
+            <span class="field-label" data-help="step_granularity">Step granularity <span class="help-dot">?</span></span>
+            <div class="mt-1 grid grid-cols-4 gap-1 text-xs" id="step-granularity">
+              <button data-mult="2.0"  class="seg-btn">Coarse</button>
+              <button data-mult="1.0"  class="seg-btn seg-active">Normal</button>
+              <button data-mult="0.5"  class="seg-btn">Fine</button>
+              <button data-mult="0.25" class="seg-btn">Finest</button>
+            </div>
+          </div>
+          <div>
+            <span class="field-label" data-help="feature_set">Feature set <span class="help-dot">?</span></span>
+            <div class="mt-1 grid grid-cols-3 gap-1 text-xs" id="feature-preset">
+              <button data-preset="minimal"  class="seg-btn">Minimal</button>
+              <button data-preset="balanced" class="seg-btn seg-active">Balanced</button>
+              <button data-preset="all"      class="seg-btn">All on</button>
+            </div>
+            <button id="reset-overrides" class="mt-2 text-[11px] text-slate-400 hover:text-flame-400 underline-offset-2 hover:underline">reset all overrides to preset</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live preview -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div class="tile" data-help="library_size">
+          <div class="tile-label">Signal library <span class="help-dot">?</span></div>
+          <div id="prev-lib" class="tile-value">—</div>
+          <div id="prev-lib-sub" class="tile-sub">variants</div>
+        </div>
+        <div class="tile" data-help="effective_dims">
+          <div class="tile-label">Effective dims <span class="help-dot">?</span></div>
+          <div id="prev-dims" class="tile-value">—</div>
+          <div id="prev-dims-sub" class="tile-sub">min – max</div>
+        </div>
+        <div class="tile" data-help="estimated_runtime">
+          <div class="tile-label">Estimated runtime <span class="help-dot">?</span></div>
+          <div id="prev-runtime" class="tile-value">—</div>
+          <div id="prev-runtime-sub" class="tile-sub">for 2,000 trials</div>
+        </div>
+      </div>
+
+      <!-- Features list -->
+      <div class="card">
+        <div class="card-head">
+          <h2 class="card-title">Features</h2>
+          <span class="card-sub">Tick the box to include a feature. Tweak each range in the table underneath. Numbers auto-save.</span>
+        </div>
+        <div id="features" class="divide-y divide-ink-700/50"></div>
+      </div>
+
+      <!-- Signals list -->
+      <div id="signals"></div>
+    </section>
+
+    <!-- ═══ TAB: RUN ═══════════════════════════════════════════════ -->
+    <section data-pane="run" class="pane hidden">
+      <div class="card">
+        <div class="card-head">
+          <h2 class="card-title">Run a backtest</h2>
+          <span class="card-sub">Uses the current parameters from the Parameters tab. One run at a time.</span>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 items-end">
+          <label class="field">
+            <span class="field-label" data-help="trials">Trials <span class="help-dot">?</span></span>
+            <input id="n_trials" type="number" min="10" max="50000" value="2000" step="100" class="field-input tabular-nums" />
+          </label>
+          <label class="field">
+            <span class="field-label" data-help="seed">Random seed <span class="help-dot">?</span></span>
+            <input id="seed" type="number" min="0" value="42" class="field-input tabular-nums" />
+          </label>
+          <label class="field md:col-span-1">
+            <span class="field-label" data-help="layer_name">Layer name (optional) <span class="help-dot">?</span></span>
+            <input id="layer_name" type="text" placeholder="auto" class="field-input" />
+          </label>
+          <button id="run-btn" class="h-9 rounded bg-flame-500 hover:bg-flame-400 text-ink-950 font-semibold text-sm transition disabled:bg-ink-700 disabled:text-slate-500 disabled:cursor-not-allowed">Run backtest</button>
+        </div>
+        <div id="progress-wrap" class="hidden px-4 pb-4">
+          <div class="flex items-center justify-between text-xs mb-1">
+            <span id="progress-msg" class="text-slate-300">starting…</span>
+            <span id="progress-pct" class="tabular-nums text-slate-400">0%</span>
+          </div>
+          <div class="h-2 rounded-full bg-ink-800 overflow-hidden">
+            <div id="progress-bar" class="h-full bg-flame-500 transition-all duration-200" style="width:0%"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 text-xs text-slate-500">
+        Tip: pin a finished run as your baseline from the Results tab. New runs will then show a delta against it.
+      </div>
+    </section>
+
+    <!-- ═══ TAB: RESULTS ═══════════════════════════════════════════ -->
+    <section data-pane="results" class="pane hidden space-y-4">
+      <div id="no-results" class="card p-6 text-sm text-slate-400">
+        No run yet. Go to the <span class="text-flame-400">Run</span> tab and hit the button.
+      </div>
+
+      <div id="results-body" class="hidden space-y-4">
+        <div class="card">
+          <div class="card-head flex items-center justify-between">
+            <div>
+              <h2 class="card-title">Last run</h2>
+              <p id="results-sub" class="card-sub"></p>
+            </div>
+            <div class="flex items-center gap-2">
+              <button id="pin-baseline-btn" class="text-xs px-2.5 py-1 rounded border border-flame-500/70 text-flame-400 hover:bg-flame-500/10 transition">Pin as baseline</button>
+              <button id="clear-baseline-btn" class="text-xs px-2.5 py-1 rounded border border-ink-600 hover:border-bad-500 hover:text-bad-400 transition">Clear baseline</button>
+              <a id="comparison-link" href="/comparison.html" target="_blank" rel="noopener" class="text-xs px-2.5 py-1 rounded border border-ink-600 bg-ink-800 hover:border-flame-500 hover:text-flame-400 transition">Compare dashboard ↗</a>
+            </div>
+          </div>
+          <div id="kpis" class="grid grid-cols-2 md:grid-cols-4 gap-3 p-4"></div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2 class="card-title">Equity curve</h2>
+            <span class="card-sub" id="equity-sub">Cumulative pips across the best variant's trades.</span>
+          </div>
+          <div class="p-4">
+            <canvas id="equity-canvas" width="1000" height="260" class="w-full h-60 rounded border border-ink-700/60 bg-ink-800/40"></canvas>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head flex items-center justify-between gap-4">
+            <div>
+              <h2 class="card-title">Trial scatter</h2>
+              <span class="card-sub">Every trial in this sweep. Click a dot to see that trial's equity curve and stats above.</span>
+            </div>
+            <div class="flex items-center gap-2 text-[11px]">
+              <label for="scatter-metric" class="text-slate-400">Y axis</label>
+              <select id="scatter-metric" class="bg-ink-800 border border-ink-600 rounded px-2 py-1 text-xs text-slate-200" title="Y-axis metric. Jump-to-best picks argmax of the selected metric.">
+                <option value="total_pips">Total pips</option>
+              </select>
+              <button id="scatter-jump-best" class="px-2 py-1 rounded border border-flame-500/70 text-flame-400 hover:bg-flame-500/10 transition disabled:opacity-40" title="Jump to the trial with the highest value of the selected Y-axis metric" disabled>Jump to best</button>
+              <button id="scatter-reset" class="px-2 py-1 rounded border border-ink-600 text-slate-300 hover:border-flame-500 hover:text-flame-400 transition disabled:opacity-40" disabled>Reset</button>
+            </div>
+          </div>
+          <div class="p-4">
+            <canvas id="scatter-canvas" width="1000" height="260" class="w-full h-60 rounded border border-ink-700/60 bg-ink-800/40 cursor-crosshair"></canvas>
+            <p id="scatter-legend" class="mt-2 text-[11px] text-slate-500"></p>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-head">
+            <h2 class="card-title">Winning parameters (plain English)</h2>
+            <span class="card-sub">What the best trial of this run used.</span>
+          </div>
+          <div id="best-params" class="p-4 text-sm font-mono text-slate-300 whitespace-pre-wrap"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ TAB: DATA ══════════════════════════════════════════════ -->
+    <section data-pane="data" class="pane hidden space-y-4">
+      <div class="card">
+        <div class="card-head flex items-center justify-between">
+          <div>
+            <h2 class="card-title">Inventory</h2>
+            <span class="card-sub">Parquet files on disk. Click a row to run a health check.</span>
+          </div>
+          <div class="flex items-center gap-2 text-[11px]">
+            <span id="inventory-summary" class="text-slate-500"></span>
+            <button id="inventory-rescan" class="px-3 py-1 rounded border border-ink-600 text-slate-300 hover:border-flame-500 hover:text-flame-400 transition">Rescan</button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead class="bg-ink-800/60 text-slate-400 uppercase">
+              <tr>
+                <th class="text-left px-3 py-2">Pair</th>
+                <th class="text-left px-3 py-2">TF</th>
+                <th class="text-right px-3 py-2">Bars</th>
+                <th class="text-left px-3 py-2">From</th>
+                <th class="text-left px-3 py-2">To</th>
+                <th class="text-right px-3 py-2">MB</th>
+                <th class="text-left px-3 py-2">Modified</th>
+                <th class="text-left px-3 py-2">Spread</th>
+                <th class="text-left px-3 py-2">Status</th>
+              </tr>
+            </thead>
+            <tbody id="inventory-body" class="divide-y divide-ink-700/40 font-mono"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2 class="card-title">Health check</h2>
+          <span id="health-subtitle" class="card-sub">Click a row above to run checks on that file.</span>
+        </div>
+        <div id="health-body" class="p-4 text-xs text-slate-400">Nothing yet.</div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2 class="card-title">Download</h2>
+          <span class="card-sub">Fire a Dukascopy download. Append adds only bars newer than what's already on disk.</span>
+        </div>
+        <form id="download-form" class="grid grid-cols-1 md:grid-cols-6 gap-3 p-4 items-end">
+          <label class="field md:col-span-2">
+            <span class="field-label">Pair</span>
+            <select id="dl-pair" class="field-input"></select>
+          </label>
+          <label class="field">
+            <span class="field-label">TF</span>
+            <select id="dl-tf" class="field-input">
+              <option>M1</option><option>M5</option><option>M15</option><option>M30</option>
+              <option selected>H1</option><option>H4</option><option>D</option><option>W</option>
+            </select>
+          </label>
+          <label class="field">
+            <span class="field-label">Start</span>
+            <input id="dl-start" type="date" class="field-input" />
+          </label>
+          <label class="field">
+            <span class="field-label">End</span>
+            <input id="dl-end" type="date" class="field-input" />
+          </label>
+          <div class="flex items-center gap-2">
+            <label class="text-xs text-slate-300 flex items-center gap-1">
+              <input id="dl-append" type="checkbox" class="accent-flame-500" checked /> Append
+            </label>
+            <button id="dl-submit" type="submit" class="h-9 px-3 rounded bg-flame-500 hover:bg-flame-400 text-ink-950 font-semibold text-sm disabled:bg-ink-700 disabled:text-slate-500 transition">Fetch</button>
+            <button id="dl-cancel" type="button" class="h-9 px-3 rounded border border-bad-500/50 text-bad-400 hover:bg-bad-500/10 text-xs hidden">Cancel</button>
+          </div>
+        </form>
+        <div class="px-4 pb-4">
+          <div id="dl-status" class="text-xs text-slate-400 mb-2">idle</div>
+          <pre id="dl-log" class="log-pane"></pre>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═══ TAB: HISTORY ═══════════════════════════════════════════ -->
+    <section data-pane="history" class="pane hidden">
+      <div class="card">
+        <div class="card-head flex items-center justify-between gap-4">
+          <div>
+            <h2 class="card-title">History</h2>
+            <span class="card-sub">Every backtest is recorded in <code class="text-slate-300">artifacts/history.csv</code>.</span>
+          </div>
+          <div class="flex items-center gap-2 text-[11px]">
+            <button id="history-delete-selected" class="px-3 py-1 rounded border border-ink-600 text-slate-300 hover:border-flame-500 hover:text-flame-400 transition disabled:opacity-40 disabled:cursor-not-allowed" disabled>Delete selected</button>
+            <button id="history-clear-all"       class="px-3 py-1 rounded border border-bad-500/40 text-bad-400 hover:bg-bad-500/10 transition">Clear all</button>
+          </div>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-xs">
+            <thead class="bg-ink-800/60 text-slate-400 uppercase">
+              <tr>
+                <th class="px-2 py-2 w-8"><input type="checkbox" id="history-select-all" class="accent-flame-500" /></th>
+                <th class="text-left px-3 py-2">When</th>
+                <th class="text-left px-3 py-2">Layer</th>
+                <th class="text-left px-3 py-2">Pair / TF</th>
+                <th class="text-right px-3 py-2">Trials</th>
+                <th class="text-right px-3 py-2">Total pips</th>
+                <th class="text-right px-3 py-2">DD %</th>
+                <th class="text-right px-3 py-2">PF</th>
+                <th class="text-right px-3 py-2">Sharpe</th>
+                <th class="text-right px-3 py-2">Return %</th>
+                <th class="text-right px-3 py-2">Pin</th>
+              </tr>
+            </thead>
+            <tbody id="history-body" class="divide-y divide-ink-700/40 font-mono"></tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Tooltip element (hidden by default) -->
+  <div id="tooltip" class="pointer-events-none fixed z-50 hidden max-w-xs rounded-md border border-ink-600 bg-ink-900/95 px-3 py-2 text-xs text-slate-200 shadow-xl backdrop-blur">
+    <div id="tip-title" class="font-semibold text-slate-100 mb-0.5"></div>
+    <div id="tip-range" class="text-slate-400 mb-1"></div>
+    <div id="tip-why"   class="text-slate-300"></div>
+  </div>
+
+  <footer class="text-center text-[11px] text-slate-600 py-4">
+    Local only · 127.0.0.1 · one run at a time
+  </footer>
+
+  <script type="module" src="/static/app.js?v=v6chandelier-sig"></script>
+</body>
+</html>
