@@ -1,8 +1,8 @@
 {
-  "source_run_id": "complexity_L10_EUR_USD_H1_20260421_211542",
+  "source_run_id": "complexity_L10_EUR_USD_M15_20260421_212921",
   "recipe": {
     "pair": "EUR_USD",
-    "main_tf": "H1",
+    "main_tf": "M15",
     "sub_tf": "M1",
     "name": null,
     "start_date": "2026-01-20",
@@ -58,12 +58,12 @@
     "CHF_JPY"
   ],
   "best_trial": {
-    "signal_variant": 35,
+    "signal_variant": 20,
     "engine": {
       "stop_loss": {
         "selector": "fixed",
         "fixed": {
-          "pips": 80.0
+          "pips": 44.0
         }
       },
       "take_profit": {
