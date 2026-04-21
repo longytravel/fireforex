@@ -283,6 +283,85 @@ def test_chandelier_buy_parity():
     assert abs(action.exit_price - rust_exit) < 1e-9, (action.exit_price, rust_exit)
 
 
+def test_params_from_trial_reads_real_schema_keys():
+    """Regression: the sampler emits a group's on/off at ``group.test``
+    and parameter values at ``group.when_on.<leaf>``. An earlier bug
+    looked for ``when_on.test`` (always absent) and the wrong leaf
+    names (``trigger_pips``, ``activate_pips``), silently zeroing every
+    management knob live-side. This test pins the real key shapes
+    taken from a deployed trial (see 2026-04-21 deploy audit)."""
+    from ff.live.exit_manager import params_from_trial, TRAIL_FIXED_PIP, TRAIL_ATR_CHANDELIER
+
+    trial = {
+        "engine": {
+            "trailing": {
+                "test": True,
+                "when_on": {
+                    "activate": 8.0,
+                    "mode": {
+                        "selector": "atr",
+                        "atr": {"mult": 2.5},
+                        "fixed": {"distance": 0.0},
+                    },
+                },
+            },
+            "breakeven": {
+                "test": True,
+                "when_on": {"trigger": 6.5, "offset": 1.25},
+            },
+            "partial": {
+                "test": True,
+                "when_on": {"pct": 66.5, "trigger": 12.75},
+            },
+            "chandelier": {
+                "test": True,
+                "when_on": {"activate": 11.0, "atr_mult": 2.425},
+            },
+        }
+    }
+
+    p = params_from_trial(
+        trial, direction=1, actual_entry=1.10,
+        initial_sl=1.095, tp_price=1.11,
+        atr_pips=10.0, pip_value=0.0001,
+    )
+    assert p.trailing_mode == TRAIL_ATR_CHANDELIER
+    assert p.trail_activate_pips == 8.0
+    assert p.trail_atr_mult == 2.5
+    assert p.breakeven_enabled == 1
+    assert p.breakeven_trigger_pips == 6.5
+    assert p.breakeven_offset_pips == 1.25
+    assert p.partial_enabled == 1
+    assert p.partial_trigger_pips == 12.75
+    assert p.partial_pct == 66.5
+    assert p.chandelier_enabled == 1
+    assert p.chandelier_activate_pips == 11.0
+    assert p.chandelier_atr_mult == 2.425
+
+    # Fixed-pip trailing takes the ``mode.fixed.distance`` path.
+    trial["engine"]["trailing"]["when_on"]["mode"] = {
+        "selector": "fixed", "fixed": {"distance": 9.25},
+        "atr": {"mult": 0.0},
+    }
+    p = params_from_trial(
+        trial, direction=1, actual_entry=1.10,
+        initial_sl=1.095, tp_price=1.11,
+        atr_pips=10.0, pip_value=0.0001,
+    )
+    assert p.trailing_mode == TRAIL_FIXED_PIP
+    assert p.trail_distance_pips == 9.25
+
+    # When a group's ``test`` is False, all its knobs zero out.
+    trial_off = {"engine": {"trailing": {"test": False, "when_on": {"activate": 99.0}}}}
+    p = params_from_trial(
+        trial_off, direction=1, actual_entry=1.10,
+        initial_sl=1.095, tp_price=1.11,
+        atr_pips=10.0, pip_value=0.0001,
+    )
+    assert p.trailing_mode == 0
+    assert p.trail_activate_pips == 0.0
+
+
 def test_partial_then_sl_buy_parity():
     """BUY + partial close. Partial triggers mid-rally, then a sharp
     reversal hits the original SL. Rust's trade record surfaces the

@@ -22,9 +22,12 @@ def un_portable_knobs(best_trial: dict | None) -> list[str]:
     """Return groups the trial has active that the live runner cannot
     honour yet. Empty list means the trial is safe to deploy.
 
-    A group is considered active when ``engine.<group>.when_on.test``
-    is truthy — mirroring how the sampler encodes on/off for
-    :class:`ff.schema.Group` entries.
+    A group is considered active when ``engine.<group>.test`` is truthy
+    — that is the Group's own on/off switch in the sampled trial dict
+    (see :class:`ff.schema.Group`: ``test`` lives at the Group level,
+    ``when_on`` is the sibling dict holding the enabled knob values).
+    The earlier implementation checked ``when_on.test``, which is always
+    absent and let broken trials through. See 2026-04-21 parity audit.
     """
     if not best_trial:
         return []
@@ -32,8 +35,7 @@ def un_portable_knobs(best_trial: dict | None) -> list[str]:
     flagged: list[str] = []
     for name in UN_PORTABLE_GROUPS:
         group = eng.get(name) or {}
-        when_on = group.get("when_on") or {}
-        if when_on.get("test"):
+        if group.get("test"):
             flagged.append(name)
     return flagged
 

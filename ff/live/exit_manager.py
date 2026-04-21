@@ -380,9 +380,37 @@ def params_from_trial(
 ) -> MgmtParams:
     """Build ``MgmtParams`` from a frozen ``best_trial.engine`` dict.
 
-    The trial shape is the same one ``_compute_sl_tp_live`` reads — the
-    dotted ``engine.*`` groups ``trailing``, ``breakeven``, ``partial``,
-    ``chandelier``. ``when_on.test == True`` means the group is active.
+    Trial shape (see ``ff.defaults.complexity`` for the schema that
+    generates these)::
+
+        engine:
+          trailing:
+            test: bool                         # on/off
+            when_on:
+              activate: float                  # pips
+              mode:
+                selector: "fixed" | "atr"
+                fixed: {distance: float}       # pips
+                atr:   {mult:     float}
+          breakeven:
+            test: bool
+            when_on:
+              trigger: float                   # pips
+              offset:  float                   # pips
+          partial:
+            test: bool
+            when_on:
+              trigger: float                   # pips
+              pct:     float                   # percent of position
+          chandelier:
+            test: bool
+            when_on:
+              activate: float                  # pips
+              atr_mult: float
+
+    The group's on/off lives at ``group.test`` (NOT ``group.when_on.test``
+    — that was the 2026-04-21 bug that let stale/session/max_bars trials
+    deploy live, and silently zeroed every management knob in the replay).
     """
     eng = (trial or {}).get("engine", {}) or {}
 
@@ -391,24 +419,30 @@ def params_from_trial(
     partial = (eng.get("partial") or {})
     chandelier = (eng.get("chandelier") or {})
 
-    trail_on = bool((trailing.get("when_on") or {}).get("test", False))
-    be_on = bool((breakeven.get("when_on") or {}).get("test", False))
-    partial_on = bool((partial.get("when_on") or {}).get("test", False))
-    chand_on = bool((chandelier.get("when_on") or {}).get("test", False))
+    trail_on = bool(trailing.get("test", False))
+    be_on = bool(breakeven.get("test", False))
+    partial_on = bool(partial.get("test", False))
+    chand_on = bool(chandelier.get("test", False))
 
     trail_mode = 0
     trail_activate = 0.0
     trail_distance = 0.0
     trail_atr_mult = 0.0
     if trail_on:
-        sel = trailing.get("selector", "fixed_pip")
-        trail_activate = float(trailing.get("when_on", {}).get("activate_pips", 0.0))
-        if sel == "fixed_pip":
+        trail_wo = trailing.get("when_on") or {}
+        trail_activate = float(trail_wo.get("activate", 0.0))
+        mode = trail_wo.get("mode") or {}
+        sel = mode.get("selector", "fixed")
+        if sel == "fixed":
             trail_mode = TRAIL_FIXED_PIP
-            trail_distance = float(trailing.get("fixed_pip", {}).get("distance_pips", 0.0))
+            trail_distance = float((mode.get("fixed") or {}).get("distance", 0.0))
         else:  # atr
             trail_mode = TRAIL_ATR_CHANDELIER
-            trail_atr_mult = float(trailing.get("atr", {}).get("mult", 0.0))
+            trail_atr_mult = float((mode.get("atr") or {}).get("mult", 0.0))
+
+    be_wo = (breakeven.get("when_on") or {}) if be_on else {}
+    partial_wo = (partial.get("when_on") or {}) if partial_on else {}
+    chand_wo = (chandelier.get("when_on") or {}) if chand_on else {}
 
     return MgmtParams(
         direction=direction,
@@ -423,12 +457,12 @@ def params_from_trial(
         trail_distance_pips=trail_distance,
         trail_atr_mult=trail_atr_mult,
         breakeven_enabled=1 if be_on else 0,
-        breakeven_trigger_pips=float(breakeven.get("when_on", {}).get("trigger_pips", 0.0)) if be_on else 0.0,
-        breakeven_offset_pips=float(breakeven.get("when_on", {}).get("offset_pips", 0.0)) if be_on else 0.0,
+        breakeven_trigger_pips=float(be_wo.get("trigger", 0.0)),
+        breakeven_offset_pips=float(be_wo.get("offset", 0.0)),
         partial_enabled=1 if partial_on else 0,
-        partial_pct=float(partial.get("when_on", {}).get("pct", 0.0)) if partial_on else 0.0,
-        partial_trigger_pips=float(partial.get("when_on", {}).get("trigger_pips", 0.0)) if partial_on else 0.0,
+        partial_pct=float(partial_wo.get("pct", 0.0)),
+        partial_trigger_pips=float(partial_wo.get("trigger", 0.0)),
         chandelier_enabled=1 if chand_on else 0,
-        chandelier_activate_pips=float(chandelier.get("when_on", {}).get("activate_pips", 0.0)) if chand_on else 0.0,
-        chandelier_atr_mult=float(chandelier.get("when_on", {}).get("atr_mult", 0.0)) if chand_on else 0.0,
+        chandelier_activate_pips=float(chand_wo.get("activate", 0.0)),
+        chandelier_atr_mult=float(chand_wo.get("atr_mult", 0.0)),
     )
