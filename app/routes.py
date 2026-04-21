@@ -628,6 +628,22 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
     z = _np.load(run_file, allow_pickle=True)
     best_trial = _json.loads(str(z["best_trial_json"]))
 
+    # Refuse deploys that use management knobs live can't honour yet
+    # (stale / session / max_bars). Without this guard the live
+    # position would sit on its original SL while the backtest exits
+    # on a time-based check — a silent divergence.
+    from ff.live.parity_guard import un_portable_knobs
+    bad_groups = un_portable_knobs(best_trial)
+    if bad_groups:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"Trial uses knobs not yet supported live: {bad_groups}. "
+                "Re-pick a trial that doesn't use them, or extend "
+                "ff/live/exit_manager.py to cover them."
+            ),
+        )
+
     # Reconstruct the recipe from the history.csv row for this run (pair,
     # main_tf, sub_tf). For now accept from the body as a fallback — it
     # matches the recipe the UI had posted at run time.
@@ -648,6 +664,7 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
         "magic_number": int(body.get("magic_number", 20260420)),
         "symbol_map": body.get("symbol_map") or {},
         "auto_reconcile_interval_min": int(body.get("auto_reconcile_interval_min", 60)),
+        "max_open_per_pair": int(body.get("max_open_per_pair", 1)),
     }
     (live_dir / "service_config.json").write_text(
         _json.dumps(service_config, default=str, indent=2), encoding="utf-8"

@@ -229,6 +229,51 @@ class MT5Broker:
         result = mt5.order_send(request)
         return int(result.retcode) if result is not None else -1
 
+    def partial_close(self, ticket: int, pct: float) -> int:
+        """Close a fraction of an open position.
+
+        ``pct`` is a fraction (0..1) — a 50% partial passes ``0.5``. The
+        close goes via a normal opposite-direction market order on
+        ``volume = pos.volume * pct``. If MT5 cannot fill the rounded
+        volume the call returns the raw retcode; the caller logs it and
+        the reconciler surfaces the mismatch.
+        """
+        mt5 = _require_mt5()
+        positions = mt5.positions_get(ticket=ticket)
+        if not positions:
+            return -1
+        pos = positions[0]
+        tick = mt5.symbol_info_tick(pos.symbol)
+        opposite_type = (
+            mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        )
+        price = tick.bid if opposite_type == mt5.ORDER_TYPE_SELL else tick.ask
+        sym_info = mt5.symbol_info(pos.symbol)
+        volume_step = float(getattr(sym_info, "volume_step", 0.01)) if sym_info else 0.01
+        raw_volume = pos.volume * float(pct)
+        # Round DOWN to the broker's volume step — over-shooting would
+        # close more than intended if rounding nudges up.
+        if volume_step > 0:
+            close_volume = (int(raw_volume / volume_step)) * volume_step
+        else:
+            close_volume = raw_volume
+        if close_volume <= 0:
+            return -2  # sentinel: partial amount rounds to zero lots
+        request = {
+            "action": mt5.TRADE_ACTION_DEAL,
+            "symbol": pos.symbol,
+            "position": ticket,
+            "volume": close_volume,
+            "type": opposite_type,
+            "price": price,
+            "deviation": 20,
+            "magic": int(self.cfg.magic_number),
+            "comment": "fireforex-partial",
+            "type_filling": mt5.ORDER_FILLING_IOC,
+        }
+        result = mt5.order_send(request)
+        return int(result.retcode) if result is not None else -1
+
     def close_position(self, ticket: int, reason: str = "engine") -> int:
         mt5 = _require_mt5()
         positions = mt5.positions_get(ticket=ticket)

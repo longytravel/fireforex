@@ -85,6 +85,7 @@ def main() -> int:
             poll_interval_sec=float(service_cfg.get("poll_interval_sec", 10.0)),
             size_lots=float(service_cfg.get("size_lots", 0.01)),
             best_trial=service_cfg.get("best_trial"),
+            max_open_per_pair=int(service_cfg.get("max_open_per_pair", 1)),
         )
 
         stop_event = Event()

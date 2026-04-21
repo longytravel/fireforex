@@ -98,6 +98,10 @@ class LiveConfig:
     ``pairs`` is applied on top of the recipe's pair — the recipe's pair is
     the reference for parameter calibration but the live loop trades across
     all of ``pairs`` with the same override set.
+
+    ``max_open_per_pair`` caps simultaneous open positions per symbol.
+    Without it the runner fires on every main-TF bar close and positions
+    stack — a parity hazard and risk hazard both.
     """
 
     recipe: dict[str, Any]
@@ -108,6 +112,7 @@ class LiveConfig:
     lookback_bars: int = 500
     size_lots: float = 0.01
     best_trial: dict[str, Any] | None = None
+    max_open_per_pair: int = 1
 
     def pair_recipe(self, pair: str) -> dict[str, Any]:
         """Recipe scoped to a single pair — used per-pair EA build."""
@@ -129,6 +134,17 @@ class OpenPosition:
     tp_price: float
     opened_at: str
     size_lots: float
+    # Trade-management state used by ff.live.exit_manager. The replay is
+    # idempotent — it walks every M1 since entry — so chandelier peak /
+    # BE-locked / trailing-active flags are reconstructed each poll and
+    # do not need persisting. Only the two observer fields do:
+    #   last_known_sl : the SL the broker currently holds, so a modify is
+    #     only emitted when the replay lands on a different value.
+    #   partial_done  : the partial fires once; persisted so a restart
+    #     does not re-trigger it.
+    atr_pips_at_entry: float = 0.0
+    last_known_sl: float = 0.0
+    partial_done: bool = False
 
 
 @dataclass
@@ -432,12 +448,14 @@ def _poll_pair(cfg: LiveConfig, state: PairState, broker: Any) -> None:
         return
 
     latest_main_ts = state.main_buf.index[-1]
-    if state.last_main_ts is not None and latest_main_ts <= state.last_main_ts:
-        # No new main-TF bar has closed since last poll — nothing to decide.
-        return
-    state.last_main_ts = latest_main_ts
+    main_bar_closed = state.last_main_ts is None or latest_main_ts > state.last_main_ts
+    if main_bar_closed:
+        state.last_main_ts = latest_main_ts
+        _evaluate_and_fire(cfg, state, broker, latest_main_ts)
 
-    _evaluate_and_fire(cfg, state, broker, latest_main_ts)
+    # Trade management runs every poll, not only on main-TF bar closes —
+    # trailing / breakeven / chandelier advance on every M1 close.
+    _manage_open_positions(cfg, state, broker)
 
 
 def _evaluate_and_fire(
@@ -515,6 +533,18 @@ def _evaluate_and_fire(
         LOG.info("[live] %s duplicate plan_id=%s — skipping", state.pair, plan_id)
         return
 
+    # Per-pair open-position cap. Stops the runner from stacking positions
+    # on every bar close — the VPS saw 29 concurrent EUR/USD positions in
+    # one morning before this guard landed.
+    if cfg.max_open_per_pair and len(state.open_positions) >= cfg.max_open_per_pair:
+        _log_error({
+            "pair": state.pair, "stage": "cap",
+            "plan_id": plan_id,
+            "open_count": len(state.open_positions),
+            "cap": cfg.max_open_per_pair,
+        })
+        return
+
     plan = {
         "plan_id": plan_id,
         "created_at_ts": pd.Timestamp.now("UTC").isoformat(),
@@ -564,6 +594,9 @@ def _evaluate_and_fire(
         tp_price=tp_price,
         opened_at=ticket.submitted_at,
         size_lots=cfg.size_lots,
+        atr_pips_at_entry=atr_pips,
+        last_known_sl=sl_price,
+        partial_done=False,
     )
     _persist_state({p: st.open_positions for p, st in _pair_states_cache.items()})
 
@@ -654,6 +687,119 @@ def _compute_sl_tp_live_legacy(
     if direction > 0:
         return entry_price - sl_pips * pip_value, entry_price + tp_pips * pip_value
     return entry_price + sl_pips * pip_value, entry_price - tp_pips * pip_value
+
+
+def _manage_open_positions(cfg: LiveConfig, state: PairState, broker: Any) -> None:
+    """Replay each open position through ``ff.live.exit_manager`` and
+    dispatch at most one broker action per position per poll.
+
+    Only runs when a frozen ``best_trial`` is loaded — without it we have
+    no management parameters to honour and the position sits on its
+    original SL/TP (legacy path). With a trial, every M1 since entry is
+    replayed through the same state machine the Rust backtest uses; the
+    final action (``close`` / ``partial_close`` / ``modify_sl`` / ``hold``)
+    is what the runner dispatches here.
+    """
+    from ff.live import exit_manager
+
+    if not state.open_positions or state.best_trial is None:
+        return
+    if state.m1_buf is None or state.m1_buf.empty:
+        return
+
+    pv = _pip_value_for_pair(state.pair)
+    closed: list[str] = []
+    mutated = False
+
+    for plan_id, pos in list(state.open_positions.items()):
+        try:
+            opened = pd.Timestamp(pos.opened_at)
+            if opened.tzinfo is None:
+                opened = opened.tz_localize("UTC")
+        except (TypeError, ValueError):
+            continue
+        bars = state.m1_buf[state.m1_buf.index > opened]
+        if bars.empty:
+            continue
+
+        params = exit_manager.params_from_trial(
+            state.best_trial,
+            direction=pos.direction,
+            actual_entry=pos.entry_price,
+            initial_sl=pos.sl_price,
+            tp_price=pos.tp_price,
+            atr_pips=pos.atr_pips_at_entry,
+            pip_value=pv,
+            slippage_pips=0.0,
+        )
+
+        m1_iter: list[tuple[float, float, float, float]] = []
+        for ts, row in bars.iterrows():
+            spread = float(row.get("spread", 0.0))
+            if spread != spread:  # NaN guard
+                spread = 0.0
+            m1_iter.append((
+                float(row["high"]), float(row["low"]),
+                float(row["close"]), spread,
+            ))
+
+        action, _ = exit_manager.compute_action(
+            params,
+            last_known_sl=pos.last_known_sl or pos.sl_price,
+            partial_done=pos.partial_done,
+            m1_bars=m1_iter,
+        )
+
+        if action.kind == "hold":
+            continue
+        if action.kind == "modify_sl":
+            try:
+                rc = broker.modify_sl(pos.ticket, action.new_sl)
+            except Exception as exc:  # noqa: BLE001
+                _log_error({"pair": state.pair, "stage": "modify_sl",
+                            "ticket": pos.ticket, "error": repr(exc)})
+                continue
+            if rc == 10009:  # MT5 TRADE_RETCODE_DONE
+                pos.last_known_sl = action.new_sl
+                mutated = True
+            else:
+                _log_error({"pair": state.pair, "stage": "modify_sl",
+                            "ticket": pos.ticket, "retcode": rc,
+                            "new_sl": action.new_sl})
+        elif action.kind == "partial_close":
+            try:
+                rc = broker.partial_close(pos.ticket, action.partial_pct)
+            except Exception as exc:  # noqa: BLE001
+                _log_error({"pair": state.pair, "stage": "partial_close",
+                            "ticket": pos.ticket, "error": repr(exc)})
+                continue
+            if rc == 10009:
+                pos.partial_done = True
+                mutated = True
+            else:
+                _log_error({"pair": state.pair, "stage": "partial_close",
+                            "ticket": pos.ticket, "retcode": rc,
+                            "pct": action.partial_pct})
+        elif action.kind == "close":
+            try:
+                rc = broker.close_position(pos.ticket, reason="engine")
+            except Exception as exc:  # noqa: BLE001
+                _log_error({"pair": state.pair, "stage": "close",
+                            "ticket": pos.ticket, "error": repr(exc)})
+                continue
+            if rc == 10009:
+                closed.append(plan_id)
+                mutated = True
+            else:
+                _log_error({"pair": state.pair, "stage": "close",
+                            "ticket": pos.ticket, "retcode": rc,
+                            "exit_reason": action.exit_reason})
+
+    for plan_id in closed:
+        state.open_positions.pop(plan_id, None)
+
+    if mutated:
+        _persist_state({p: st.open_positions for p, st in _pair_states_cache.items()})
 
 
 def _is_duplicate_plan(plan_id: str) -> bool:

@@ -56,6 +56,7 @@ class LiveRunnerHost:
         poll_interval_sec: float = 10.0,
         size_lots: float = 0.01,
         best_trial: dict[str, Any] | None = None,
+        max_open_per_pair: int = 1,
     ) -> LiveRunnerState:
         with self._lock:
             if self._state.status in ("starting", "running"):
@@ -71,6 +72,7 @@ class LiveRunnerHost:
                 poll_interval_sec=poll_interval_sec,
                 size_lots=size_lots,
                 best_trial=best_trial,
+                max_open_per_pair=max_open_per_pair,
             )
 
             self._stop_event = threading.Event()

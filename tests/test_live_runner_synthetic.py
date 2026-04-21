@@ -191,3 +191,56 @@ def test_plan_carries_parity_fields(monkeypatch, cfg, pair_state):
     assert plan["signal_variant"] == 7
     assert plan["signal_family"] == "ema_cross"
     assert plan["spread_at_fire_pips"] == pytest.approx(1.5, rel=1e-6)
+
+
+def test_max_open_per_pair_blocks_stacking(monkeypatch, cfg, pair_state):
+    """With cap=1 and one position already open, the next fire is
+    rejected, an error row is logged, and the mock broker never sees
+    a submit_market_order call."""
+    m1 = _synth_m1("2026-04-20 10:00", 60)
+    pair_state.m1_buf = m1.copy()
+    pair_state.main_buf = m1.iloc[-1:].copy()
+
+    # Pre-seed an open position so the pair is "full".
+    pair_state.open_positions["existing-plan"] = live_runner.OpenPosition(
+        plan_id="existing-plan",
+        ticket=99,
+        pair="EUR_USD",
+        direction=1,
+        entry_price=1.1000,
+        sl_price=1.0990,
+        tp_price=1.1020,
+        opened_at="2026-04-20T09:00:00+00:00",
+        size_lots=0.01,
+        atr_pips_at_entry=10.0,
+        last_known_sl=1.0990,
+        partial_done=False,
+    )
+
+    from ff import signal_lib as sl
+    monkeypatch.setattr(
+        sl, "build_signal_library",
+        lambda *a, **k: _StubLibrary(latest_bar_idx=len(pair_state.main_buf) - 1),
+    )
+    monkeypatch.setattr(live_runner, "_sl", sl)
+    monkeypatch.setattr(live_runner, "_emit_plan", lambda plan: None)
+    monkeypatch.setattr(live_runner, "_is_duplicate_plan", lambda _pid: False)
+
+    cap_errors: list[dict] = []
+    monkeypatch.setattr(
+        live_runner, "_log_error",
+        lambda row: cap_errors.append(row) if row.get("stage") == "cap" else None,
+    )
+    # Ensure we can detect that submit_market_order was not invoked.
+    submitted: list = []
+    broker = _MockBroker()
+    broker.submit_market_order = lambda plan: submitted.append(plan)  # type: ignore
+
+    cfg.max_open_per_pair = 1
+    signal_bar_ts = pair_state.main_buf.index[-1]
+    live_runner._evaluate_and_fire(cfg, pair_state, broker, signal_bar_ts)
+
+    assert submitted == [], "cap should have blocked the submit"
+    assert len(cap_errors) == 1
+    assert cap_errors[0]["open_count"] == 1
+    assert cap_errors[0]["cap"] == 1
