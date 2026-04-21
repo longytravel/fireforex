@@ -110,6 +110,34 @@ All shipped to `origin/main` within the session.
 6. **Deploy endpoint does not forward `max_open_per_pair`**.
    LiveConfig defaults to 1 so the cap is still live, but the UI has
    no way to change it per deploy.
+7. **Reset does not clear `service_config.json`.** `reset_live_day.py`
+   archives plans / tickets / state / errors / crashes but leaves
+   `service_config.json` in place. If the scheduled task fires again
+   (see #8 below), the runner picks up the old trial and trades
+   resume on the stale config. Symptoms today: fires kept appearing
+   after reset because the task auto-retriggered and re-read the
+   pre-fix service_config. Workaround landed: reset now disables the
+   task so it cannot retrigger. But the underlying "stale config
+   survives reset" remains — recommend archiving `service_config.json`
+   alongside the other artifacts so a future auto-start crashes with
+   a clear "no config" instead of trading on yesterday's trial.
+8. **Scheduled task auto-trigger source unknown.** `Run /TN` is the
+   explicit kick; the task also started on its own at least twice
+   within 5 minutes of a `/End`. Likely an interval trigger or
+   `onLogon` configured by `scripts/vps_bootstrap.ps1`. The current
+   mitigation (`/Change /DISABLE` in reset, re-ENABLE in deploy) works
+   but is a sticking plaster. Next session: open the task in Task
+   Scheduler on the VPS, note its triggers, and either remove the
+   auto-trigger or make the runner idempotent when started without
+   a fresh `service_config.json`.
+9. **Parity test suite does not drive the sampler.** The four parity
+   tests hand-build trials with whatever shape the test author
+   imagined, then verify the Rust port behaviour. The params-from-trial
+   key-name bug slipped through because the test's synthetic trial
+   used the test's (wrong) shape both times — nothing compared the
+   author's mental model to the actual sampler output. Adding a
+   single "sample one trial via the full encoder / sampler and feed
+   it to `params_from_trial`" test would have caught this. Do it.
 
 ## Dev ergonomics — recommendation for the next session
 
