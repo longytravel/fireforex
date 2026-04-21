@@ -511,16 +511,20 @@ def _evaluate_and_fire(
     )
     signal_family = str(variant_info.get("family", ""))
 
-    # Spread at fire time: snap from the most recent M1 bar's spread column
-    # (the runner resamples M1 → main TF, so the M1 buffer is authoritative).
+    # Spread at fire time: MT5's rates.spread is in POINTS (integer,
+    # broker-defined smallest price increment), NOT price units. On a
+    # modern 5-digit / 3-digit-JPY broker like IC Markets, 1 pip = 10
+    # points universally, so dividing by 10 yields pips. The earlier
+    # code divided by ``pip_value`` (0.0001) and surfaced 50000-pip
+    # nonsense in the plan - see 2026-04-21 audit.
     spread_at_fire_pips = 0.0
     try:
         if state.m1_buf is not None and len(state.m1_buf) > 0 \
                 and "spread" in state.m1_buf.columns:
             spread_at_fire_pips = float(
-                state.m1_buf["spread"].iloc[-1] / pip_value
-            )
-    except Exception:  # pragma: no cover — defensive: never block a fire on telemetry
+                state.m1_buf["spread"].iloc[-1]
+            ) / 10.0
+    except Exception:  # pragma: no cover - defensive: never block a fire on telemetry
         spread_at_fire_pips = 0.0
 
     sl_price, tp_price = _compute_sl_tp_live(

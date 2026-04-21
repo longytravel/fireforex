@@ -50,7 +50,12 @@ SYNC_GLOBS = [
 
 
 def _git(cwd: Path, *args: str, check: bool = True,
-         timeout: int = 60) -> subprocess.CompletedProcess:
+         timeout: int = 180) -> subprocess.CompletedProcess:
+    """Wrapper around git. Default timeout 180s - the first orphan-branch
+    push over a slow VPS link was reliably timing out at the old 60s
+    ceiling, so every state-sync iteration failed and live-state never
+    appeared on origin. 180s covers cold first-pushes without blocking
+    the runner meaningfully on the steady state."""
     return subprocess.run(
         ["git", *args], cwd=str(cwd), check=check,
         timeout=timeout, capture_output=True, text=True,

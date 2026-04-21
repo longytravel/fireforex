@@ -163,8 +163,11 @@ def test_plan_carries_parity_fields(monkeypatch, cfg, pair_state):
     # Seed m1_buf + main_buf so _evaluate_and_fire has history. The 'spread'
     # column is what drives spread_at_fire_pips.
     m1 = _synth_m1("2026-04-20 10:00", 60)
-    # Overwrite spread with a known value (in price units — pip_value = 1e-4).
-    m1["spread"] = 0.00015  # 1.5 pips on a 4-decimal pair
+    # Overwrite spread with a known value. MT5 returns spread as an
+    # integer in broker POINTS (not price units) - on a modern 5-digit
+    # broker 1 pip = 10 points, so 15 points = 1.5 pips. The runner's
+    # plan-emission path divides by 10 to produce spread_at_fire_pips.
+    m1["spread"] = 15.0
     pair_state.m1_buf = m1.copy()
     pair_state.main_buf = m1.iloc[-1:].copy()  # 1 synthetic main bar
 

@@ -48,15 +48,31 @@ ARCHIVE_TARGETS = [
 
 
 def _stop_task() -> None:
-    print(f"[reset] stopping Scheduled Task {SCHEDULED_TASK}...")
+    """End the current run AND disable future triggers.
+
+    ``schtasks /End`` only stops the active instance — the task stays in
+    Ready state and any auto-trigger (onLogon, interval) re-launches it,
+    which reappeared after reset as "trading resumed with the old
+    service_config.json". Pair ``/End`` with ``/Change /DISABLE`` so the
+    runner truly stays down until Deploy re-enables it.
+    """
+    print(f"[reset] ending + disabling Scheduled Task {SCHEDULED_TASK}...")
     subprocess.run(
         ["schtasks", "/End", "/TN", SCHEDULED_TASK],
+        capture_output=True, check=False,
+    )
+    subprocess.run(
+        ["schtasks", "/Change", "/TN", SCHEDULED_TASK, "/DISABLE"],
         capture_output=True, check=False,
     )
 
 
 def _start_task() -> None:
-    print(f"[reset] starting Scheduled Task {SCHEDULED_TASK}...")
+    print(f"[reset] enabling + starting Scheduled Task {SCHEDULED_TASK}...")
+    subprocess.run(
+        ["schtasks", "/Change", "/TN", SCHEDULED_TASK, "/ENABLE"],
+        capture_output=True, check=False,
+    )
     subprocess.run(
         ["schtasks", "/Run", "/TN", SCHEDULED_TASK],
         capture_output=True, check=False,

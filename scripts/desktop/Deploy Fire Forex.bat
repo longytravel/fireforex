@@ -40,7 +40,10 @@ copy /Y "deploy\live_config.json" "artifacts\live\service_config.json" >nul
 echo    OK.
 
 echo.
-echo [3/3] restarting ff-live-runner scheduled task...
+echo [3/3] re-enabling + restarting ff-live-runner scheduled task...
+REM Reset disables the task so it stays truly stopped. Re-enable here
+REM before /Run, else Run fails with "the task is disabled".
+schtasks /Change /TN ff-live-runner /ENABLE >nul 2>&1
 schtasks /End /TN ff-live-runner >nul 2>&1
 schtasks /Run /TN ff-live-runner
 if errorlevel 1 (
