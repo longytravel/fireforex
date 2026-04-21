@@ -644,10 +644,44 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
         _json.dumps(service_config, default=str, indent=2), encoding="utf-8"
     )
 
+    # Also mirror the config to a committed location so the VPS can pull it via
+    # git (see scripts/desktop/"Deploy Fire Forex.bat"). artifacts/live/ itself
+    # is gitignored to keep plans/tickets/state out of the repo — the deploy
+    # mirror is a separate path that IS committed.
+    deploy_dir = ARTIFACTS_DIR.parent / "deploy"
+    deploy_dir.mkdir(parents=True, exist_ok=True)
+    (deploy_dir / "live_config.json").write_text(
+        _json.dumps(service_config, default=str, indent=2), encoding="utf-8"
+    )
+
     # Pin the source run so the auto-reconciler knows what to diff against.
     (live_dir / "pinned_run.json").write_text(
         _json.dumps({"run_id": run_id}, indent=2), encoding="utf-8"
     )
+
+    # Try to commit + push so the VPS can pull. Silently no-op on dev boxes
+    # that aren't git repos or don't have push rights.
+    git_pushed = False
+    git_error: str | None = None
+    import subprocess as _sp2
+    try:
+        _sp2.run(["git", "add", "deploy/live_config.json"],
+                 capture_output=True, check=False, timeout=10,
+                 cwd=str(ARTIFACTS_DIR.parent))
+        commit = _sp2.run(
+            ["git", "commit", "-m", f"deploy: live config from run {run_id}"],
+            capture_output=True, text=True, check=False, timeout=10,
+            cwd=str(ARTIFACTS_DIR.parent),
+        )
+        # Even "nothing to commit" is fine — just means config hasn't changed.
+        push = _sp2.run(["git", "push", "origin", "HEAD"],
+                        capture_output=True, text=True, check=False, timeout=30,
+                        cwd=str(ARTIFACTS_DIR.parent))
+        git_pushed = (push.returncode == 0)
+        if not git_pushed:
+            git_error = (push.stderr or push.stdout or "").strip()[:300]
+    except (FileNotFoundError, _sp2.TimeoutExpired) as exc:
+        git_error = repr(exc)
 
     # Try to kick the Windows Scheduled Task so the user doesn't have to run
     # schtasks manually. End then Run ensures a restart picks up the new
@@ -673,10 +707,14 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
         "service_config_path": str((live_dir / "service_config.json").relative_to(ARTIFACTS_DIR.parent)),
         "runner_kicked": runner_kicked,
         "kick_error": kick_error,
+        "git_pushed": git_pushed,
+        "git_error": git_error,
         "note": (
             "runner (re)started via Scheduled Task"
             if runner_kicked
-            else "Scheduled Task not triggered — manual start required"
+            else ("config pushed to git — on VPS, double-click 'Deploy Fire Forex' shortcut"
+                  if git_pushed
+                  else "Scheduled Task not triggered and git push failed — see kick_error/git_error")
         ),
     }
 
