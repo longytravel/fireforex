@@ -10,10 +10,12 @@ echo.
 echo === Fire Forex laptop · pull + restart ===
 echo.
 
-echo [1/4] killing any running Fire Forex web UI...
-REM Narrow the kill: only python processes running our run.py, not every python.
-REM Fallback to blunt kill if the targeted one fails.
-wmic process where "name='python.exe' and CommandLine like '%%run.py%%web%%'" delete >nul 2>&1
+echo [1/4] killing whatever is bound to port 8000...
+REM Port-based kill is reliable. Any process listening on :8000 dies. Other
+REM python processes (Jupyter, Claude, etc.) untouched.
+for /f "tokens=5" %%a in ('netstat -ano ^| findstr ":8000" ^| findstr "LISTENING"') do (
+    taskkill /F /PID %%a >nul 2>&1
+)
 timeout /t 2 /nobreak >nul
 echo    OK.
 
