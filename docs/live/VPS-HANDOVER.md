@@ -45,7 +45,7 @@ Everything under Phase A (trade log extension), D.5 (spread symmetry), B/C (live
 ### Step A — confirm the clone landed
 
 Ask:
-> Tell me when you've done this: inside your VS Code SSH session to the VPS, clone or pull the repo. Target directory: `C:\FireForex`.
+> Tell me when you've done this: inside your VS Code SSH session to the VPS, clone or pull the repo. Target directory: `C:\Projects\Fire Forex`.
 
 If they haven't done it, walk them through:
 ```powershell
@@ -58,7 +58,7 @@ git clone https://github.com/longytravel/fireforex.git FireForex
 Tell them:
 > In the VPS terminal (VS Code's terminal is fine), run:
 > ```powershell
-> cd C:\FireForex
+> cd C:\Projects\Fire Forex
 > powershell -ExecutionPolicy Bypass -File scripts\vps_bootstrap.ps1
 > ```
 > It will ask for your IC Markets demo password. Paste it. Press Enter for the server and terminal path defaults if those match what you have.
