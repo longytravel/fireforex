@@ -1,8 +1,8 @@
 {
-  "source_run_id": "complexity_L10_EUR_USD_H1_20260421_081845",
+  "source_run_id": "complexity_L10_EUR_USD_M15_20260421_095645",
   "recipe": {
     "pair": "EUR_USD",
-    "main_tf": "H1",
+    "main_tf": "M15",
     "sub_tf": "M1",
     "name": null,
     "start_date": "2026-03-20",
@@ -29,21 +29,37 @@
   },
   "pairs": [
     "EUR_USD",
-    "GBP_USD"
+    "GBP_USD",
+    "USD_JPY",
+    "USD_CHF",
+    "USD_CAD",
+    "AUD_USD",
+    "NZD_USD",
+    "EUR_JPY",
+    "GBP_JPY",
+    "EUR_GBP",
+    "AUD_JPY",
+    "EUR_AUD",
+    "GBP_CHF",
+    "CHF_JPY",
+    "EUR_CHF",
+    "CAD_JPY",
+    "NZD_JPY",
+    "AUD_NZD"
   ],
   "best_trial": {
-    "signal_variant": 3173,
+    "signal_variant": 2423,
     "engine": {
       "stop_loss": {
         "selector": "fixed",
         "fixed": {
-          "pips": 78.75
+          "pips": 50.0
         }
       },
       "take_profit": {
-        "selector": "rr",
-        "rr": {
-          "ratio": 3.9999999999999942
+        "selector": "atr",
+        "atr": {
+          "mult": 2.375
         }
       },
       "trailing": {
@@ -52,42 +68,43 @@
           "mode": {
             "selector": "atr",
             "atr": {
-              "mult": 0.3
+              "mult": 0.6250000000000002
             }
           },
-          "activate": 5.0
+          "activate": 6.5
         }
       },
       "chandelier": {
-        "test": false
+        "test": true,
+        "when_on": {
+          "activate": 19.875,
+          "atr_mult": 3.3000000000000185
+        }
       },
       "breakeven": {
-        "test": false
+        "test": true,
+        "when_on": {
+          "trigger": 23.875,
+          "offset": 9.500000000000002
+        }
       },
       "partial": {
         "test": true,
         "when_on": {
-          "pct": 65.75,
-          "trigger": 62.0
+          "pct": 21.25,
+          "trigger": 38.875
         }
       },
       "stale": {
         "test": false
       },
       "session": {
-        "test": true,
-        "when_on": {
-          "hours_start": 21,
-          "hours_end": 14
-        }
+        "test": false
       },
       "max_bars": {
-        "test": true,
-        "when_on": {
-          "bars": 448
-        }
+        "test": false
       },
-      "days": 31
+      "days": 127
     }
   },
   "poll_interval_sec": 1.0,
