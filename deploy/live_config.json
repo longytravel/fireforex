@@ -1,8 +1,8 @@
 {
-  "source_run_id": "complexity_L10_EUR_USD_H1_20260421_175427",
+  "source_run_id": "complexity_L10_EUR_USD_M15_20260421_180937",
   "recipe": {
     "pair": "EUR_USD",
-    "main_tf": "H1",
+    "main_tf": "M15",
     "sub_tf": "M1",
     "name": null,
     "start_date": "2026-03-20",
@@ -10,39 +10,48 @@
   },
   "overrides": {
     "groups": {
-      "trailing": false,
-      "breakeven": false,
-      "partial": false,
-      "stale": false,
-      "session": false,
-      "max_bars": false
+      "trailing": true,
+      "breakeven": true,
+      "partial": true,
+      "stale": true,
+      "session": true,
+      "max_bars": true
     },
     "knobs": {},
     "signal_families": {
       "ema_cross": true,
-      "macd_cross": false,
-      "donchian": false
+      "macd_cross": true,
+      "donchian": true
     },
     "global": {
       "step_multiplier": 0.25
     }
   },
   "pairs": [
-    "EUR_USD"
+    "EUR_USD",
+    "GBP_USD",
+    "USD_JPY",
+    "AUD_USD",
+    "USD_CHF",
+    "NZD_USD",
+    "EUR_GBP",
+    "EUR_JPY",
+    "GBP_JPY",
+    "AUD_JPY"
   ],
   "best_trial": {
-    "signal_variant": 1889,
+    "signal_variant": 3104,
     "engine": {
       "stop_loss": {
-        "selector": "atr",
-        "atr": {
-          "mult": 5.499999999999989
+        "selector": "fixed",
+        "fixed": {
+          "pips": 43.0
         }
       },
       "take_profit": {
-        "selector": "rr",
-        "rr": {
-          "ratio": 3.8499999999999948
+        "selector": "fixed",
+        "fixed": {
+          "pips": 5.5
         }
       },
       "trailing": {
@@ -51,26 +60,34 @@
       "chandelier": {
         "test": true,
         "when_on": {
-          "activate": 13.125,
-          "atr_mult": 2.500000000000007
+          "activate": 11.0,
+          "atr_mult": 2.425000000000006
         }
       },
       "breakeven": {
         "test": false
       },
       "partial": {
-        "test": false
+        "test": true,
+        "when_on": {
+          "pct": 66.5,
+          "trigger": 12.75
+        }
       },
       "stale": {
         "test": false
       },
       "session": {
-        "test": false
+        "test": true,
+        "when_on": {
+          "hours_start": 9,
+          "hours_end": 14
+        }
       },
       "max_bars": {
         "test": false
       },
-      "days": 31
+      "days": 127
     }
   },
   "poll_interval_sec": 1.0,
