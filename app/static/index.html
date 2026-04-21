@@ -445,6 +445,14 @@
 
       <div class="card">
         <div class="card-head">
+          <h3 class="card-title text-sm">Per-pair parity</h3>
+          <span class="card-sub">Live trade count vs. replay (backtest with same settings). Δpips = live minus backtest, matched trades only.</span>
+        </div>
+        <div id="live-pair-cards" class="p-4 grid grid-cols-2 md:grid-cols-4 gap-2 text-[11px] font-mono"></div>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
           <h3 class="card-title text-sm">Plans (today)</h3>
           <span class="card-sub">Every signal fired live goes here. Deterministic <code class="text-slate-300">plan_id</code> matches the backtest trade log.</span>
         </div>
@@ -487,6 +495,6 @@
     Local only · 127.0.0.1 · one run at a time
   </footer>
 
-  <script type="module" src="/static/app.js?v=v6chandelier-sig"></script>
+  <script type="module" src="/static/app.js?v=parity-v2"></script>
 </body>
 </html>

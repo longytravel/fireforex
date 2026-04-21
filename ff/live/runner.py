@@ -222,6 +222,10 @@ def run(cfg: LiveConfig, stop_event: Event | None = None) -> None:
 
     hb = _spawn_heartbeat(pair_states, stop_event)
     ar = _spawn_auto_reconciler(stop_event)
+    # Push plans/tickets/state.json to the remote ``live-state`` branch so
+    # the laptop's Restart shortcut can fetch them and populate the parity
+    # workbench. Best-effort — failures are logged and swallowed.
+    _spawn_state_sync(stop_event)
     try:
         _main_loop(cfg, pair_states, broker, stop_event)
     finally:
@@ -276,6 +280,45 @@ def _read_auto_reconcile_interval_min() -> int:
         return 60
 
 
+def _spawn_state_sync(stop_event: Event) -> Thread:
+    """Start the live→remote state sync thread.
+
+    Reads ``state_sync_interval_sec`` from service_config (default 60s).
+    Set it to 0 to disable the sync entirely — useful on laptops where
+    the runner is being tested without a remote worktree configured.
+    """
+    from ff.live import state_sync as _ss
+
+    svc_cfg = LIVE_DIR / "service_config.json"
+    interval = 60
+    if svc_cfg.exists():
+        try:
+            raw = json.loads(svc_cfg.read_text(encoding="utf-8")).get("state_sync_interval_sec", 60)
+            interval = int(raw) if raw else 0
+        except (json.JSONDecodeError, ValueError, TypeError):
+            interval = 60
+
+    if interval <= 0:
+        LOG.info("[live] state_sync disabled (interval=%s)", interval)
+        # Return an already-dead thread so the run() cleanup doesn't care.
+        dead = Thread(target=lambda: None, daemon=True, name="live-state-sync-disabled")
+        dead.start()
+        return dead
+
+    def _loop() -> None:
+        LOG.info("[live] state_sync thread running (every %ds)", interval)
+        while not stop_event.wait(interval):
+            try:
+                if _ss.snapshot_and_push():
+                    LOG.info("[live] state_sync pushed snapshot")
+            except Exception as exc:  # noqa: BLE001
+                LOG.warning("[live] state_sync iteration failed: %r", exc)
+
+    t = Thread(target=_loop, daemon=True, name="live-state-sync")
+    t.start()
+    return t
+
+
 def _run_auto_reconcile() -> None:
     """Load pinned backtest + today's plans + tickets + recent MT5 deals, run
     the reconciler, write an HTML+JSON report. Also drops a ``latest.html``
@@ -302,9 +345,9 @@ def _run_auto_reconcile() -> None:
     bt = pd.DataFrame(z["trades"])
     bt["entry_ts"] = pd.to_datetime(bt["entry_ts"], utc=True)
     bt["exit_ts"] = pd.to_datetime(bt["exit_ts"], utc=True)
-    # Single-pair for v1 — extend once we capture pair on each backtest trade row.
-    svc = json.loads((LIVE_DIR / "service_config.json").read_text(encoding="utf-8"))
-    bt["pair"] = svc.get("recipe", {}).get("pair") or (svc.get("pairs") or ["EUR_USD"])[0]
+    if "pair" not in bt.columns:  # legacy NPZ from before parity-v2 trade log.
+        svc = json.loads((LIVE_DIR / "service_config.json").read_text(encoding="utf-8"))
+        bt["pair"] = svc.get("recipe", {}).get("pair") or (svc.get("pairs") or ["EUR_USD"])[0]
 
     # TODO: ingest MT5 deals for live side. For v1 we reconcile plans only
     # (matched = plan exists, not plan filled-at-price).
@@ -422,6 +465,24 @@ def _evaluate_and_fire(
     direction = int(lib.direction[si])
     entry_ref_price = float(lib.entry_price[si])
     atr_pips = float(lib.atr_pips[si])
+    variant_id = int(lib.variant[si])
+    variant_info = (
+        lib.variant_map[variant_id]
+        if variant_id < len(lib.variant_map) else {}
+    )
+    signal_family = str(variant_info.get("family", ""))
+
+    # Spread at fire time: snap from the most recent M1 bar's spread column
+    # (the runner resamples M1 → main TF, so the M1 buffer is authoritative).
+    spread_at_fire_pips = 0.0
+    try:
+        if state.m1_buf is not None and len(state.m1_buf) > 0 \
+                and "spread" in state.m1_buf.columns:
+            spread_at_fire_pips = float(
+                state.m1_buf["spread"].iloc[-1] / pip_value
+            )
+    except Exception:  # pragma: no cover — defensive: never block a fire on telemetry
+        spread_at_fire_pips = 0.0
 
     sl_price, tp_price = _compute_sl_tp_live(ea, direction, entry_ref_price, atr_pips, pip_value)
 
@@ -443,6 +504,11 @@ def _evaluate_and_fire(
         "sl_price": sl_price,
         "tp_price": tp_price,
         "size_lots": cfg.size_lots,
+        # Parity fields — let the reconciler compare fire-time broker state
+        # against what the engine saw in backtest.
+        "signal_variant": variant_id,
+        "signal_family": signal_family,
+        "spread_at_fire_pips": spread_at_fire_pips,
     }
     _emit_plan(plan)
     LOG.info("[live] %s fired %s sl=%.5f tp=%.5f", state.pair, plan_id, sl_price, tp_price)

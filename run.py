@@ -6,6 +6,8 @@ Usage:
     python run.py eas/complex01.py --no-preflight --no-browser
     python run.py web                     # start the local web UI on :8000
     python run.py web --port 8765         # custom port
+    python run.py replay                  # replay artifacts/live/service_config.json
+    python run.py replay path/to/config.json
 """
 from __future__ import annotations
 
@@ -111,11 +113,49 @@ def run_web(argv: list[str]) -> int:
     return 0
 
 
+def run_replay(argv: list[str]) -> int:
+    """Replay a deployed live config as a single-trial backtest per pair."""
+    ap = argparse.ArgumentParser(prog="run.py replay")
+    ap.add_argument(
+        "config",
+        nargs="?",
+        default=None,
+        help="path to service_config.json (default: artifacts/live/service_config.json)",
+    )
+    args = ap.parse_args(argv)
+
+    import logging as _logging
+    _logging.basicConfig(
+        level=_logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
+    )
+
+    from ff import replay as _replay
+
+    config_path = Path(args.config) if args.config else _replay.LIVE_DIR / "service_config.json"
+    summary = _replay.replay_service_config(config_path)
+
+    print()
+    print(f"replay complete — {summary['n_trades_total']} trades, "
+          f"{summary['total_pips_all']:+.1f} pips "
+          f"in {summary['elapsed_sec']}s")
+    print(f"output → artifacts/replay/{summary['source_run_id']}/{summary['stamp']}/")
+    for row in summary["pairs"]:
+        status = row["status"]
+        if status == "ok":
+            print(f"  {row['pair']:<10} {row['n_trades']:>4} trades  "
+                  f"{row['total_pips']:>+8.1f} pips")
+        else:
+            print(f"  {row['pair']:<10} [{status}] {row.get('error', '')}")
+    return 0
+
+
 def main() -> int:
-    # Subcommand dispatch (only ``web`` for now). Positional-first CLI
+    # Subcommand dispatch (``web``, ``replay``). Positional-first CLI
     # preserved for backward-compat.
     if len(sys.argv) >= 2 and sys.argv[1] == "web":
         return run_web(sys.argv[2:])
+    if len(sys.argv) >= 2 and sys.argv[1] == "replay":
+        return run_replay(sys.argv[2:])
 
     ap = argparse.ArgumentParser()
     ap.add_argument("ea_path", help="path to EA module (e.g. eas/complex01.py)")

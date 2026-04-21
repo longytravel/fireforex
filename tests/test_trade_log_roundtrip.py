@@ -62,11 +62,34 @@ def test_trade_log_aggregate_parity_and_field_sanity():
         "entry_bar_index", "entry_sub_bar_index", "entry_price",
         "exit_bar_index", "exit_sub_bar_index", "exit_price",
         "entry_ts", "exit_ts",
+        # Parity-v2 widening.
+        "pair", "signal_variant_id", "signal_family",
+        "spread_entry_pips", "exit_reason_name",
     }
     assert set(trades.dtype.names) == expected_fields, (
         f"trade dtype fields mismatch: {trades.dtype.names}"
     )
     assert len(trades) > 0, "smoke-test produced zero trades — dataset or EA broken"
+
+    # --- Parity fields populated ----------------------------------------
+    assert (trades["pair"] == ea["data"]["pair"]).all(), (
+        f"pair col not stamped consistently: {set(trades['pair'])}"
+    )
+    assert (trades["signal_family"] != "").all(), "signal_family is empty"
+    assert (trades["signal_variant_id"] >= 0).all(), "variant id < 0"
+    assert (trades["spread_entry_pips"] >= 0).all(), "negative spread pips"
+    valid_names = {"NONE", "SL", "TP", "TRAILING", "BREAKEVEN",
+                   "MAX_BARS", "STALE", "CHANDELIER"}
+    names = set(trades["exit_reason_name"].tolist())
+    assert names.issubset(valid_names), (
+        f"unexpected exit_reason_name values: {names - valid_names}"
+    )
+
+    # --- Per-run scalars stamped in NPZ ---------------------------------
+    for scalar_key in ("commission_pips", "slippage_pips",
+                       "max_spread_pips", "pip_value"):
+        assert scalar_key in z.files, f"npz missing scalar {scalar_key}"
+        assert float(z[scalar_key]) >= 0, f"{scalar_key} negative"
 
     # --- Aggregate-parity: trade pnl sum == pnl array sum ----------------
     pnl_aggregate = float(z["pnl"].sum())

@@ -15,6 +15,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import routes as app_routes
+from . import live_state_puller
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -24,6 +25,14 @@ ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
 
 api = FastAPI(title="Fire Forex", docs_url="/api/docs", openapi_url="/api/openapi.json")
 api.include_router(app_routes.router)
+
+
+# Background pull of VPS live-state branch. One daemon per process, kicked
+# off on FastAPI startup — survives reloads (uvicorn --reload spawns a new
+# process, new thread). Disable with FF_DISABLE_LIVE_STATE_PULL=1.
+@api.on_event("startup")
+def _kick_live_state_pull() -> None:
+    live_state_puller.start_pull_thread(interval_sec=60)
 
 
 # Convenience: serve the comparison dashboard under a short alias too.

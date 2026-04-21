@@ -41,6 +41,23 @@ import pandas as pd
 LOG = logging.getLogger(__name__)
 
 
+# MT5 ``deal.reason`` code → human name.
+# Sourced from the MetaTrader5 pip package: DEAL_REASON_* enum values 0..9.
+# Kept local so tests and the reconciler don't need the native package.
+DEAL_REASON_NAMES: dict[int, str] = {
+    0: "CLIENT",     # terminal by user
+    1: "MOBILE",
+    2: "WEB",
+    3: "EXPERT",     # EA / our own close_position → our trailing/breakeven/etc.
+    4: "SL",
+    5: "TP",
+    6: "SO",         # stop out (margin)
+    7: "ROLLOVER",
+    8: "VMARGIN",
+    9: "SPLIT",
+}
+
+
 # Lazy import — MetaTrader5 is Windows-only and not available on dev boxes.
 _mt5: Any = None
 
@@ -246,6 +263,7 @@ class MT5Broker:
             return []
         out = []
         for d in deals:
+            reason_code = int(getattr(d, "reason", -1))
             out.append({
                 "ticket": int(d.ticket),
                 "position_id": int(getattr(d, "position_id", 0)),
@@ -254,6 +272,11 @@ class MT5Broker:
                 "volume": float(d.volume),
                 "price": float(d.price),
                 "profit": float(d.profit),
+                "commission": float(getattr(d, "commission", 0.0)),
+                "swap": float(getattr(d, "swap", 0.0)),
+                "fee": float(getattr(d, "fee", 0.0)),
+                "reason_code": reason_code,
+                "reason": DEAL_REASON_NAMES.get(reason_code, "UNKNOWN"),
                 "time": datetime.fromtimestamp(int(d.time), tz=timezone.utc).isoformat(),
                 "comment": str(getattr(d, "comment", "")),
             })

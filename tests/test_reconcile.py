@@ -181,3 +181,101 @@ def test_render_html_and_json_are_non_empty():
     assert "EUR_USD" in html
     payload = render_report_json(rep)
     assert "matched" in payload
+
+
+# ── Parity-v2 categories + per-pair rollup ────────────────────────────
+
+def _pairv2_bt(
+    pair: str, sig: str, signal_variant_id: int = 42,
+    signal_family: str = "ema_cross", spread_entry_pips: float = 0.5,
+    exit_reason_name: str = "TP",
+) -> dict:
+    return {
+        "pair": pair, "direction": 1,
+        "signal_bar_ts": _sig_ts(sig),
+        "entry_ts": _sig_ts(sig), "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
+        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
+        "signal_variant_id": signal_variant_id,
+        "signal_family": signal_family,
+        "spread_entry_pips": spread_entry_pips,
+        "exit_reason_name": exit_reason_name,
+    }
+
+
+def _pairv2_live(
+    pair: str, sig: str, signal_variant: int = 42,
+    signal_family: str = "ema_cross", spread_pips: float = 0.5,
+    slippage_pips: float = 0.2, close_reason: str = "TP",
+    pnl_pips: float = 29.9,
+) -> dict:
+    return {
+        "plan_id": f"{pair}_{sig}_+1",
+        "pair": pair, "direction": 1,
+        "signal_bar_ts": _sig_ts(sig),
+        "entry_price": 1.08505, "exit_price": 1.08795, "pnl_pips": pnl_pips,
+        "signal_variant": signal_variant,
+        "signal_family": signal_family,
+        "spread_pips": spread_pips,
+        "slippage_pips": slippage_pips,
+        "close_reason": close_reason,
+    }
+
+
+def test_mismatched_signal_variant_flagged():
+    sig = "2026-04-20T15:00:00Z"
+    bt = _bt([_pairv2_bt("EUR_USD", sig, signal_variant_id=10)])
+    live = _live([_pairv2_live("EUR_USD", sig, signal_variant=20)])
+    rep = reconcile(bt, live)
+    assert "mismatched_signal" in rep.matched[0].categories
+
+
+def test_mismatched_spread_flagged_above_tolerance():
+    sig = "2026-04-20T15:00:00Z"
+    bt = _bt([_pairv2_bt("EUR_USD", sig, spread_entry_pips=0.3)])
+    live = _live([_pairv2_live("EUR_USD", sig, spread_pips=2.0)])
+    rep = reconcile(bt, live, Tolerances(spread_pips=0.5))
+    assert "mismatched_spread" in rep.matched[0].categories
+
+
+def test_mismatched_slippage_flagged_above_tolerance():
+    sig = "2026-04-20T15:00:00Z"
+    bt = _bt([_pairv2_bt("EUR_USD", sig)])
+    live = _live([_pairv2_live("EUR_USD", sig, slippage_pips=5.0)])
+    rep = reconcile(bt, live, Tolerances(slippage_pips=1.0))
+    assert "mismatched_slippage" in rep.matched[0].categories
+
+
+def test_mismatched_closure_SL_vs_TP():
+    sig = "2026-04-20T15:00:00Z"
+    bt = _bt([_pairv2_bt("EUR_USD", sig, exit_reason_name="SL")])
+    live = _live([_pairv2_live("EUR_USD", sig, close_reason="TP")])
+    rep = reconcile(bt, live)
+    assert "mismatched_closure" in rep.matched[0].categories
+
+
+def test_engine_managed_exits_canonicalise_to_other_no_closure_flag():
+    """Engine TRAILING vs live EXPERT — both canonicalise to OTHER, no flag."""
+    sig = "2026-04-20T15:00:00Z"
+    bt = _bt([_pairv2_bt("EUR_USD", sig, exit_reason_name="TRAILING")])
+    live = _live([_pairv2_live("EUR_USD", sig, close_reason="EXPERT")])
+    rep = reconcile(bt, live)
+    assert "mismatched_closure" not in rep.matched[0].categories
+
+
+def test_by_pair_rollup_across_multiple_pairs():
+    sig_a = "2026-04-20T15:00:00Z"
+    sig_b = "2026-04-20T16:00:00Z"
+    bt = _bt([
+        _pairv2_bt("EUR_USD", sig_a),
+        _pairv2_bt("USD_JPY", sig_b),
+    ])
+    live = _live([
+        _pairv2_live("EUR_USD", sig_a),
+        # USD_JPY live missing → shows up in missing_in_live for USD_JPY.
+    ])
+    rep = reconcile(bt, live)
+    rollup = rep.by_pair()
+    assert set(rollup) == {"EUR_USD", "USD_JPY"}
+    assert rollup["EUR_USD"]["matched"] == 1
+    assert rollup["USD_JPY"]["missing_in_live"] == 1
+    assert rollup["EUR_USD"]["delta_pips"] != 0.0  # bt 30 vs live 29.9

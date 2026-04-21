@@ -38,3 +38,4 @@ artifacts/server.err
 artifacts/live/
 artifacts/calibration/
 artifacts/parity/
+artifacts/replay/

@@ -36,6 +36,7 @@ import ff_core as bc
 from . import signal_lib as sl
 from . import sampler as spl
 from . import encoding as enc
+from .exit_codes import exit_reason_name
 
 
 # ── Timeframe / pair tables (constants of the market, not assumptions) ──
@@ -379,6 +380,12 @@ def _build_best_trade_log(
     n_trades: int,
     main_index: "pd.DatetimeIndex",
     sub_index: "pd.DatetimeIndex",
+    *,
+    pair: str = "",
+    signal_variant_id: int = -1,
+    signal_family: str = "",
+    h_spread: np.ndarray | None = None,
+    pip_value: float = 0.0001,
 ) -> np.ndarray:
     """Turn the best trial's flat trade-record slice into a structured array.
 
@@ -386,11 +393,29 @@ def _build_best_trade_log(
     so the reconciler can join against MT5 deals without any engine re-run.
     `exit_sub_bar_index == -1` flags H1-level exits (max_bars, stale, EOD):
     exit_ts falls back to the main bar close in that case.
+
+    Extra per-trade fields for the live parity reconciler:
+    - ``pair``: the traded pair (so multi-pair replay logs are unambiguous).
+    - ``signal_variant_id`` + ``signal_family``: which signal fired.
+    - ``spread_entry_pips``: the main-TF spread at the signal bar, in pips.
+      Approximates what the engine would have paid — the Rust engine applies
+      spread at entry and slippage on both sides, so this column captures
+      the dominant execution cost per trade.
+    - ``exit_reason_name``: human string mirroring the numeric exit_reason,
+      which is what the reconciler string-compares against MT5 deal reasons.
     """
     num_fields = len(TRADE_FIELD_NAMES)
     dtype = np.dtype(
         [(name, np.float64) for name in TRADE_FIELD_NAMES]
-        + [("entry_ts", "datetime64[ns]"), ("exit_ts", "datetime64[ns]")]
+        + [
+            ("entry_ts", "datetime64[ns]"),
+            ("exit_ts", "datetime64[ns]"),
+            ("pair", "U10"),
+            ("signal_variant_id", np.int32),
+            ("signal_family", "U20"),
+            ("spread_entry_pips", np.float32),
+            ("exit_reason_name", "U16"),
+        ]
     )
     if n_trades == 0:
         return np.empty(0, dtype=dtype)
@@ -426,6 +451,23 @@ def _build_best_trade_log(
         main_ts[exit_main_idx_clipped],
     )
     out["exit_ts"] = exit_ts
+
+    # Parity columns — same value for every row in a single-trial slice.
+    out["pair"] = pair
+    out["signal_variant_id"] = np.int32(signal_variant_id)
+    out["signal_family"] = signal_family
+
+    if h_spread is not None and pip_value > 0:
+        entry_main_clipped = np.clip(entry_main_idx, 0, main_n - 1)
+        out["spread_entry_pips"] = (h_spread[entry_main_clipped] / pip_value).astype(np.float32)
+    else:
+        out["spread_entry_pips"] = np.float32(0.0)
+
+    # Exit-reason name (same enum the live side maps MT5 deal reasons onto).
+    out["exit_reason_name"] = np.array(
+        [exit_reason_name(code) for code in out["exit_reason"]],
+        dtype="U16",
+    )
     return out
 
 
@@ -454,7 +496,9 @@ def _safe_progress(cb: Callable[[float, str], None] | None,
 
 def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
         n_trials: int = 2000, open_browser: bool = True,
-        progress_cb: Callable[[float, str], None] | None = None) -> dict:
+        progress_cb: Callable[[float, str], None] | None = None,
+        frozen_trial: dict | None = None,
+        save_artifacts: bool = True) -> dict:
     """Execute an EA end-to-end.
 
     Returns a dict with the key numbers — useful for programmatic parity checks.
@@ -465,6 +509,18 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     non-decreasing and ends at ``1.0``. Exceptions in the callback are
     swallowed so a faulty hook cannot break the run. When ``None`` (default),
     behaviour is bit-identical to before this hook existed.
+
+    ``frozen_trial`` (optional) bypasses the sampler and runs a single trial
+    with the exact knob values given. The dict shape matches what the sampler
+    emits (``{"signal_variant": int, "engine": {...}}``) — this is the same
+    shape saved to ``best_trial_json`` in every NPZ, so a deployed config's
+    ``best_trial`` round-trips directly.
+
+    ``save_artifacts`` (default True) controls side effects: when False, no
+    NPZ is written, ``history.csv`` is not appended, and
+    ``comparison.html`` is not regenerated. Replay uses this to stay
+    orthogonal to the sweep artifact tree. The return dict always carries
+    the per-trade log under ``result["trade_log"]``.
     """
     t_total = time.perf_counter()
     _safe_progress(progress_cb, 0.0, "starting")
@@ -564,13 +620,19 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
                    f"signal library ready ({lib.n_variants} variants, "
                    f"{lib.n_signals:,} signals)")
 
-    # 6. Sample trials.
-    if optimizer != "random":
-        raise NotImplementedError(f"optimizer={optimizer!r} not yet supported (random only)")
-    _safe_progress(progress_cb, 0.35, f"sampling {n_trials} trials")
-    sampler = spl.RandomSampler(ea["engine_schema"], n_variants=lib.n_variants, seed=seed)
-    trials = sampler.sample(n_trials)
-    print(f"[sample] {len(trials)} trials")
+    # 6. Sample trials (or replay a single frozen trial).
+    if frozen_trial is not None:
+        n_trials = 1
+        trials = [dict(frozen_trial)]
+        print(f"[sample] 1 frozen trial (replay mode)")
+        _safe_progress(progress_cb, 0.35, "replay: frozen trial")
+    else:
+        if optimizer != "random":
+            raise NotImplementedError(f"optimizer={optimizer!r} not yet supported (random only)")
+        _safe_progress(progress_cb, 0.35, f"sampling {n_trials} trials")
+        sampler = spl.RandomSampler(ea["engine_schema"], n_variants=lib.n_variants, seed=seed)
+        trials = sampler.sample(n_trials)
+        print(f"[sample] {len(trials)} trials")
 
     # 7. Encode.
     _safe_progress(progress_cb, 0.40, "encoding trials")
@@ -675,9 +737,20 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     # Per-trade log for the live-parity validator. Slice the best trial's
     # trade_records, reshape to (n_trades_best, NUM_TRADE_FIELDS), and turn
     # into a structured array with named columns + resolved timestamps.
+    best_trial_for_log = trials[best]
+    variant_id_for_log = int(best_trial_for_log["signal_variant"])
+    variant_info_for_log = (
+        lib.variant_map[variant_id_for_log]
+        if variant_id_for_log < len(lib.variant_map) else {}
+    )
     trades_best = _build_best_trade_log(
         trade_records[best], n_trades_best,
         main_df.index, sub_df.index,
+        pair=pair,
+        signal_variant_id=variant_id_for_log,
+        signal_family=str(variant_info_for_log.get("family", "")),
+        h_spread=h_s,
+        pip_value=float(exe_cfg["pip_value"]),
     )
     # Parity invariant: the trade-log pnl sum must match the aggregate
     # total_pips down to float arithmetic. Guards against drift between
@@ -719,7 +792,28 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     print(f"│   {_summarise_trial(best_trial['engine'])}")
     print( "└──────────────────────────────────────────────────────────\n")
 
-    # 10. Save npz.
+    # 10. Save npz (skipped in replay mode — we return the trade log in-memory).
+    if not save_artifacts:
+        _safe_progress(progress_cb, 1.0, "done (replay, no artifacts written)")
+        return {
+            "rate_bt_per_sec": rate,
+            "runtime_s": total_runtime,
+            "trades": n_trades_best,
+            "win_rate_pct": win_rate_pct,
+            "total_pips": total_pips,
+            "expectancy_pips": expectancy_pips,
+            "max_dd_pct": float(metrics_out[best, 5]),
+            "profit_factor": float(metrics_out[best, 2]),
+            "quality_best": float(metrics_out[best, 9]),
+            "best_trial": best_trial,
+            "run_file": None,
+            "trade_log": trades_best,
+            "commission_pips": float(exe_cfg["commission_pips"]),
+            "slippage_pips": float(exe_cfg["slippage_pips"]),
+            "max_spread_pips": float(exe_cfg["max_spread_pips"]),
+            "pip_value": float(exe_cfg["pip_value"]),
+        }
+
     _safe_progress(progress_cb, 0.92, "saving run artifacts")
     ART_ROOT.mkdir(parents=True, exist_ok=True)
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
@@ -745,6 +839,13 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
         per_trial_pnl=per_trial_pnl,
         per_trial_n_trades=per_trial_n_trades,
         trades=trades_best,
+        # Per-run execution scalars — the same values apply to every trade in
+        # `trades`. The reconciler surfaces these so the user can see
+        # "replay used commission=0.3 pips" alongside live MT5 commissions.
+        commission_pips=np.float64(exe_cfg["commission_pips"]),
+        slippage_pips=np.float64(exe_cfg["slippage_pips"]),
+        max_spread_pips=np.float64(exe_cfg["max_spread_pips"]),
+        pip_value=np.float64(exe_cfg["pip_value"]),
     )
     print(f"[save] run data → {run_file.name}")
 

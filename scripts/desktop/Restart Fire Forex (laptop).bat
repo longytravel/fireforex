@@ -29,7 +29,7 @@ if errorlevel 1 (
 )
 
 echo.
-echo [3/4] rebuilding Rust engine if core/ changed...
+echo [3/5] rebuilding Rust engine if core/ changed...
 git diff HEAD~1 --name-only 2>nul | findstr /r "^core/" >nul
 if not errorlevel 1 (
     echo    core/ changed — running maturin develop --release...
@@ -44,7 +44,23 @@ if not errorlevel 1 (
 )
 
 echo.
-echo [4/4] starting web UI on http://127.0.0.1:8000 ...
+echo [4/5] pulling live state from VPS (live-state branch)...
+REM Silent: state sync runs every minute on the VPS. Fetch may miss on
+REM first boot (branch doesn't exist yet) — that's fine.
+git fetch origin live-state --quiet 2>nul
+git rev-parse --verify origin/live-state >nul 2>&1
+if not errorlevel 1 (
+    if not exist "artifacts\live" mkdir "artifacts\live" >nul 2>&1
+    REM Extract the branch contents into artifacts\live\ using git archive piped to tar.
+    REM tar ships with Windows 10+; no third-party deps.
+    git archive --format=tar origin/live-state | tar -xf - -C "artifacts\live" 2>nul
+    echo    OK — plans + tickets + state refreshed.
+) else (
+    echo    no live-state branch yet — skipped (VPS runner will populate on next push).
+)
+
+echo.
+echo [5/5] starting web UI on http://127.0.0.1:8000 ...
 start "Fire Forex web UI" "C:\Users\ROG\Projects\Fire Forex\.venv\Scripts\python.exe" "C:\Users\ROG\Projects\Fire Forex\run.py" web
 
 REM Give uvicorn a few seconds to bind, then open the browser.

@@ -210,9 +210,17 @@ def get_job(job_id: str) -> dict[str, Any]:
 
 # ── Version ────────────────────────────────────────────────────────────
 
+# Boot ID changes every time this module is imported (= every server
+# restart). The frontend polls /api/version and reloads on mismatch so the
+# laptop browser refreshes automatically after the Restart Fire Forex
+# shortcut runs — no more Ctrl+F5 after code pulls.
+import time as _time_boot  # scoped alias to avoid polluting module namespace
+_BOOT_ID: int = int(_time_boot.time() * 1000)
+
+
 @router.get("/version")
 def get_version() -> dict[str, Any]:
-    return {"version": VERSION}
+    return {"version": VERSION, "boot_id": _BOOT_ID}
 
 
 # ── History ────────────────────────────────────────────────────────────
@@ -733,6 +741,101 @@ def get_live_positions() -> dict[str, Any]:
     return {"positions": live_jobs._read_open_positions()}
 
 
+@router.get("/live/stats_by_pair")
+def get_live_stats_by_pair() -> dict[str, Any]:
+    """Per-pair rollup used by the Live-tab card grid.
+
+    Pairs the latest replay trade log (under ``artifacts/replay/<run>/
+    <stamp>/trades.npz``) with today's live plans + tickets, and returns
+    the ``ReconcileReport.by_pair()`` dict plus open-position flags.
+    Silent no-op (empty rollup) when no pinned run or no replay output
+    exists yet — the UI already handles the empty state.
+    """
+    import json as _json
+    import numpy as _np
+    import pandas as _pd
+    from ff.live import reconcile as _recon
+
+    live_dir = ARTIFACTS_DIR / "live"
+    pinned_path = live_dir / "pinned_run.json"
+    source_run_id = None
+    if pinned_path.exists():
+        try:
+            source_run_id = _json.loads(pinned_path.read_text(encoding="utf-8")).get("run_id")
+        except Exception:
+            source_run_id = None
+
+    # Load the most recent replay output, if any. Silently fall through to
+    # an empty rollup so the UI keeps rendering "no replay yet".
+    bt_df = _pd.DataFrame([])
+    replay_path_str: str | None = None
+    if source_run_id:
+        replay_root = ARTIFACTS_DIR / "replay" / source_run_id
+        latest_stamp_file = replay_root / "latest_stamp.txt"
+        if latest_stamp_file.exists():
+            stamp = latest_stamp_file.read_text(encoding="utf-8").strip()
+            npz_path = replay_root / stamp / "trades.npz"
+            if npz_path.exists():
+                replay_path_str = str(npz_path)
+                with _np.load(npz_path, allow_pickle=False) as z:
+                    if "trades" in z.files and len(z["trades"]) > 0:
+                        bt_df = _pd.DataFrame(z["trades"])
+                        bt_df["entry_ts"] = _pd.to_datetime(bt_df["entry_ts"], utc=True)
+                        bt_df["exit_ts"] = _pd.to_datetime(bt_df["exit_ts"], utc=True)
+
+    # Live side: plans from today's JSONL. Tickets/deals requires broker
+    # history ingest which runs inside the runner process — skip for the
+    # card-grid read. Plans alone give us pair + direction + signal_bar_ts
+    # which is what the reconciler matches on.
+    plans = live_jobs.tail_plans(limit=10_000)
+    live_df = _recon.build_live_df(plans, tickets=[], deals=[])
+
+    report = _recon.reconcile(bt_df, live_df)
+    rollup = report.by_pair()
+
+    # Merge open-position flags so the card can show "has open trade".
+    try:
+        open_positions = live_jobs._read_open_positions()
+    except Exception:
+        open_positions = {}
+    open_pairs = {
+        p for p, d in open_positions.items() if isinstance(d, dict) and d
+    }
+    for pair in rollup:
+        rollup[pair]["has_open_position"] = pair in open_pairs
+
+    # Pair universe: include pairs from the deployed config so the UI can
+    # render an empty card for pairs that haven't traded yet.
+    svc_path = live_dir / "service_config.json"
+    configured_pairs: list[str] = []
+    if svc_path.exists():
+        try:
+            configured_pairs = _json.loads(svc_path.read_text(encoding="utf-8")).get("pairs") or []
+        except Exception:
+            configured_pairs = []
+    for pair in configured_pairs:
+        if pair not in rollup:
+            rollup[pair] = {
+                "matched": 0, "missing_in_live": 0, "extra_in_live": 0,
+                "matched_pnl_pips_live": 0.0, "matched_pnl_pips_bt": 0.0,
+                "delta_pips": 0.0,
+                "n_mismatched_signal": 0, "n_mismatched_spread": 0,
+                "n_mismatched_slippage": 0, "n_mismatched_closure": 0,
+                "n_mismatched_entry_price": 0, "n_mismatched_exit_price": 0,
+                "n_mismatched_pnl": 0,
+                "mean_spread_delta_pips": float("nan"),
+                "mean_slippage_pips": float("nan"),
+                "has_open_position": pair in open_pairs,
+            }
+
+    return {
+        "source_run_id": source_run_id,
+        "replay_path": replay_path_str,
+        "pairs": rollup,
+        "total_counts": report.counts,
+    }
+
+
 @router.post("/live/reconcile/run")
 def post_live_reconcile(body: dict[str, Any] | None = None) -> dict[str, Any]:
     """Run the reconciler across today's plans + MT5 deal history.
@@ -766,7 +869,8 @@ def post_live_reconcile(body: dict[str, Any] | None = None) -> dict[str, Any]:
     bt = _pd.DataFrame(z["trades"])
     bt["entry_ts"] = _pd.to_datetime(bt["entry_ts"], utc=True)
     bt["exit_ts"] = _pd.to_datetime(bt["exit_ts"], utc=True)
-    bt["pair"] = body.get("pair", "EUR_USD")  # single-pair golden path for v1
+    if "pair" not in bt.columns:  # pre-parity-v2 runs — fall back to request.
+        bt["pair"] = body.get("pair", "EUR_USD")
 
     live_df = _pd.DataFrame([])  # placeholder until MT5 history ingest lands
 

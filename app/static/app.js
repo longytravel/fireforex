@@ -163,8 +163,9 @@ const tooltip = {
 async function boot() {
   tooltip.init();
 
+  let firstSeenBootId = null;
   try {
-    const [pairsResp, { items }, { baseline }, { version }] = await Promise.all([
+    const [pairsResp, { items }, { baseline }, versionResp] = await Promise.all([
       api('/api/pairs'),
       api('/api/explain-bundle'),
       api('/api/baseline'),
@@ -175,10 +176,29 @@ async function boot() {
     state.explain = items;
     state.baseline = baseline;
     const vp = document.getElementById('version-pill');
-    if (vp && version) vp.textContent = version;
+    if (vp && versionResp?.version) vp.textContent = versionResp.version;
+    if (versionResp?.boot_id) firstSeenBootId = versionResp.boot_id;
   } catch (e) {
     setServerStatus(false, e.message);
     return;
+  }
+
+  // Server-restart auto-reload. The boot_id changes on every server start;
+  // poll /api/version and reload once when it differs from the first-seen
+  // value. Clears the interval on reload to guarantee one-shot behaviour.
+  if (firstSeenBootId !== null) {
+    const bootPoller = setInterval(async () => {
+      try {
+        const r = await api('/api/version');
+        if (r?.boot_id && r.boot_id !== firstSeenBootId) {
+          clearInterval(bootPoller);
+          console.info('[boot] server restarted — reloading');
+          location.reload();
+        }
+      } catch (_err) {
+        // Transient network blip during restart — ignore and try again.
+      }
+    }, 5000);
   }
   updateBaselinePill();
 
@@ -2156,11 +2176,53 @@ async function liveRefreshPlans() {
   }
 }
 
+async function liveRefreshPairCards() {
+  const host = document.getElementById('live-pair-cards');
+  if (!host) return;
+  try {
+    const r = await api('/api/live/stats_by_pair');
+    const pairs = r.pairs || {};
+    const entries = Object.entries(pairs).sort((a, b) => a[0].localeCompare(b[0]));
+    if (!entries.length) {
+      host.innerHTML = `<div class="text-slate-500 col-span-full">
+        No replay run yet. Run <code>python run.py replay</code> to populate parity cards.
+      </div>`;
+      return;
+    }
+    host.innerHTML = entries.map(([pair, s]) => {
+      const open = s.has_open_position ? '<span class="text-flame-400">●</span>' : '<span class="text-slate-600">○</span>';
+      const delta = Number(s.delta_pips || 0);
+      const deltaCls = delta > 0.5 ? 'text-ok-400'
+                     : delta < -0.5 ? 'text-bad-400'
+                     : 'text-slate-400';
+      const mismatches =
+        (s.n_mismatched_signal || 0) +
+        (s.n_mismatched_spread || 0) +
+        (s.n_mismatched_slippage || 0) +
+        (s.n_mismatched_closure || 0);
+      return `
+        <div class="rounded border border-ink-600 bg-ink-900/60 p-2">
+          <div class="flex items-center justify-between">
+            <span class="text-slate-200 font-semibold">${pair}</span>
+            ${open}
+          </div>
+          <div class="mt-1 text-slate-400">
+            live ${s.matched || 0} · bt ${(s.matched || 0) + (s.missing_in_live || 0)}
+          </div>
+          <div class="${deltaCls}">Δ ${delta >= 0 ? '+' : ''}${delta.toFixed(1)} pips</div>
+          ${mismatches ? `<div class="text-flame-400">${mismatches} mismatch${mismatches > 1 ? 'es' : ''}</div>` : ''}
+        </div>`;
+    }).join('');
+  } catch (e) {
+    console.warn('live pair cards', e);
+  }
+}
+
 function liveStartPolling() {
   if (_livePollHandle) return;
-  liveRefreshStatus(); liveRefreshPlans();
+  liveRefreshStatus(); liveRefreshPlans(); liveRefreshPairCards();
   _livePollHandle = setInterval(() => {
-    liveRefreshStatus(); liveRefreshPlans();
+    liveRefreshStatus(); liveRefreshPlans(); liveRefreshPairCards();
   }, LIVE_POLL_MS);
 }
 
