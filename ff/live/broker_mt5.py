@@ -152,7 +152,9 @@ class MT5Broker:
             "tp": float(plan["tp_price"]),
             "deviation": deviation_points,
             "magic": int(self.cfg.magic_number),
-            "comment": f"ff:{plan['plan_id']}",
+            # MT5 rejects colons / '+' / '-' and caps comment length at 31.
+            # plan_id gets linked to the ticket via tickets.jsonl instead.
+            "comment": "fireforex",
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
 
@@ -209,7 +211,7 @@ class MT5Broker:
             "price": price,
             "deviation": 20,
             "magic": int(self.cfg.magic_number),
-            "comment": f"ff-close:{reason}",
+            "comment": "fireforex-close",
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
         result = mt5.order_send(request)
