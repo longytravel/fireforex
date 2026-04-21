@@ -1,15 +1,20 @@
-"""Archive today's live logs + flatten Fire Forex MT5 positions.
+"""Archive today's live logs + flatten MT5 positions on the demo.
 
 One-command "clean slate" for debugging. Used when you want to start
 fresh and not have old plans/tickets/state pollute the reconciler.
 
 Steps:
     1. Stop the ff-live-runner Scheduled Task so nothing fires mid-wipe.
-    2. Close every MT5 position whose magic number matches service_config.
+    2. Close MT5 positions. By default: EVERY open position on the
+       account (accumulated across past deploys with different magic
+       numbers tends to leave orphans). Pass ``--magic-only`` to revert
+       to the conservative magic-number filter.
     3. Archive artifacts/live/{plans, tickets.jsonl, state.json, errors.jsonl,
        crashes.jsonl} → artifacts/live/archive/<YYYYMMDD_HHMMSS>/.
     4. Delete the originals so the runner starts cold.
-    5. Re-arm the Scheduled Task.
+
+Runner stays stopped. Re-arming is the Deploy button's job — a reset
+without a deliberate redeploy should not resume trading.
 
 Everything is archived — nothing is destroyed. To recover: copy the
 archive dir back into artifacts/live/.
@@ -18,6 +23,7 @@ Runs on the VPS. Requires MetaTrader5 package + .env.live credentials.
 """
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import shutil
@@ -57,12 +63,21 @@ def _start_task() -> None:
     )
 
 
-def _flatten_positions() -> int:
-    """Close every Fire Forex position via MT5. Returns count closed."""
-    if not SERVICE_CONFIG.exists():
-        print("[reset] no service_config.json — skipping flatten")
-        return 0
-    cfg = json.loads(SERVICE_CONFIG.read_text(encoding="utf-8"))
+def _flatten_positions(magic_only: bool = False) -> int:
+    """Close open MT5 positions. Returns count closed.
+
+    ``magic_only=False`` (default): closes every open position on the
+    account, regardless of who placed it. Matches the user's expectation
+    that "reset clears the demo" when orphan positions from old deploys
+    or from a different magic linger.
+
+    ``magic_only=True``: close only positions matching the Fire Forex
+    magic number in ``service_config.json``. Use this on accounts shared
+    with other EAs so manual/third-party trades survive the reset.
+    """
+    cfg: dict = {}
+    if SERVICE_CONFIG.exists():
+        cfg = json.loads(SERVICE_CONFIG.read_text(encoding="utf-8"))
     magic = int(cfg.get("magic_number", 20260420))
 
     # Load MT5 credentials same path the runner uses.
@@ -88,8 +103,14 @@ def _flatten_positions() -> int:
     closed = 0
     try:
         positions = mt5.positions_get() or []
-        ours = [p for p in positions if int(p.magic) == magic]
-        print(f"[reset] {len(ours)} position(s) with magic={magic} to flatten")
+        if magic_only:
+            ours = [p for p in positions if int(p.magic) == magic]
+            print(f"[reset] {len(ours)} position(s) with magic={magic} to flatten "
+                  f"(leaving {len(positions) - len(ours)} other positions untouched)")
+        else:
+            ours = list(positions)
+            print(f"[reset] {len(ours)} open position(s) on the account — "
+                  f"closing ALL (pass --magic-only to filter by Fire Forex magic)")
 
         for p in ours:
             tick = mt5.symbol_info_tick(p.symbol)
@@ -147,6 +168,20 @@ def _archive_and_wipe() -> Path:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Fire Forex VPS reset")
+    parser.add_argument(
+        "--magic-only", action="store_true",
+        help="Only close positions matching the Fire Forex magic number. "
+             "Default is to close EVERY open position on the account.",
+    )
+    parser.add_argument(
+        "--restart", action="store_true",
+        help="Re-arm the ff-live-runner Scheduled Task after the wipe. "
+             "Default leaves it stopped — Deploy from the laptop is the "
+             "intended way to resume trading.",
+    )
+    args = parser.parse_args()
+
     print("=" * 60)
     print(f"Fire Forex · reset live day  ({time.strftime('%Y-%m-%d %H:%M:%S')})")
     print("=" * 60)
@@ -155,7 +190,7 @@ def main() -> int:
     time.sleep(2)  # let the runner notice stop + release file handles
 
     try:
-        closed = _flatten_positions()
+        closed = _flatten_positions(magic_only=args.magic_only)
         print(f"[reset] flattened {closed} position(s)")
     except Exception as exc:  # noqa: BLE001
         print(f"[reset] flatten failed: {exc!r} — continuing to archive anyway")
@@ -163,9 +198,14 @@ def main() -> int:
     archive_dir = _archive_and_wipe()
     print(f"[reset] live state archived at {archive_dir}")
 
-    _start_task()
+    if args.restart:
+        _start_task()
+        tail = "Runner restarted."
+    else:
+        tail = "Runner STOPPED. Deploy from the laptop UI to resume trading."
+
     print("=" * 60)
-    print("Done. Runner back up, state.json will rebuild from MT5 snapshot.")
+    print(f"Done. {tail}")
     print("Archived data is in:", archive_dir)
     print("=" * 60)
     return 0
