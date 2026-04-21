@@ -83,6 +83,10 @@ class MT5Broker:
     def __init__(self, cfg: Any) -> None:
         self.cfg = cfg
         self._connected = False
+        # Offset (seconds) added to MT5-returned timestamps to reach UTC.
+        # IC Markets runs GMT+2/+3; MT5's `time` field is broker local
+        # expressed as seconds-since-broker-epoch. Computed on connect().
+        self._broker_to_utc_sec = 0
 
     # ---------------------------------------------------------------- setup
     def connect(self) -> None:
@@ -98,6 +102,17 @@ class MT5Broker:
             err = mt5.last_error()
             raise RuntimeError(f"MT5 initialize failed: {err}")
         self._connected = True
+
+        # Compute broker↔UTC offset by comparing a live tick's broker-stamped
+        # time against wall-clock UTC. IC Markets = GMT+2 / GMT+3 typically.
+        import time as _time
+        probe_symbol = self.cfg.symbol_map.get("EUR_USD", "EURUSD")
+        tick = mt5.symbol_info_tick(probe_symbol)
+        if tick is not None and tick.time:
+            wall_utc = int(_time.time())
+            # We need to SUBTRACT this from broker-stamped times to get UTC.
+            self._broker_to_utc_sec = -(int(tick.time) - wall_utc)
+            LOG.info("[mt5] broker-UTC offset detected: %+d s", self._broker_to_utc_sec)
         LOG.info("[mt5] connected as login=%s server=%s", self.cfg.login, self.cfg.server)
 
     def disconnect(self) -> None:
@@ -120,7 +135,13 @@ class MT5Broker:
         if rates is None or len(rates) == 0:
             return pd.DataFrame()
         df = pd.DataFrame(rates)
-        df["timestamp"] = pd.to_datetime(df["time"], unit="s", utc=True)
+        # MT5's `time` is broker-local seconds-since-epoch, not real UTC. The
+        # offset was measured in connect() and subtracted here so downstream
+        # signal eval + reconciler all speak true UTC.
+        df["timestamp"] = pd.to_datetime(
+            df["time"].astype("int64") + int(self._broker_to_utc_sec),
+            unit="s", utc=True,
+        )
         df = df.set_index("timestamp").rename(
             columns={"real_volume": "volume", "tick_volume": "tick_volume"}
         )
