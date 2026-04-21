@@ -11,10 +11,19 @@ echo.
 echo === Fire Forex · pull + restart runner ===
 echo.
 
-echo [1/3] git pull...
-git pull --ff-only
+echo [1/3] git fetch + hard reset to origin/main...
+REM VPS is a dumb consumer of origin/main. If a local commit exists here that
+REM isn't on origin, it was almost certainly a transient bootstrap edit (never
+REM pushed) and is safe to discard. This keeps the VPS state deterministic.
+git fetch origin main
 if errorlevel 1 (
-    echo    FAILED: git pull — see message above.
+    echo    FAILED: git fetch — see message above.
+    pause
+    exit /b 1
+)
+git reset --hard origin/main
+if errorlevel 1 (
+    echo    FAILED: git reset — see message above.
     pause
     exit /b 1
 )
