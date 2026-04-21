@@ -44,6 +44,7 @@ ARCHIVE_TARGETS = [
     "state.json",
     "errors.jsonl",
     "crashes.jsonl",
+    "service_config.json",   # reset wipes the trial; Deploy writes a fresh one
 ]
 
 
