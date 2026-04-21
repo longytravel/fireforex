@@ -2253,11 +2253,18 @@ async function deployToLive() {
       method: 'POST',
       body: JSON.stringify(body),
     });
-    alert(
-      `Deployed.\n\nsource_run_id = ${r.source_run_id}\nconfig written to ${r.service_config_path}\n\n` +
-      `Next step on the VPS:\n  schtasks /Run /TN ff-live-runner\n\n` +
-      `Or locally: switch to the Live tab and hit Start.`
-    );
+    const lines = [`Deployed.`, ``, `source_run_id = ${r.source_run_id}`];
+    if (r.git_pushed) {
+      lines.push(``, `✔ Config pushed to GitHub.`);
+      lines.push(`→ On the VPS: double-click the "Deploy Fire Forex" desktop shortcut.`);
+    } else if (r.git_error) {
+      lines.push(``, `⚠ Git push failed: ${r.git_error}`);
+      lines.push(`Copy ${r.service_config_path} to the VPS manually.`);
+    }
+    if (r.runner_kicked) {
+      lines.push(``, `✔ Local runner restarted via Scheduled Task.`);
+    }
+    alert(lines.join('\n'));
     switchTab('live');
   } catch (e) {
     alert(`Deploy failed: ${e.message}`);
