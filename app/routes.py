@@ -649,11 +649,35 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
         _json.dumps({"run_id": run_id}, indent=2), encoding="utf-8"
     )
 
+    # Try to kick the Windows Scheduled Task so the user doesn't have to run
+    # schtasks manually. End then Run ensures a restart picks up the new
+    # service_config.json. Silently no-op on non-Windows or if the task isn't
+    # registered — the caller still gets a useful response.
+    runner_kicked = False
+    kick_error: str | None = None
+    import subprocess as _sp
+    try:
+        _sp.run(["schtasks", "/End", "/TN", "ff-live-runner"],
+                capture_output=True, check=False, timeout=10)
+        r = _sp.run(["schtasks", "/Run", "/TN", "ff-live-runner"],
+                    capture_output=True, text=True, check=False, timeout=10)
+        runner_kicked = (r.returncode == 0)
+        if not runner_kicked:
+            kick_error = (r.stderr or r.stdout or "").strip()[:200]
+    except (FileNotFoundError, _sp.TimeoutExpired) as exc:
+        kick_error = repr(exc)
+
     return {
         "ok": True,
         "source_run_id": run_id,
         "service_config_path": str((live_dir / "service_config.json").relative_to(ARTIFACTS_DIR.parent)),
-        "note": "VPS: restart ff-live-runner Scheduled Task. Local dev: POST /api/live/start with broker creds.",
+        "runner_kicked": runner_kicked,
+        "kick_error": kick_error,
+        "note": (
+            "runner (re)started via Scheduled Task"
+            if runner_kicked
+            else "Scheduled Task not triggered — manual start required"
+        ),
     }
 
 
