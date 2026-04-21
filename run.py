@@ -64,6 +64,24 @@ def run_web(argv: list[str]) -> int:
               file=sys.stderr)
         return 1
 
+    # Port-in-use guard. Stacking a second uvicorn on top of a stale
+    # one is how the M1-download-serves-retired-code bug recurred.
+    # Fail loud instead.
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _probe:
+        _probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        try:
+            _probe.bind((args.host, args.port))
+        except OSError:
+            print(
+                f"Port {args.port} is already in use — another Fire Forex "
+                f"server is running. To restart cleanly, run:\n"
+                f"    scripts\\ff_restart_server.ps1\n"
+                f"Or stop the existing server first.",
+                file=sys.stderr,
+            )
+            return 1
+
     url = f"http://{args.host}:{args.port}/"
     print(f"Fire Forex web UI → {url}")
     print("Ctrl-C to stop.")

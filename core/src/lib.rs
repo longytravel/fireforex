@@ -15,6 +15,12 @@ use metrics::compute_metrics_inline;
 use sl_tp::compute_sl_tp;
 use trade_full::simulate_trade_full;
 
+/// Width of the per-trade record emitted into `trade_records` for the live
+/// parity validator. Column order matches `TradeResult`:
+/// [pnl_pips, exit_reason, direction, entry_bar_index, entry_sub_bar_index,
+///  entry_price, exit_bar_index, exit_sub_bar_index, exit_price]
+pub const NUM_TRADE_FIELDS: usize = 9;
+
 /// Evaluate N parameter sets in parallel.
 ///
 /// This is the Rust replacement for jit_loop.batch_evaluate().
@@ -62,6 +68,7 @@ fn batch_evaluate<'py>(
     h1_to_sub_start: PyReadonlyArray1<'py, i64>,
     h1_to_sub_end: PyReadonlyArray1<'py, i64>,
     pnl_buffers: &Bound<'py, PyArray2<f64>>,
+    trade_records: &Bound<'py, PyArray2<f64>>,
 ) -> PyResult<()> {
     // Get raw slices from numpy arrays (zero-copy)
     let high_s = high.as_slice()?;
@@ -171,11 +178,24 @@ fn batch_evaluate<'py>(
         }
     }
 
+    // Validate trade_records shape: must be (n_trials, max_trades * NUM_TRADE_FIELDS)
+    let trade_records_shape = trade_records.shape();
+    let expected_cols = max_trades_usize * NUM_TRADE_FIELDS;
+    if trade_records_shape[0] != n_trials || trade_records_shape[1] != expected_cols {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            format!("trade_records shape must be ({}, {}), got ({}, {})",
+                n_trials, expected_cols,
+                trade_records_shape[0], trade_records_shape[1])
+        ));
+    }
+
     // Get mutable access to output arrays
     // SAFETY: We release the GIL below and use Rayon for parallelism.
-    // Each trial writes to non-overlapping slices of metrics_out and pnl_buffers.
+    // Each trial writes to non-overlapping slices of metrics_out, pnl_buffers,
+    // and trade_records.
     let metrics_out_ptr = unsafe { metrics_out.as_slice_mut()? };
     let pnl_buffers_ptr = unsafe { pnl_buffers.as_slice_mut()? };
+    let trade_records_ptr = unsafe { trade_records.as_slice_mut()? };
 
     // Release the GIL and run in parallel
     py.allow_threads(|| {
@@ -186,15 +206,19 @@ fn batch_evaluate<'py>(
         let pnl_chunks: Vec<&mut [f64]> = pnl_buffers_ptr
             .chunks_mut(max_trades_usize)
             .collect();
+        let trade_record_chunks: Vec<&mut [f64]> = trade_records_ptr
+            .chunks_mut(max_trades_usize * NUM_TRADE_FIELDS)
+            .collect();
 
         // Zip the mutable slices and iterate in parallel
         metrics_chunks
             .into_iter()
             .zip(pnl_chunks)
+            .zip(trade_record_chunks)
             .enumerate()
             .collect::<Vec<_>>()
             .into_par_iter()
-            .for_each(|(trial, (metrics_row, pnl_buffer))| {
+            .for_each(|(trial, ((metrics_row, pnl_buffer), trade_record_buf))| {
                 // Save pointer for zeroing if trial panics
                 let metrics_ptr = metrics_row.as_mut_ptr();
                 let n_metrics = metrics_row.len();
@@ -398,6 +422,16 @@ fn batch_evaluate<'py>(
 
                     if trade_count < max_trades_usize {
                         pnl_buffer[trade_count] = result.pnl_pips;
+                        let rec_off = trade_count * NUM_TRADE_FIELDS;
+                        trade_record_buf[rec_off]     = result.pnl_pips;
+                        trade_record_buf[rec_off + 1] = result.exit_reason as f64;
+                        trade_record_buf[rec_off + 2] = result.direction as f64;
+                        trade_record_buf[rec_off + 3] = result.entry_bar_index as f64;
+                        trade_record_buf[rec_off + 4] = result.entry_sub_bar_index as f64;
+                        trade_record_buf[rec_off + 5] = result.entry_price;
+                        trade_record_buf[rec_off + 6] = result.exit_bar_index as f64;
+                        trade_record_buf[rec_off + 7] = result.exit_sub_bar_index as f64;
+                        trade_record_buf[rec_off + 8] = result.exit_price;
                         trade_count += 1;
                     }
                 }
@@ -438,6 +472,7 @@ fn ff_core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Export constants for Python-side verification
     m.add("NUM_PL", NUM_PL)?;
     m.add("NUM_METRICS", NUM_METRICS)?;
+    m.add("NUM_TRADE_FIELDS", NUM_TRADE_FIELDS)?;
 
     // Export PL_* constants
     m.add("PL_SL_MODE", PL_SL_MODE)?;

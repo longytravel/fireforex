@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 from ff.defaults.complexity import complexity_to_ea
 from ff.defaults.overrides import apply_overrides, flatten_schema
@@ -17,7 +17,7 @@ from ff.preflight import preflight_dict
 from ff.schema_json import ea_to_dict
 from ff.VERSION import VERSION
 
-from . import baselines, jobs
+from . import baselines, jobs, live_jobs
 from .pairs_scan import scan_pairs_cached
 
 
@@ -37,7 +37,8 @@ def get_pairs() -> dict[str, Any]:
     pairs = scan_pairs_cached()
     if not pairs:
         raise HTTPException(status_code=503, detail="no data roots found — check G:\\My Drive\\BackTestData")
-    return {"pairs": pairs}
+    from ff.data.groups import group_pairs
+    return {"pairs": pairs, "groups": group_pairs(list(pairs))}
 
 
 @router.get("/timeframes")
@@ -153,6 +154,24 @@ def post_run(body: dict[str, Any]) -> dict[str, Any]:
     for k in ("pair", "main_tf", "level"):
         if k not in recipe:
             raise HTTPException(status_code=400, detail=f"recipe missing '{k}'")
+
+    # Reject unsupported timeframes before they reach the worker. Mirrors
+    # ff/harness.py:403-409 so a stale frontend (or a curl by hand) gets a
+    # clean 400 instead of a mid-run crash inside the Rust engine.
+    from ff import harness as _h
+    _known = set(_h.TF_MINUTES.keys())
+    _main = recipe["main_tf"]
+    _sub = recipe.get("sub_tf")
+    if _main not in _known:
+        raise HTTPException(status_code=400,
+                            detail=f"main_tf {_main!r} not supported; known={sorted(_known)}")
+    if _sub is not None and _sub not in _known:
+        raise HTTPException(status_code=400,
+                            detail=f"sub_tf {_sub!r} not supported; known={sorted(_known)}")
+    if _sub is not None and _h.TF_MINUTES[_sub] >= _h.TF_MINUTES[_main]:
+        raise HTTPException(status_code=400,
+                            detail=f"sub_tf must be finer than main_tf (got {_sub} vs {_main})")
+
     n_trials = int(body.get("n_trials", 2000))
     seed = int(body.get("seed", 42))
     layer_name = body.get("layer_name")
@@ -478,6 +497,238 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
     }
 
 
+# ── Per-run trade log (live parity validator) ─────────────────────────
+
+@router.get("/runs/{run_id}/trades.csv", include_in_schema=False)
+def get_run_trades_csv(run_id: str) -> Response:
+    """Stream the best-trial per-trade log for a completed run.
+
+    Consumed by the live-parity reconciler to join against MT5 deals.
+    """
+    # run_id is the stem of the npz file (e.g. "baseline_v2_random_20260420_200445").
+    # Resist path traversal.
+    if "/" in run_id or "\\" in run_id or ".." in run_id:
+        raise HTTPException(status_code=400, detail="invalid run id")
+    if run_id.endswith(".npz"):
+        run_id = run_id[:-4]
+
+    run_file = ARTIFACTS_DIR / "runs" / f"{run_id}.npz"
+    if not run_file.exists():
+        raise HTTPException(status_code=404, detail=f"no run: {run_id}")
+
+    import numpy as np
+    import pandas as pd
+
+    z = np.load(run_file, allow_pickle=True)
+    if "trades" not in z.files:
+        raise HTTPException(
+            status_code=404,
+            detail=f"run {run_id} has no trade log — re-run after the live-parity upgrade",
+        )
+    trades = z["trades"]
+    df = pd.DataFrame(trades)
+    # Coerce datetime64 columns to ISO strings so the CSV is portable.
+    for col in ("entry_ts", "exit_ts"):
+        if col in df.columns:
+            df[col] = pd.to_datetime(df[col]).dt.strftime("%Y-%m-%dT%H:%M:%S")
+    csv_body = df.to_csv(index=False)
+    return Response(
+        content=csv_body,
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{run_id}_trades.csv"'},
+    )
+
+
+# ── Live-parity runner ────────────────────────────────────────────────
+
+@router.get("/live/status")
+def get_live_status() -> dict[str, Any]:
+    return live_jobs.get_host().status()
+
+
+@router.post("/live/start")
+def post_live_start(body: dict[str, Any]) -> dict[str, Any]:
+    """Start the live runner.
+
+    Body shape (all required unless noted):
+      recipe: {pair, main_tf, sub_tf, level}
+      overrides: {...} (UI override dict; may be empty)
+      pairs: ["EUR_USD", "GBP_USD", ...]
+      broker: {login, password, server, terminal_path?, deviation_pips?,
+               magic_number?, symbol_map?}
+      poll_interval_sec: optional float (default 10.0)
+      size_lots: optional float (default 0.01)
+
+    Broker credentials are NOT persisted to disk by this endpoint. They flow
+    through memory into the runner thread. Rotating = POST /live/stop,
+    edit `.env.live`, POST /live/start.
+    """
+    missing = [k for k in ("recipe", "overrides", "pairs", "broker") if k not in body]
+    if missing:
+        raise HTTPException(status_code=400, detail=f"missing fields: {missing}")
+
+    host = live_jobs.get_host()
+    state = host.start(
+        recipe=body["recipe"],
+        overrides=body.get("overrides") or {},
+        pairs=list(body["pairs"]),
+        broker_profile=body["broker"],
+        poll_interval_sec=float(body.get("poll_interval_sec", 10.0)),
+        size_lots=float(body.get("size_lots", 0.01)),
+    )
+    return host.status()
+
+
+@router.post("/live/stop")
+def post_live_stop() -> dict[str, Any]:
+    live_jobs.get_host().stop()
+    return live_jobs.get_host().status()
+
+
+@router.post("/live/deploy_from_run")
+def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
+    """One-click deploy: take a completed backtest run and make it trade live.
+
+    Body: ``{run_id: "...", pairs: ["EUR_USD", ...]}``
+
+    Pulls recipe + best-trial overrides from the npz, writes
+    ``artifacts/live/service_config.json`` for the VPS service, pins the
+    source run_id so the hourly auto-reconciler knows what to diff against,
+    and starts the in-process runner if the caller is the VPS host.
+
+    No MT5 credentials are taken through this endpoint — the VPS service
+    reads them from ``.env.live`` on disk when it boots.
+    """
+    import json as _json
+    from pathlib import Path as _Path
+    import numpy as _np
+
+    run_id = body.get("run_id")
+    pairs = body.get("pairs") or []
+    if not run_id or not pairs:
+        raise HTTPException(status_code=400, detail="run_id + pairs required")
+
+    # UI passes the basename with `.npz` suffix; endpoint used to double it.
+    if run_id.endswith(".npz"):
+        run_id = run_id[:-4]
+
+    run_file = ARTIFACTS_DIR / "runs" / f"{run_id}.npz"
+    if not run_file.exists():
+        raise HTTPException(status_code=404, detail=f"no run {run_id}")
+
+    z = _np.load(run_file, allow_pickle=True)
+    best_trial = _json.loads(str(z["best_trial_json"]))
+
+    # Reconstruct the recipe from the history.csv row for this run (pair,
+    # main_tf, sub_tf). For now accept from the body as a fallback — it
+    # matches the recipe the UI had posted at run time.
+    recipe = body.get("recipe") or {}
+    overrides = body.get("overrides") or {}
+
+    live_dir = ARTIFACTS_DIR / "live"
+    live_dir.mkdir(parents=True, exist_ok=True)
+    service_config = {
+        "source_run_id": run_id,
+        "recipe": recipe,
+        "overrides": overrides,
+        "pairs": list(pairs),
+        "best_trial": best_trial,
+        "poll_interval_sec": float(body.get("poll_interval_sec", 1.0)),
+        "size_lots": float(body.get("size_lots", 0.01)),
+        "deviation_pips": float(body.get("deviation_pips", 3.0)),
+        "magic_number": int(body.get("magic_number", 20260420)),
+        "symbol_map": body.get("symbol_map") or {},
+        "auto_reconcile_interval_min": int(body.get("auto_reconcile_interval_min", 60)),
+    }
+    (live_dir / "service_config.json").write_text(
+        _json.dumps(service_config, default=str, indent=2), encoding="utf-8"
+    )
+
+    # Pin the source run so the auto-reconciler knows what to diff against.
+    (live_dir / "pinned_run.json").write_text(
+        _json.dumps({"run_id": run_id}, indent=2), encoding="utf-8"
+    )
+
+    return {
+        "ok": True,
+        "source_run_id": run_id,
+        "service_config_path": str((live_dir / "service_config.json").relative_to(ARTIFACTS_DIR.parent)),
+        "note": "VPS: restart ff-live-runner Scheduled Task. Local dev: POST /api/live/start with broker creds.",
+    }
+
+
+@router.get("/live/plans")
+def get_live_plans(
+    since: str | None = None,
+    pair: str | None = None,
+    limit: int = 100,
+) -> dict[str, Any]:
+    return {"plans": live_jobs.tail_plans(since_ts=since, pair=pair, limit=limit)}
+
+
+@router.get("/live/positions")
+def get_live_positions() -> dict[str, Any]:
+    return {"positions": live_jobs._read_open_positions()}
+
+
+@router.post("/live/reconcile/run")
+def post_live_reconcile(body: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Run the reconciler across today's plans + MT5 deal history.
+
+    Body (optional): { "run_id": "...", "tolerances": { ... } }
+    If ``run_id`` is provided, backtest trades are loaded from that npz.
+    Otherwise the endpoint assumes the user runs it manually via
+    ``scripts/run_reconcile.py`` with explicit inputs.
+    """
+    import time as _t
+    from ff.live import reconcile as _recon
+    import pandas as _pd
+
+    body = body or {}
+    run_id = body.get("run_id")
+    if not run_id:
+        raise HTTPException(
+            status_code=400,
+            detail="run_id required — specify which backtest run's trade log to reconcile against",
+        )
+    if run_id.endswith(".npz"):
+        run_id = run_id[:-4]
+    run_file = ARTIFACTS_DIR / "runs" / f"{run_id}.npz"
+    if not run_file.exists():
+        raise HTTPException(status_code=404, detail=f"no run {run_id}")
+
+    import numpy as _np
+    z = _np.load(run_file, allow_pickle=True)
+    if "trades" not in z.files:
+        raise HTTPException(status_code=404, detail="run has no trade log")
+    bt = _pd.DataFrame(z["trades"])
+    bt["entry_ts"] = _pd.to_datetime(bt["entry_ts"], utc=True)
+    bt["exit_ts"] = _pd.to_datetime(bt["exit_ts"], utc=True)
+    bt["pair"] = body.get("pair", "EUR_USD")  # single-pair golden path for v1
+
+    live_df = _pd.DataFrame([])  # placeholder until MT5 history ingest lands
+
+    tol_raw = body.get("tolerances") or {}
+    tol = _recon.Tolerances(**tol_raw) if tol_raw else None
+    report = _recon.reconcile(bt, live_df, tol)
+
+    out_dir = ARTIFACTS_DIR / "live" / "reconcile"
+    stamp = _t.strftime("%Y%m%d_%H%M%S")
+    html_path, _ = _recon.write_report(report, out_dir, stamp)
+    # Drop a "latest" symlink-style file that the UI can point an iframe at.
+    (out_dir / "latest.html").write_bytes(html_path.read_bytes())
+    return {"stamp": stamp, "html": f"/api/live/reconcile/latest.html",
+            "counts": report.counts}
+
+
+@router.get("/live/reconcile/latest.html", include_in_schema=False)
+def get_live_reconcile_latest() -> FileResponse:
+    path = ARTIFACTS_DIR / "live" / "reconcile" / "latest.html"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="no reconcile report yet — POST /live/reconcile/run first")
+    return FileResponse(path, media_type="text/html")
+
+
 # ── Static comparison dashboard ────────────────────────────────────────
 
 @router.get("/comparison.html", include_in_schema=False)
@@ -531,7 +782,37 @@ def get_data_health(pair: str, tf: str) -> dict[str, Any]:
     except FileNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e)) from e
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}") from e
+        # Common case on Google Drive File Stream: truncated or partially-synced
+        # parquet → pyarrow raises ArrowInvalid ("Parquet magic bytes not found
+        # in footer"). Surface this as a structured report so the UI renders a
+        # real status chip and retry path instead of a raw 500 traceback.
+        name = type(e).__name__
+        msg = str(e)
+        truncation_markers = (
+            "ArrowInvalid",
+            "magic bytes",
+            "Could not open Parquet",
+            "Invalid parquet",
+        )
+        is_truncation = any(m in name or m in msg for m in truncation_markers)
+        if not is_truncation:
+            raise HTTPException(status_code=500, detail=f"{name}: {msg}") from e
+        return {
+            "pair": pair,
+            "tf": tf,
+            "bars": 0,
+            "range": {"start": None, "end": None},
+            "summary": "error",
+            "error_detail": (
+                f"{msg}. File is truncated or not fully synced from "
+                f"Google Drive — redownload via Bars download."
+            ),
+            "nan_counts": {},
+            "ohlc_violations": {},
+            "timestamp_issues": {},
+            "spread": {},
+            "gap_samples": [],
+        }
 
 
 @router.post("/data/download")
@@ -582,3 +863,78 @@ def post_data_download_cancel(job_id: str) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail="download job not found")
     j.cancel()
     return {"ok": True, "id": job_id}
+
+
+# ── Tick downloads ────────────────────────────────────────────────────────
+
+@router.post("/data/download/tick")
+def post_data_download_tick(body: dict[str, Any]) -> dict[str, Any]:
+    pair = body.get("pair") or ""
+    if not _PAIR_RE.match(pair):
+        raise HTTPException(status_code=400, detail="bad pair")
+    start = _parse_iso_date(body.get("start", ""), "start")
+    end = _parse_iso_date(body.get("end", ""), "end")
+    if end < start:
+        raise HTTPException(status_code=400, detail="end must be >= start")
+    append = bool(body.get("append", True))
+    try:
+        job_id = jobs.start_tick_download(pair, start, end, append)
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e)) from e
+    return {"job_id": job_id}
+
+
+@router.get("/data/download/tick")
+def get_data_tick_downloads() -> dict[str, Any]:
+    return {"downloads": jobs.list_tick_downloads()}
+
+
+@router.get("/data/download/tick/{job_id}")
+def get_data_tick_download(job_id: str) -> dict[str, Any]:
+    j = jobs.get_tick_download(job_id)
+    if j is None:
+        raise HTTPException(status_code=404, detail="tick download job not found")
+    return j.as_dict()
+
+
+@router.get("/data/download/tick/{job_id}/log", response_class=PlainTextResponse)
+def get_data_tick_download_log(job_id: str) -> PlainTextResponse:
+    j = jobs.get_tick_download(job_id)
+    if j is None:
+        raise HTTPException(status_code=404, detail="tick download job not found")
+    return PlainTextResponse(j.full_log())
+
+
+@router.post("/data/download/tick/{job_id}/cancel")
+def post_data_tick_download_cancel(job_id: str) -> dict[str, Any]:
+    j = jobs.get_tick_download(job_id)
+    if j is None:
+        raise HTTPException(status_code=404, detail="tick download job not found")
+    j.cancel()
+    return {"ok": True, "id": job_id}
+
+
+# ── Manual resample (inventory Roll-up / Rebuild buttons) ─────────────────
+
+@router.post("/data/derive/{pair}")
+def post_data_derive(pair: str) -> dict[str, Any]:
+    if not _PAIR_RE.match(pair):
+        raise HTTPException(status_code=400, detail="bad pair")
+    try:
+        return jobs.run_derive_now(pair)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}") from e
+
+
+@router.post("/data/tick-to-m1/{pair}")
+def post_data_tick_to_m1(pair: str) -> dict[str, Any]:
+    if not _PAIR_RE.match(pair):
+        raise HTTPException(status_code=400, detail="bad pair")
+    try:
+        return jobs.run_tick_to_m1_now(pair)
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}") from e

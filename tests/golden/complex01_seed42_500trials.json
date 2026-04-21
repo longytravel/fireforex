@@ -5,14 +5,14 @@
     "optimizer": "random",
     "seed": 42,
     "n_trials": 500,
-    "description": "Pinned regression fixture \u2014 complex01 seed=42 n=500. Created 2026-04-19 after golden file was found missing."
+    "description": "Pinned regression fixture \u2014 complex01 seed=42 n=500. Re-pinned 2026-04-20 after fixing the build_main_to_sub_mapping unit bug: `asi8` on a `datetime64[us, UTC]` index returns microseconds, but the mapping function was adding `bar_ns` (nanoseconds), widening each main-TF bar's inner sub-loop from ~60 M1 bars to ~40,000 M1 bars (~41 days). max_bars / stale / H1-level checks were silently bypassed. Fix in ff/harness.py::build_main_to_sub_mapping normalises both indexes to datetime64[ns, UTC] before searchsorted. Complex01's best trial happens to have stale+max_bars enabled, so the pinned metrics shifted substantially (181\u219233 trades). Results are now semantically correct. Previous values (before fix): trades=181, win=72.93, pips=1285, expectancy=7.10."
   },
   "metrics": {
-    "trades_best": 181,
-    "win_rate_pct": 72.9282,
-    "total_pips": 1285,
-    "expectancy_pips_per_trade": 7.1008,
-    "max_drawdown_pct": 20.5657,
-    "profit_factor": 1.5336
+    "trades_best": 33,
+    "win_rate_pct": 18.18,
+    "total_pips": 337,
+    "expectancy_pips_per_trade": 10.21,
+    "max_drawdown_pct": 17.82,
+    "profit_factor": 5.029
   }
 }

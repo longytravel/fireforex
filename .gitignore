@@ -30,3 +30,11 @@ Thumbs.db
 artifacts/_kill.ps1
 artifacts/server.log
 artifacts/server.err
+
+# Live-parity runner — VPS-only creds + ephemeral runtime state.
+# Never commit these: they contain MT5 credentials and ticket/plan logs.
+.env.live
+.env.live.*
+artifacts/live/
+artifacts/calibration/
+artifacts/parity/

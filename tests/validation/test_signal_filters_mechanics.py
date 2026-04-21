@@ -314,6 +314,7 @@ def _run_scenario(scenario: dict) -> int:
     param_layout = np.arange(bc.NUM_PL, dtype=np.int64)
     metrics = np.zeros((1, bc.NUM_METRICS), dtype=np.float64)
     pnl = np.empty((1, MAX_TRADES), dtype=np.float64)
+    trade_records = np.empty((1, (MAX_TRADES) * bc.NUM_TRADE_FIELDS), dtype=np.float64)
 
     bc.batch_evaluate(
         prices["h_h"], prices["h_l"], prices["h_c"], prices["h_s"],
@@ -329,6 +330,7 @@ def _run_scenario(scenario: dict) -> int:
         prices["m_h"], prices["m_l"], prices["m_c"], prices["m_s"],
         prices["map_start"], prices["map_end"],
         pnl,
+        trade_records,
     )
 
     return int(metrics[0, _M_TRADES])

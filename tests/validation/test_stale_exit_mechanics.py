@@ -274,6 +274,7 @@ def _run_scenario(scenario: dict) -> tuple[int, float]:
     max_trades = 1
     metrics = np.zeros((1, bc.NUM_METRICS), dtype=np.float64)
     pnl = np.empty((1, max_trades), dtype=np.float64)
+    trade_records = np.empty((1, (max_trades) * bc.NUM_TRADE_FIELDS), dtype=np.float64)
     param_layout = np.arange(bc.NUM_PL, dtype=np.int64)
 
     bc.batch_evaluate(
@@ -290,6 +291,7 @@ def _run_scenario(scenario: dict) -> tuple[int, float]:
         data["m_h"], data["m_l"], data["m_c"], data["m_s"],
         data["map_start"], data["map_end"],
         pnl,
+        trade_records,
     )
 
     n_trades = int(metrics[0, _M_TRADES])

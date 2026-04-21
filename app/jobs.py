@@ -443,17 +443,28 @@ def start_download(pair: str, tf: str, start: _date, end: _date,
 
     def _worker() -> None:
         try:
-            from ff.data import downloader as _dl
+            from ff.data import m1_bi5_downloader as _m1dl
+            from ff.data import resample as _rs
 
             def _log_cb(msg: str) -> None:
                 state.message = msg
                 state.append_log(msg)
 
             state.append_log(f"downloading {pair} {tf}  {start} → {end}  append={append}")
-            result = _dl.download(pair, tf, start, end,
-                                  append=append,
-                                  log_cb=_log_cb,
-                                  cancel_cb=state.was_cancelled)
+
+            # Only M1 is supported by the raw-bi5 path. Higher TFs always
+            # come from the rollup chain — do not round-trip the network
+            # for anything else.
+            if tf != "M1":
+                raise ValueError(
+                    f"only M1 direct download is supported — got tf={tf!r}. "
+                    "Fetch M1, rollup derives M5/M15/M30/H1/H4/D/W."
+                )
+
+            result = _m1dl.download(pair, start, end,
+                                    append=append,
+                                    log_cb=_log_cb,
+                                    cancel_cb=state.was_cancelled)
             state.result = result
             state.status = "cancelled" if state.was_cancelled() else "done"
             state.message = state.status
@@ -461,6 +472,18 @@ def start_download(pair: str, tf: str, start: _date, end: _date,
                 f"finished — new_bars={result.get('new_bars')} "
                 f"total_bars={result.get('total_bars')}"
             )
+            # Auto fan-out: derive all higher TFs so the Claude-Backtester
+            # invariant (one fetch, every TF on disk) holds. Tick downloads
+            # handle their own tick→M1 chain.
+            if state.status == "done":
+                try:
+                    state.append_log("deriving higher TFs from M1 …")
+                    written = _rs.derive_higher_tfs(pair)
+                    state.append_log(
+                        f"derived {', '.join(p.stem.split('_')[-1] for p in written)}"
+                    )
+                except Exception as exc:
+                    state.append_log(f"derive error: {exc}")
         except Exception as e:
             state.status = "error"
             state.error = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
@@ -479,3 +502,119 @@ def start_download(pair: str, tf: str, start: _date, end: _date,
             pass
         raise
     return job_id
+
+
+# ── Tick download jobs ─────────────────────────────────────────────────────
+# Separate lock so a tick fetch and a bar fetch can run in parallel — both are
+# network-bound but hit different endpoints and different files.
+
+_tick_lock = threading.Lock()
+_tick_jobs: dict[str, "TickDownloadJob"] = {}
+
+
+class TickDownloadJob(DownloadJob):
+    """Bar-download lookalike for the tick pipeline. Keeps the same
+    ``as_dict`` / ``full_log`` / ``tail_lines`` surface the frontend already
+    polls."""
+
+    def __init__(self, job_id: str, pair: str,
+                 start: _date, end: _date, append: bool) -> None:
+        super().__init__(job_id, pair, "TICK", start, end, append)
+
+
+def get_tick_download(job_id: str) -> Optional[TickDownloadJob]:
+    return _tick_jobs.get(job_id)
+
+
+def list_tick_downloads() -> list[dict[str, Any]]:
+    return [d.as_dict() for d in _tick_jobs.values()]
+
+
+def start_tick_download(pair: str, start: _date, end: _date,
+                        append: bool = True) -> str:
+    """Kick off a tick download + tick→M1 + M5..W fan-out. Returns job_id."""
+    if not _tick_lock.acquire(blocking=False):
+        raise RuntimeError("another tick download is already running")
+
+    job_id = uuid.uuid4().hex[:12]
+    state = TickDownloadJob(job_id, pair, start, end, append)
+    _tick_jobs[job_id] = state
+
+    def _worker() -> None:
+        try:
+            from ff.data import tick_downloader as _tdl
+            from ff.data import resample as _rs
+
+            def _log_cb(msg: str) -> None:
+                state.message = msg
+                state.append_log(msg)
+
+            state.append_log(f"downloading {pair} TICK  {start} → {end}  append={append}")
+            result = _tdl.download(pair, start, end,
+                                   append=append,
+                                   log_cb=_log_cb,
+                                   cancel_cb=state.was_cancelled)
+            state.result = result
+            if state.was_cancelled():
+                state.status = "cancelled"
+                state.message = "cancelled"
+                state.append_log("cancelled — skipping resample")
+                return
+            state.append_log(
+                f"ticks stored — new_rows={result.get('new_rows')} "
+                f"total_rows={result.get('total_rows')}"
+            )
+
+            state.append_log("tick → M1 …")
+            m1_path = _rs.tick_to_m1(pair)
+            state.append_log(f"wrote {m1_path.name}")
+
+            state.append_log("deriving higher TFs from M1 …")
+            written = _rs.derive_higher_tfs(pair)
+            state.append_log(
+                f"derived {', '.join(p.stem.split('_')[-1] for p in written)}"
+            )
+            state.status = "done"
+            state.message = "done"
+        except Exception as e:
+            state.status = "error"
+            state.error = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
+            state.append_log(f"ERROR: {e}")
+        finally:
+            state.finished_at = time.time()
+            _tick_lock.release()
+
+    try:
+        threading.Thread(target=_worker, daemon=True).start()
+    except Exception:
+        _tick_jobs.pop(job_id, None)
+        try:
+            _tick_lock.release()
+        except RuntimeError:
+            pass
+        raise
+    return job_id
+
+
+# ── One-shot resample jobs ─────────────────────────────────────────────────
+# Manual "Roll up from M1" / "Rebuild from ticks" inventory buttons go through
+# these. No lock — they're fast and safe to run in parallel with downloads.
+
+def run_derive_now(pair: str) -> dict[str, Any]:
+    """Sync call — returns the list of TFs written plus the durations."""
+    from ff.data import resample as _rs
+    t0 = time.time()
+    written = _rs.derive_higher_tfs(pair)
+    return {
+        "pair": pair,
+        "derived": [p.stem.split("_")[-1] for p in written],
+        "elapsed_s": round(time.time() - t0, 3),
+    }
+
+
+def run_tick_to_m1_now(pair: str) -> dict[str, Any]:
+    """Sync call — returns the written path."""
+    from ff.data import resample as _rs
+    t0 = time.time()
+    path = _rs.tick_to_m1(pair)
+    return {"pair": pair, "path": str(path), "elapsed_s": round(time.time() - t0, 3)}

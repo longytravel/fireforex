@@ -309,9 +309,14 @@ def build_main_to_sub_mapping(main_index: pd.DatetimeIndex,
 
     Generalisation of the H1→M1 mapping — works for any (main, sub) pair where
     main_tf_minutes cleanly divides into sub_tf bars.
+
+    Indexes may be datetime64[ns, UTC] or datetime64[us, UTC]; `asi8` returns
+    whatever scalar unit the array was stored in. Normalise both sides to
+    nanoseconds before arithmetic so a ``datetime64[us]`` index doesn't make
+    the bar width three orders of magnitude too wide.
     """
-    main_ns = main_index.asi8
-    sub_ns = sub_index.asi8
+    main_ns = main_index.astype("datetime64[ns, UTC]").asi8
+    sub_ns = sub_index.astype("datetime64[ns, UTC]").asi8
     bar_ns = int(main_tf_minutes * 60 * 1_000_000_000)
     start = np.searchsorted(sub_ns, main_ns, side="left").astype(np.int64)
     end = np.searchsorted(sub_ns, main_ns + bar_ns, side="left").astype(np.int64)
@@ -353,6 +358,75 @@ def _summarise_trial(trial: dict) -> str:
         return out
     parts = flatten(trial)
     return " · ".join(parts)
+
+
+# Column order matches ff_core NUM_TRADE_FIELDS rows emitted by lib.rs.
+TRADE_FIELD_NAMES = (
+    "pnl_pips",
+    "exit_reason",
+    "direction",
+    "entry_bar_index",
+    "entry_sub_bar_index",
+    "entry_price",
+    "exit_bar_index",
+    "exit_sub_bar_index",
+    "exit_price",
+)
+
+
+def _build_best_trade_log(
+    flat_trade_row: np.ndarray,
+    n_trades: int,
+    main_index: "pd.DatetimeIndex",
+    sub_index: "pd.DatetimeIndex",
+) -> np.ndarray:
+    """Turn the best trial's flat trade-record slice into a structured array.
+
+    Adds entry_ts / exit_ts columns resolved from the main/sub DatetimeIndexes
+    so the reconciler can join against MT5 deals without any engine re-run.
+    `exit_sub_bar_index == -1` flags H1-level exits (max_bars, stale, EOD):
+    exit_ts falls back to the main bar close in that case.
+    """
+    num_fields = len(TRADE_FIELD_NAMES)
+    dtype = np.dtype(
+        [(name, np.float64) for name in TRADE_FIELD_NAMES]
+        + [("entry_ts", "datetime64[ns]"), ("exit_ts", "datetime64[ns]")]
+    )
+    if n_trades == 0:
+        return np.empty(0, dtype=dtype)
+
+    rows = flat_trade_row[: n_trades * num_fields].reshape(n_trades, num_fields)
+    out = np.empty(n_trades, dtype=dtype)
+    for i, name in enumerate(TRADE_FIELD_NAMES):
+        out[name] = rows[:, i]
+
+    entry_main_idx = rows[:, 3].astype(np.int64)
+    entry_sub_idx = rows[:, 4].astype(np.int64)
+    exit_main_idx = rows[:, 6].astype(np.int64)
+    exit_sub_idx = rows[:, 7].astype(np.int64)
+
+    main_ts = main_index.values.astype("datetime64[ns]")
+    sub_ts = sub_index.values.astype("datetime64[ns]")
+
+    # Entry: always resolved from sub_tf (first M1 bar after the signal close).
+    # Cap indices so a malformed row cannot IndexError.
+    sub_n = sub_ts.shape[0]
+    main_n = main_ts.shape[0]
+    entry_sub_idx_clipped = np.clip(entry_sub_idx, 0, sub_n - 1)
+    out["entry_ts"] = sub_ts[entry_sub_idx_clipped]
+
+    # Exit: prefer sub_tf timestamp; fall back to main_tf close on H1-only exits
+    # (exit_sub_bar_index == -1 for EXIT_MAX_BARS / EXIT_STALE / EXIT_NONE).
+    exit_has_sub = exit_sub_idx >= 0
+    exit_sub_idx_clipped = np.clip(exit_sub_idx, 0, sub_n - 1)
+    exit_main_idx_clipped = np.clip(exit_main_idx, 0, main_n - 1)
+    exit_ts = np.where(
+        exit_has_sub,
+        sub_ts[exit_sub_idx_clipped],
+        main_ts[exit_main_idx_clipped],
+    )
+    out["exit_ts"] = exit_ts
+    return out
 
 
 _progress_logger = logging.getLogger(__name__ + ".progress")
@@ -508,6 +582,13 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     max_trades = max(v["n_signals"] for v in lib.variant_map)
     metrics_out = np.zeros((n_trials, bc.NUM_METRICS), dtype=np.float64)
     pnl_buffers = np.empty((n_trials, max_trades), dtype=np.float64)
+    # Per-trade records for the live-parity validator. Flat layout
+    # (n_trials, max_trades * NUM_TRADE_FIELDS) mirrors pnl_buffers' chunking.
+    # Column order per trade: pnl_pips, exit_reason, direction,
+    # entry_bar_index, entry_sub_bar_index, entry_price,
+    # exit_bar_index, exit_sub_bar_index, exit_price.
+    trade_records = np.empty((n_trials, max_trades * bc.NUM_TRADE_FIELDS),
+                             dtype=np.float64)
 
     # Per-signal filter matrix, shape (NUM_SIGNAL_PARAMS, n_signals).
     # -1 means "no filter" — we don't use this feature yet.
@@ -527,6 +608,7 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
         m_h, m_l, m_c, m_s,
         map_start, map_end,
         np.empty((1, 1), dtype=np.float64),
+        np.empty((1, 1 * bc.NUM_TRADE_FIELDS), dtype=np.float64),
     )
 
     # Heartbeat: batch_evaluate is one blocking Rust call that can't yield
@@ -568,6 +650,7 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
             m_h, m_l, m_c, m_s,
             map_start, map_end,
             pnl_buffers,
+            trade_records,
         )
     finally:
         _stop_heartbeat.set()
@@ -588,6 +671,23 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     n_trades_best = int(metrics_out[best, 0])
     pnl_best = pnl_buffers[best, :n_trades_best].copy()
     total_pips = float(pnl_best.sum())
+
+    # Per-trade log for the live-parity validator. Slice the best trial's
+    # trade_records, reshape to (n_trades_best, NUM_TRADE_FIELDS), and turn
+    # into a structured array with named columns + resolved timestamps.
+    trades_best = _build_best_trade_log(
+        trade_records[best], n_trades_best,
+        main_df.index, sub_df.index,
+    )
+    # Parity invariant: the trade-log pnl sum must match the aggregate
+    # total_pips down to float arithmetic. Guards against drift between
+    # pnl_buffer and trade_records writes if the engine is refactored.
+    trades_pnl_sum = float(trades_best["pnl_pips"].sum()) if n_trades_best else 0.0
+    if abs(trades_pnl_sum - total_pips) > 1e-9:
+        raise RuntimeError(
+            f"trade-log parity broken: trades.pnl_pips.sum()={trades_pnl_sum!r} "
+            f"vs aggregate total_pips={total_pips!r}"
+        )
     expectancy_pips = total_pips / n_trades_best if n_trades_best else 0.0
     equity_curve = np.cumsum(pnl_best)
     total_runtime = time.perf_counter() - t_total
@@ -644,6 +744,7 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
         per_trial_metrics=per_trial_metrics,
         per_trial_pnl=per_trial_pnl,
         per_trial_n_trades=per_trial_n_trades,
+        trades=trades_best,
     )
     print(f"[save] run data → {run_file.name}")
 

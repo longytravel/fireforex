@@ -126,6 +126,35 @@ any row in the History tab (past run, via the Pin button).
 - Don't touch `eas/complex01.py`'s `ENGINE_MAPPING` — regenerating from
   JSON is the supported path.
 
+## Data tab runbook — "the UI says EURUSD has no data"
+
+Symptoms and the right first move:
+
+- **Inventory table empty / health modal spins forever.** Almost always
+  stale uvicorn processes holding :8000 with an older route table.
+  Run `.\scripts\ff_kill_server.ps1` (kills every python running
+  `run.py web` + any stray :8000 listener), then `.\scripts\ff_start_server.ps1`
+  to relaunch in the foreground. Keep that terminal in view — closing
+  it terminates the server cleanly. Repeatedly backgrounding the
+  server is what creates the zombie PIDs in the first place.
+- **Health modal shows "scanning parquet… cold files on Google Drive
+  can take 1–2 min."** That's normal. Cold reads of the ~93 MB M1
+  files from `G:\My Drive\BackTestData\` legitimately take 60–120 s
+  on the first touch. The modal has a 120 s client-side timeout; if
+  it hits, retry once — the second read comes back in <1 s from the
+  warm page cache. If the second read also times out, the server is
+  hung: kill + restart.
+- **"no data for … in this run" on the Results-tab scatter chart** is
+  *not* a disk/data problem. It means the selected metric column was
+  all-null across every trial of the run — e.g. selecting DSR on a
+  run with zero trades. Switch the metric dropdown or pick a run that
+  actually produced trades.
+- **Filenames on disk use `EUR_USD_M1.parquet` with an underscore.**
+  Every code path (inventory regex, harness loader, frontend select
+  values) agrees on that. If you ever see a `EURUSD` without the
+  underscore, it's the scatter-chart empty-state copy — not a file
+  mismatch.
+
 ## One-paragraph brief for a fresh Claude session
 
 > "Fire Forex at `C:\Users\ROG\Projects\Fire Forex\` is a local forex

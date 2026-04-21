@@ -18,7 +18,7 @@ ROOTS: tuple[Path, ...] = (
     Path(r"C:\Users\ROG\Projects\ForexPipeline\data"),
 )
 
-_TF_ORDER = {"M1": 0, "M5": 1, "M15": 2, "M30": 3, "H1": 4, "H4": 5, "D": 6, "W": 7}
+_TF_ORDER = {"TICK": -1, "M1": 0, "M5": 1, "M15": 2, "M30": 3, "H1": 4, "H4": 5, "D": 6, "W": 7}
 
 # Cache file lives under artifacts/ alongside volatility_cache.json.
 _CACHE_PATH = Path(__file__).resolve().parent.parent.parent / "artifacts" / "data_inventory.json"

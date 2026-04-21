@@ -5,9 +5,20 @@
 use crate::constants::*;
 /// Result of simulating one trade through the engine.
 /// Moved here from the (now-deleted) trade_basic module.
+///
+/// Extended for the live-parity validator: `pnl_pips` / `exit_reason` retained
+/// for aggregate-metric bit-identity; the additional fields feed the per-trade
+/// log that the reconciler joins against MT5 deals.
 pub struct TradeResult {
     pub pnl_pips: f64,
     pub exit_reason: i64,
+    pub direction: i64,
+    pub entry_bar_index: i64,
+    pub entry_sub_bar_index: i64,
+    pub entry_price: f64,
+    pub exit_bar_index: i64,
+    pub exit_sub_bar_index: i64,
+    pub exit_price: f64,
 }
 
 /// Simulate a single trade with full management features.
@@ -61,9 +72,14 @@ pub fn simulate_trade_full(
     let is_buy = direction == DIR_BUY;
     let slippage_price = slippage_pips * pip_value;
 
+    // Sub-bar index of the entry fill — first M1 bar after the signal bar close.
+    // Needed universally (not only for buy) so the reconciler can look up a
+    // live fill timestamp.
+    let entry_sub_bar_idx: i64 = h1_to_sub_start[entry_bar];
+
     // Apply entry costs
     let actual_entry = if is_buy {
-        let sub_entry_start = h1_to_sub_start[entry_bar] as usize;
+        let sub_entry_start = entry_sub_bar_idx as usize;
         let spread_at_entry = if sub_entry_start < sub_spread.len() {
             let s = sub_spread[sub_entry_start];
             if s.is_nan() { 0.0 } else { s }
@@ -96,6 +112,7 @@ pub fn simulate_trade_full(
     let mut exit_reason = EXIT_NONE;
     let mut exit_bar = num_bars - 1;
     let mut exit_sub_idx: i64 = -1;
+    let mut exit_price: f64 = 0.0;
     let mut final_pnl = 0.0_f64;
 
     'bar_loop: for bar in (entry_bar + 1)..num_bars {
@@ -114,6 +131,7 @@ pub fn simulate_trade_full(
             final_pnl = realized_pnl_pips + pnl;
             exit_reason = EXIT_MAX_BARS;
             exit_bar = bar;
+            exit_price = bar_close;
             break 'bar_loop;
         }
 
@@ -139,6 +157,7 @@ pub fn simulate_trade_full(
                 final_pnl = realized_pnl_pips + pnl;
                 exit_reason = EXIT_STALE;
                 exit_bar = bar;
+                exit_price = bar_close;
                 break 'bar_loop;
             }
         }
@@ -439,6 +458,7 @@ pub fn simulate_trade_full(
                     exit_reason = exit_code;
                     exit_sub_idx = sb as i64;
                     exit_bar = bar;
+                    exit_price = current_sl;
                     break 'bar_loop;
                 }
                 if sb_high >= tp_price {
@@ -447,6 +467,7 @@ pub fn simulate_trade_full(
                     exit_reason = EXIT_TP;
                     exit_sub_idx = sb as i64;
                     exit_bar = bar;
+                    exit_price = tp_price;
                     break 'bar_loop;
                 }
             } else {
@@ -465,6 +486,7 @@ pub fn simulate_trade_full(
                     exit_reason = exit_code;
                     exit_sub_idx = sb as i64;
                     exit_bar = bar;
+                    exit_price = current_sl;
                     break 'bar_loop;
                 }
                 if sb_low <= tp_price {
@@ -473,6 +495,7 @@ pub fn simulate_trade_full(
                     exit_reason = EXIT_TP;
                     exit_sub_idx = sb as i64;
                     exit_bar = bar;
+                    exit_price = tp_price;
                     break 'bar_loop;
                 }
             }
@@ -489,9 +512,14 @@ pub fn simulate_trade_full(
             (actual_entry - close_price - slippage_price) / pip_value * position_pct
         };
         final_pnl = realized_pnl_pips + pnl;
+        exit_price = close_price;
     }
 
-    // Apply execution costs — sell spread proportional to remaining position
+    // Apply execution costs — sell spread proportional to remaining position.
+    // Also surface the spread-adjusted fill price on `exit_price` for the
+    // live-parity trade log: shorts close by buying at ask (bid + spread), so
+    // the raw bid-referenced `exit_price` understates the MT5 fill by one
+    // spread. Longs already close at bid, so no adjustment needed for them.
     if !is_buy {
         let sell_spread = if exit_sub_idx >= 0 && (exit_sub_idx as usize) < sub_spread.len() {
             let s = sub_spread[exit_sub_idx as usize];
@@ -503,12 +531,20 @@ pub fn simulate_trade_full(
             0.0
         };
         final_pnl -= sell_spread / pip_value * position_pct;
+        exit_price += sell_spread;
     }
     final_pnl -= commission_pips;
 
     TradeResult {
         pnl_pips: final_pnl,
         exit_reason,
+        direction,
+        entry_bar_index: entry_bar as i64,
+        entry_sub_bar_index: entry_sub_bar_idx,
+        entry_price: actual_entry,
+        exit_bar_index: exit_bar as i64,
+        exit_sub_bar_index: exit_sub_idx,
+        exit_price,
     }
 }
 

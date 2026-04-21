@@ -24,6 +24,8 @@ const state = {
   inventory: null,
   dlJobId: null,
   dlTimer: null,
+  tickDlJobId: null,
+  tickDlTimer: null,
 };
 
 const ALL_OPTIONAL_GROUPS = ['trailing', 'breakeven', 'partial', 'stale', 'session', 'max_bars'];
@@ -66,16 +68,34 @@ function levelToFamiliesOn(level) {
 // ── fetch helpers ──────────────────────────────────────────────────────
 
 async function api(path, opts = {}) {
-  const r = await fetch(path, {
-    headers: { 'Content-Type': 'application/json' },
-    ...opts,
-  });
-  if (!r.ok) {
-    let detail = r.statusText;
-    try { detail = (await r.json()).detail || detail; } catch {}
-    throw new Error(`${r.status} ${detail}`);
+  const { timeoutMs, ...fetchOpts } = opts;
+  let signal = fetchOpts.signal;
+  let timer;
+  if (timeoutMs && !signal) {
+    const ctrl = new AbortController();
+    signal = ctrl.signal;
+    timer = setTimeout(() => ctrl.abort(), timeoutMs);
   }
-  return r.json();
+  try {
+    const r = await fetch(path, {
+      headers: { 'Content-Type': 'application/json' },
+      ...fetchOpts,
+      signal,
+    });
+    if (!r.ok) {
+      let detail = r.statusText;
+      try { detail = (await r.json()).detail || detail; } catch {}
+      throw new Error(`${r.status} ${detail}`);
+    }
+    return r.json();
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      throw new Error(`timeout after ${Math.round((timeoutMs || 0) / 1000)}s`);
+    }
+    throw e;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 const debounce = (fn, ms = 300) => {
@@ -144,13 +164,14 @@ async function boot() {
   tooltip.init();
 
   try {
-    const [{ pairs }, { items }, { baseline }, { version }] = await Promise.all([
+    const [pairsResp, { items }, { baseline }, { version }] = await Promise.all([
       api('/api/pairs'),
       api('/api/explain-bundle'),
       api('/api/baseline'),
       api('/api/version'),
     ]);
-    state.pairs = pairs;
+    state.pairs = pairsResp.pairs;
+    state.pairs_groups = pairsResp.groups || null;
     state.explain = items;
     state.baseline = baseline;
     const vp = document.getElementById('version-pill');
@@ -197,12 +218,30 @@ function populatePairSelect() {
   }
 }
 
+// Mirror of ff/harness.py::TF_MINUTES — keep in sync.
+const TF_MINUTES = {
+  M1: 1, M5: 5, M15: 15, M30: 30,
+  H1: 60, H4: 240, D: 1440, W: 10080,
+};
+const BACKTEST_TFS = Object.keys(TF_MINUTES);
+
 function populateTfSelects() {
   const tfs = state.pairs[state.recipe.pair] || [];
-  const mainTfOpts = tfs.filter(t => !['W'].includes(t));
+  // main_tf: only TFs the engine knows, and strictly > M1
+  // (M1 can't be a main because nothing finer exists as sub).
+  const mainTfOpts = tfs.filter(t => BACKTEST_TFS.includes(t)
+                                     && TF_MINUTES[t] > 1);
   fillSelect('main_tf', mainTfOpts, state.recipe.main_tf);
-  const subTfOpts = tfs.filter(t => !['W', 'D'].includes(t));
-  fillSelect('sub_tf', subTfOpts, state.recipe.sub_tf);
+  // sub_tf: engine-known and strictly finer than the current main.
+  const mainMin = TF_MINUTES[state.recipe.main_tf || 'H1'] || 60;
+  const subTfOpts = tfs.filter(t => BACKTEST_TFS.includes(t)
+                                    && TF_MINUTES[t] < mainMin);
+  // If the currently-selected sub_tf just became invalid, snap to M1
+  // (always the finest and always valid when a main > M1 exists).
+  let subPick = state.recipe.sub_tf;
+  if (!subTfOpts.includes(subPick)) subPick = 'M1';
+  fillSelect('sub_tf', subTfOpts, subPick);
+  state.recipe.sub_tf = subPick;
 }
 
 function fillSelect(id, values, selected) {
@@ -229,10 +268,13 @@ function wireEvents() {
     populateTfSelects();
     state.recipe.main_tf = $('main_tf').value;
     state.recipe.sub_tf = $('sub_tf').value;
+    clearDateRange();          // prior window no longer valid for the new pair
     refreshDefaults();
   });
   $('main_tf').addEventListener('change', () => {
     state.recipe.main_tf = $('main_tf').value;
+    populateTfSelects();       // sub_tf list depends on main_tf
+    clearDateRange();          // bounds change with TF
     refreshDefaults();
   });
   $('sub_tf').addEventListener('change', () => {
@@ -248,32 +290,67 @@ function wireEvents() {
     state.recipe.end_date = $('end_date').value || null;
     updateRangeInfo();
   });
-  $('range-full').addEventListener('click', () => {
-    $('start_date').value = '';
-    $('end_date').value = '';
-    state.recipe.start_date = null;
-    state.recipe.end_date = null;
-    updateRangeInfo();
-  });
-  $('range-last-year').addEventListener('click', () => {
-    const end = new Date();
-    const start = new Date(end); start.setFullYear(end.getFullYear() - 1);
-    const iso = (d) => d.toISOString().slice(0, 10);
-    $('start_date').value = iso(start);
-    $('end_date').value = iso(end);
-    state.recipe.start_date = iso(start);
-    state.recipe.end_date = iso(end);
-    updateRangeInfo();
-  });
+
+  // 8 preset buttons: 1M / 3M / 6M / YTD / 1Y / 2Y / 5Y / Full
+  const rangeRow = document.getElementById('range-presets');
+  if (rangeRow) {
+    rangeRow.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-range]');
+      if (!b) return;
+      applyRangePreset(b.dataset.range);
+    });
+  }
+
+  // Persist Market section open/closed across reload (same storage key pattern
+  // used by the dynamic signal sections in renderFeatureSection).
+  const marketDetails = document.getElementById('market-section');
+  if (marketDetails) {
+    const storageKey = 'ff.section.market.open';
+    const saved = localStorage.getItem(storageKey);
+    if (saved !== null) marketDetails.open = saved === '1';
+    marketDetails.addEventListener('toggle', () => {
+      localStorage.setItem(storageKey, marketDetails.open ? '1' : '0');
+    });
+  }
 
   // ── Data tab ──
   $('inventory-rescan').addEventListener('click', () => refreshInventory(true));
   $('inventory-body').addEventListener('click', (e) => {
     const tr = e.target.closest('tr[data-pair]'); if (!tr) return;
+    const btn = e.target.closest('[data-action]');
+    if (btn) {
+      e.stopPropagation();
+      runInventoryAction(btn.dataset.action, tr.dataset.pair);
+      return;
+    }
     runHealthCheck(tr.dataset.pair, tr.dataset.tf);
   });
   $('download-form').addEventListener('submit', (e) => { e.preventDefault(); submitDownload(); });
   $('dl-cancel').addEventListener('click', cancelDownload);
+  $('tick-download-form').addEventListener('submit', (e) => { e.preventDefault(); submitTickDownload(); });
+  $('tdl-cancel').addEventListener('click', cancelTickDownload);
+
+  // Auto-fill Start = last-held bar / End = today on pair switch (with force
+  // so we overwrite the previous pair's dates).
+  $('dl-pair').addEventListener('change', () => autoFillDownloadDates('bars', { force: true }));
+  $('tdl-pair').addEventListener('change', () => autoFillDownloadDates('tick', { force: true }));
+
+  // 8-button preset rows on the Bars and Tick download cards (mirror the
+  // Parameters Market section presets).
+  const dlPresets = $('dl-presets');
+  if (dlPresets) {
+    dlPresets.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-range]'); if (!b) return;
+      applyDownloadRangePreset('bars', b.dataset.range);
+    });
+  }
+  const tdlPresets = $('tdl-presets');
+  if (tdlPresets) {
+    tdlPresets.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-range]'); if (!b) return;
+      applyDownloadRangePreset('tick', b.dataset.range);
+    });
+  }
 
   $('level').addEventListener('input', () => {
     state.presetLevel = parseInt($('level').value, 10);
@@ -1120,7 +1197,7 @@ function drawScatter() {
   const ysValid = ysRaw.filter(v => v != null && Number.isFinite(v));
   if (!ysValid.length) {
     ctx.fillStyle = '#64748b'; ctx.font = `${12 * dpr}px sans-serif`;
-    ctx.fillText(`no data for "${labelFor($('scatter-metric').value, ss)}" in this run`, 12 * dpr, 20 * dpr);
+    ctx.fillText(`"${labelFor($('scatter-metric').value, ss)}" had no numeric value for any trial`, 12 * dpr, 20 * dpr);
     legend.textContent = '';
     ss.points = [];
     return;
@@ -1497,8 +1574,121 @@ document.addEventListener('change', (e) => {
 function updateRangeInfo() {
   const el = $('range-info'); if (!el) return;
   const { start_date, end_date } = state.recipe;
-  if (!start_date && !end_date) { el.textContent = 'full history'; return; }
-  el.textContent = `${start_date || '…'} → ${end_date || '…'}`;
+  if (start_date || end_date) {
+    el.textContent = `${start_date || '…'} → ${end_date || '…'}`;
+    return;
+  }
+  const rec = inventoryRecord(state.recipe.pair, state.recipe.main_tf);
+  if (rec && rec.start_ts && rec.end_ts) {
+    el.textContent = `available: ${fmtDate(rec.start_ts)} → ${fmtDate(rec.end_ts)} · pick a preset`;
+  } else {
+    el.textContent = 'pick a preset';
+  }
+}
+
+function inventoryRecord(pair, tf) {
+  if (!state.inventory || !pair || !tf) return null;
+  return state.inventory.find(r => r.pair === pair && r.tf === tf) || null;
+}
+
+function clearDateRange() {
+  $('start_date').value = '';
+  $('end_date').value = '';
+  state.recipe.start_date = null;
+  state.recipe.end_date = null;
+  updateRangeInfo();
+}
+
+// Local-date YYYY-MM-DD (avoid toISOString() — it shifts to UTC and silently
+// off-by-ones for users east of GMT when the clock is at local midnight).
+function localISODate(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+// Shared date-math for all preset rows (Parameters + Data tab download cards).
+// Returns ISO YYYY-MM-DD strings clipped to [invStart, invEnd].
+function computePresetWindow(key, invStart, invEnd) {
+  const end = new Date(invEnd);
+  let start = new Date(invEnd);
+  switch (key) {
+    case '1m':  start.setMonth(end.getMonth() - 1);  break;
+    case '3m':  start.setMonth(end.getMonth() - 3);  break;
+    case '6m':  start.setMonth(end.getMonth() - 6);  break;
+    case 'ytd': start = new Date(end.getFullYear(), 0, 1); break;
+    case '1y':  start.setFullYear(end.getFullYear() - 1); break;
+    case '2y':  start.setFullYear(end.getFullYear() - 2); break;
+    case '5y':  start.setFullYear(end.getFullYear() - 5); break;
+    case 'full': start = new Date(invStart); break;
+    default: return null;
+  }
+  if (start < invStart) start = new Date(invStart);
+  if (end > invEnd) start = new Date(invStart);
+  return { start: localISODate(start), end: localISODate(end) };
+}
+
+async function applyRangePreset(key) {
+  // Inventory caches the (start_ts, end_ts) for every parquet on disk. Load it
+  // on first use so the Parameters tab works before the Data tab is opened.
+  if (!state.inventory) {
+    try { await refreshInventory(false); } catch {}
+  }
+  const rec = inventoryRecord(state.recipe.pair, state.recipe.main_tf);
+  if (!rec || !rec.end_ts) {
+    $('range-info').textContent = 'no inventory for this pair/TF — open the Data tab';
+    return;
+  }
+  const win = computePresetWindow(key, new Date(rec.start_ts), new Date(rec.end_ts));
+  if (!win) return;
+  $('start_date').value = win.start;
+  $('end_date').value = win.end;
+  state.recipe.start_date = win.start;
+  state.recipe.end_date = win.end;
+  updateRangeInfo();
+}
+
+// Download-card preset: anchor = today (so we always pull "up to now"), and
+// invStart falls back to 2005-01-01 when we have no inventory yet. The Tick
+// card clamps Full to today − 1y because tick files are ~500 MB / pair / yr.
+function applyDownloadRangePreset(card, key) {
+  const cfg = card === 'tick'
+    ? { pairId: 'tdl-pair', startId: 'tdl-start', endId: 'tdl-end', tf: 'TICK' }
+    : { pairId: 'dl-pair',  startId: 'dl-start',  endId: 'dl-end',  tf: 'M1'   };
+  const pair = $(cfg.pairId).value;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const rec = pair ? inventoryRecord(pair, cfg.tf) : null;
+  const invStart = rec && rec.start_ts ? new Date(rec.start_ts) : new Date('2005-01-01');
+  let win = computePresetWindow(key, invStart, today);
+  if (!win) return;
+  if (card === 'tick' && key === 'full') {
+    const clamp = new Date(today); clamp.setFullYear(today.getFullYear() - 1);
+    if (new Date(win.start) < clamp) win.start = localISODate(clamp);
+  }
+  $(cfg.startId).value = win.start;
+  $(cfg.endId).value = win.end;
+}
+
+// On pair change, default Start = last-held bar date (so click Append =
+// download only what's missing) and End = today. Pass force=true from the
+// preset handler when we explicitly want to overwrite the user's typed value.
+function autoFillDownloadDates(card, { force = false } = {}) {
+  const cfg = card === 'tick'
+    ? { pairId: 'tdl-pair', startId: 'tdl-start', endId: 'tdl-end', tf: 'TICK' }
+    : { pairId: 'dl-pair',  startId: 'dl-start',  endId: 'dl-end',  tf: 'M1'   };
+  const pairSel = $(cfg.pairId);
+  const startInp = $(cfg.startId);
+  const endInp = $(cfg.endId);
+  if (!pairSel || !startInp || !endInp) return;
+  const today = localISODate(new Date());
+  if (force || !endInp.value) endInp.value = today;
+  const rec = inventoryRecord(pairSel.value, cfg.tf);
+  if (rec && rec.end_ts) {
+    if (force || !startInp.value) startInp.value = String(rec.end_ts).slice(0, 10);
+  } else if (force) {
+    startInp.value = '';
+  }
 }
 
 function fmtMB(bytes) {
@@ -1533,26 +1723,45 @@ async function refreshInventory(force = false) {
   if (btn) { btn.disabled = true; btn.textContent = force ? 'Rescanning…' : 'Loading…'; }
   try {
     const ep = force ? '/api/data/inventory/rescan' : '/api/data/inventory';
-    const opts = force ? { method: 'POST', body: '{}' } : {};
+    const opts = force
+      ? { method: 'POST', body: '{}', timeoutMs: 60_000 }
+      : { timeoutMs: 15_000 };
     const { files } = await api(ep, opts);
     state.inventory = files;
     renderInventoryTable(files);
     populateDownloadPairSelect(files);
   } catch (e) {
-    $('inventory-body').innerHTML = `<tr><td colspan="9" class="px-3 py-3 text-bad-400">${escapeHtml(e.message)}</td></tr>`;
+    const msg = /timeout/i.test(e.message)
+      ? 'server unresponsive — run <code>scripts\\ff_kill_server.ps1</code> then restart <code>run.py web</code>'
+      : escapeHtml(e.message);
+    $('inventory-body').innerHTML = `<tr><td colspan="9" class="px-3 py-3 text-bad-400">${msg}</td></tr>`;
   } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Rescan'; }
   }
 }
 
 function renderInventoryTable(files) {
-  const tbody = $('inventory-body');
+  const root = $('inventory-body');
   if (!files.length) {
-    tbody.innerHTML = '<tr><td colspan="9" class="px-3 py-3 text-slate-500">no parquet files found</td></tr>';
+    root.innerHTML = '<div class="px-3 py-3 text-slate-500 text-xs">no parquet files found</div>';
     $('inventory-summary').textContent = '0 files';
     return;
   }
-  const rows = files.map((r) => `
+
+  // TF order so M1 / M5 / .. / W / TICK sort consistently inside each pair.
+  const TF_ORDER = ['TICK', 'M1', 'M5', 'M15', 'M30', 'H1', 'H4', 'D', 'W'];
+  const tfRank = (t) => { const i = TF_ORDER.indexOf(t); return i < 0 ? 99 : i; };
+  const sortFiles = (rows) => rows.slice().sort((a, b) =>
+    a.pair === b.pair ? tfRank(a.tf) - tfRank(b.tf) : a.pair.localeCompare(b.pair));
+
+  const fileRow = (r) => {
+    let action = '';
+    if (r.tf === 'M1') {
+      action = `<button class="ml-2 text-[10px] px-1.5 py-0.5 rounded border border-ink-600 hover:border-flame-500 hover:text-flame-400" data-action="derive" title="Resample M1 → M5..W">Roll up</button>`;
+    } else if (r.tf === 'TICK') {
+      action = `<button class="ml-2 text-[10px] px-1.5 py-0.5 rounded border border-ink-600 hover:border-flame-500 hover:text-flame-400" data-action="tick-rebuild" title="Tick → M1 → M5..W">Rebuild</button>`;
+    }
+    return `
     <tr data-pair="${escapeAttr(r.pair)}" data-tf="${escapeAttr(r.tf)}"
         class="cursor-pointer hover:bg-ink-800/50">
       <td class="px-3 py-1.5 text-slate-200">${escapeHtml(r.pair)}</td>
@@ -1563,35 +1772,148 @@ function renderInventoryTable(files) {
       <td class="px-3 py-1.5 text-right tabular-nums">${escapeHtml(fmtMB(r.size_bytes))}</td>
       <td class="px-3 py-1.5 text-slate-500">${escapeHtml(fmtMtime(r.mtime))}</td>
       <td class="px-3 py-1.5">${r.has_spread ? '✓' : '—'}</td>
-      <td class="px-3 py-1.5">${statusChip(r.status || 'ok')}</td>
-    </tr>`).join('');
-  tbody.innerHTML = rows;
+      <td class="px-3 py-1.5">${statusChip(r.status || 'ok')}${action}</td>
+    </tr>`;
+  };
+
+  // Bucket files by category. Fall back to single "All" group when /api/pairs
+  // never returned the groups field (older server / first paint pre-boot).
+  const groups = state.pairs_groups;
+  const sections = [];
+  if (groups) {
+    const seen = new Set();
+    for (const [name, pairs] of Object.entries(groups)) {
+      const set = new Set(pairs);
+      const bucket = files.filter(f => set.has(f.pair));
+      if (bucket.length) { sections.push([name, sortFiles(bucket)]); bucket.forEach(b => seen.add(b.pair)); }
+    }
+    const leftover = files.filter(f => !sections.some(([_, fs]) => fs.includes(f)));
+    if (leftover.length) sections.push(['Other', sortFiles(leftover)]);
+  } else {
+    sections.push(['All', sortFiles(files)]);
+  }
+
+  // Per-group <details> card with embedded table. open/closed state persists
+  // across renders via localStorage so a rescan doesn't slam everything closed.
+  const storageKey = (name) => `ff.inventory.group.${name}.open`;
+  const isOpen = (name) => {
+    const saved = localStorage.getItem(storageKey(name));
+    return saved === null ? true : saved === '1';  // default open
+  };
+  const groupCount = (rows) => new Set(rows.map(r => r.pair)).size;
+  const groupSize = (rows) => rows.reduce((s, r) => s + (r.size_bytes || 0), 0);
+
+  const tableHead = `
+    <thead class="bg-ink-800/40 text-slate-400 uppercase text-[10px]">
+      <tr>
+        <th class="text-left px-3 py-1.5">Pair</th>
+        <th class="text-left px-3 py-1.5">TF</th>
+        <th class="text-right px-3 py-1.5">Bars</th>
+        <th class="text-left px-3 py-1.5">From</th>
+        <th class="text-left px-3 py-1.5">To</th>
+        <th class="text-right px-3 py-1.5">MB</th>
+        <th class="text-left px-3 py-1.5">Modified</th>
+        <th class="text-left px-3 py-1.5">Spread</th>
+        <th class="text-left px-3 py-1.5">Status</th>
+      </tr>
+    </thead>`;
+
+  root.innerHTML = sections.map(([name, rows]) => `
+    <details class="rounded border border-ink-700/60 bg-ink-900/40 overflow-hidden" data-group="${escapeAttr(name)}" ${isOpen(name) ? 'open' : ''}>
+      <summary class="cursor-pointer select-none px-3 py-2 flex items-center justify-between bg-ink-800/40 hover:bg-ink-800/60">
+        <span class="text-flame-400 text-[11px] uppercase tracking-wider font-semibold">
+          ${escapeHtml(name)}
+          <span class="text-slate-500 normal-case font-normal ml-2">${groupCount(rows)} pairs · ${rows.length} files · ${(groupSize(rows) / (1024 ** 3)).toFixed(2)} GB</span>
+        </span>
+        <span class="text-slate-500 text-[10px]">click to toggle</span>
+      </summary>
+      <div class="overflow-x-auto">
+        <table class="w-full text-xs">
+          ${tableHead}
+          <tbody class="divide-y divide-ink-700/40 font-mono">${rows.map(fileRow).join('')}</tbody>
+        </table>
+      </div>
+    </details>
+  `).join('');
+
+  // Persist toggle state per group.
+  root.querySelectorAll('details[data-group]').forEach(d => {
+    d.addEventListener('toggle', () => {
+      localStorage.setItem(storageKey(d.dataset.group), d.open ? '1' : '0');
+    });
+  });
+
   const totalBytes = files.reduce((s, r) => s + (r.size_bytes || 0), 0);
-  $('inventory-summary').textContent = `${files.length} files · ${(totalBytes / (1024 ** 3)).toFixed(2)} GB`;
+  $('inventory-summary').textContent = `${files.length} files · ${(totalBytes / (1024 ** 3)).toFixed(2)} GB · ${sections.length} group${sections.length === 1 ? '' : 's'}`;
 }
 
 function populateDownloadPairSelect(files) {
-  const sel = $('dl-pair'); if (!sel) return;
   const pairs = Array.from(new Set(files.map(r => r.pair))).sort();
-  const prev = sel.value;
-  sel.innerHTML = '';
-  for (const p of pairs) {
-    const o = document.createElement('option'); o.value = p; o.textContent = p.replace('_', '/');
-    sel.appendChild(o);
+  // Server-side groups (Majors/Crosses/Metals/Indices/Crypto/Other) come from
+  // /api/pairs and are cached on state. Filter each group to what we actually
+  // have on disk so empty headings don't appear.
+  const groups = state.pairs_groups || null;
+  const buckets = [];
+  if (groups) {
+    const seen = new Set();
+    for (const [name, list] of Object.entries(groups)) {
+      const present = list.filter(p => pairs.includes(p));
+      if (present.length) { buckets.push([name, present]); present.forEach(p => seen.add(p)); }
+    }
+    const leftover = pairs.filter(p => !seen.has(p)).sort();
+    if (leftover.length) buckets.push(['Other', leftover]);
+  } else {
+    buckets.push(['', pairs]);
   }
-  if (pairs.includes(prev)) sel.value = prev;
-  else if (pairs.includes('EUR_USD')) sel.value = 'EUR_USD';
+  for (const id of ['dl-pair', 'tdl-pair']) {
+    const sel = $(id); if (!sel) continue;
+    const prev = sel.value;
+    sel.innerHTML = '';
+    for (const [label, list] of buckets) {
+      const parent = label
+        ? sel.appendChild(Object.assign(document.createElement('optgroup'), { label }))
+        : sel;
+      for (const p of list) {
+        const o = document.createElement('option'); o.value = p; o.textContent = p.replace('_', '/');
+        parent.appendChild(o);
+      }
+    }
+    if (pairs.includes(prev)) sel.value = prev;
+    else if (pairs.includes('EUR_USD')) sel.value = 'EUR_USD';
+  }
+  // Parameter-tab presets depend on inventory; refresh the info line whenever
+  // new data is loaded.
+  updateRangeInfo();
+  // Pre-fill the download date inputs from the now-known inventory bounds.
+  autoFillDownloadDates('bars');
+  autoFillDownloadDates('tick');
 }
 
 async function runHealthCheck(pair, tf) {
   const body = $('health-body');
   $('health-subtitle').textContent = `${pair} ${tf} — running…`;
-  body.innerHTML = '<div class="text-slate-500">scanning…</div>';
+  body.innerHTML = `
+    <div class="text-slate-400 text-sm">scanning parquet…</div>
+    <div class="text-slate-500 text-[11px] mt-1">
+      cold files on Google Drive can take 1–2 min on first read
+    </div>`;
   try {
-    const rep = await api(`/api/data/health/${pair}/${tf}`);
+    const rep = await api(`/api/data/health/${pair}/${tf}`, { timeoutMs: 120_000 });
     renderHealthReport(rep);
   } catch (e) {
-    body.innerHTML = `<div class="text-bad-400">${escapeHtml(e.message)}</div>`;
+    const isTimeout = /timeout/i.test(e.message);
+    const banner = isTimeout
+      ? `health check timed out after 2 min — the parquet is either very cold or the server is hung.
+         run <code>scripts\\ff_kill_server.ps1</code> then restart <code>run.py web</code> if retry also times out.`
+      : escapeHtml(e.message);
+    body.innerHTML = `
+      <div class="text-bad-400 text-sm mb-2">${banner}</div>
+      <button id="health-retry-btn"
+              class="text-[11px] px-2 py-1 rounded border border-ink-600 hover:border-flame-500 hover:text-flame-400">
+        Retry
+      </button>`;
+    const retry = document.getElementById('health-retry-btn');
+    if (retry) retry.addEventListener('click', () => runHealthCheck(pair, tf));
   }
 }
 
@@ -1609,7 +1931,13 @@ function renderHealthReport(r) {
     ? '<div class="text-slate-500">no non-weekend gaps detected</div>'
     : gaps.map(g => `<div class="flex justify-between text-[11px]"><span class="text-slate-400">${escapeHtml(g.from)} → ${escapeHtml(g.to)}</span><span class="tabular-nums text-flame-400">${escapeHtml(g.gap_minutes)}m</span></div>`).join('')
       + (moreCount ? `<div class="text-slate-500 mt-1">+${moreCount} more</div>` : '');
+  const errBanner = r.error_detail
+    ? `<div class="mb-3 p-2 rounded border border-bad-500/40 bg-bad-500/10 text-bad-400 text-xs">
+         ${escapeHtml(r.error_detail)}
+       </div>`
+    : '';
   $('health-body').innerHTML = `
+    ${errBanner}
     <div class="flex items-center gap-2 mb-3">
       <span class="text-xs text-slate-400">Summary:</span>
       ${statusChip(r.summary || 'ok')}
@@ -1627,9 +1955,11 @@ function renderHealthReport(r) {
 }
 
 async function submitDownload() {
+  // M1-locked card; higher TFs come from the local rollup chain after the
+  // M1 fetch lands (see ff/data/resample.derive_higher_tfs).
   const body = {
     pair: $('dl-pair').value,
-    tf: $('dl-tf').value,
+    tf: 'M1',
     start: $('dl-start').value,
     end: $('dl-end').value,
     append: $('dl-append').checked,
@@ -1683,6 +2013,264 @@ async function cancelDownload() {
     $('dl-status').textContent = 'cancel error: ' + e.message;
   }
 }
+
+// ── Tick downloads (separate pipeline: ticks → M1 → M5..W) ────────────
+
+async function submitTickDownload() {
+  const body = {
+    pair: $('tdl-pair').value,
+    start: $('tdl-start').value,
+    end: $('tdl-end').value,
+    append: $('tdl-append').checked,
+  };
+  if (!body.pair || !body.start || !body.end) {
+    $('tdl-status').textContent = 'pair, start and end are required';
+    return;
+  }
+  try {
+    $('tdl-log').textContent = '';
+    $('tdl-status').textContent = 'starting…';
+    $('tdl-submit').disabled = true;
+    $('tdl-cancel').classList.remove('hidden');
+    const { job_id } = await api('/api/data/download/tick', { method: 'POST', body: JSON.stringify(body) });
+    state.tickDlJobId = job_id;
+    pollTickDownloadJob();
+  } catch (e) {
+    $('tdl-status').textContent = 'error: ' + e.message;
+    $('tdl-submit').disabled = false;
+    $('tdl-cancel').classList.add('hidden');
+  }
+}
+
+async function pollTickDownloadJob() {
+  if (!state.tickDlJobId) return;
+  clearTimeout(state.tickDlTimer);
+  try {
+    const j = await api(`/api/data/download/tick/${state.tickDlJobId}`);
+    $('tdl-status').textContent = `${j.status} — ${j.message || ''}`;
+    if (Array.isArray(j.tail_lines)) $('tdl-log').textContent = j.tail_lines.join('\n');
+    $('tdl-log').scrollTop = $('tdl-log').scrollHeight;
+    if (j.status === 'running') {
+      state.tickDlTimer = setTimeout(pollTickDownloadJob, 1500);
+    } else {
+      $('tdl-submit').disabled = false;
+      $('tdl-cancel').classList.add('hidden');
+      state.tickDlJobId = null;
+      refreshInventory(true);
+    }
+  } catch (e) {
+    $('tdl-status').textContent = 'poll error: ' + e.message;
+    state.tickDlTimer = setTimeout(pollTickDownloadJob, 2500);
+  }
+}
+
+async function cancelTickDownload() {
+  if (!state.tickDlJobId) return;
+  try {
+    await api(`/api/data/download/tick/${state.tickDlJobId}/cancel`, { method: 'POST', body: '{}' });
+  } catch (e) {
+    $('tdl-status').textContent = 'cancel error: ' + e.message;
+  }
+}
+
+// ── Inventory row actions (Roll-up / Rebuild from ticks) ───────────────
+
+async function runInventoryAction(action, pair) {
+  const url = action === 'derive' ? `/api/data/derive/${pair}`
+            : action === 'tick-rebuild' ? `/api/data/tick-to-m1/${pair}`
+            : null;
+  if (!url) return;
+  const btn = document.querySelector(
+    `tr[data-pair="${pair}"] [data-action="${action}"]`
+  );
+  if (btn) { btn.disabled = true; btn.textContent = '…'; }
+  try {
+    const rep = await api(url, { method: 'POST', body: '{}' });
+    if (action === 'tick-rebuild') {
+      // Chain derive after tick→M1 finishes so every TF reflects the rebuild.
+      await api(`/api/data/derive/${pair}`, { method: 'POST', body: '{}' });
+    }
+    console.log('action ok', action, pair, rep);
+  } catch (e) {
+    alert(`${action} failed: ${e.message}`);
+  } finally {
+    refreshInventory(true);
+  }
+}
+
+// ── Live tab ───────────────────────────────────────────────────────────
+
+const LIVE_POLL_MS = 5000;
+let _livePollHandle = null;
+let _liveLastPlanId = null;
+
+function _liveFmt(x, d=5) { return x == null || Number.isNaN(+x) ? '–' : (+x).toFixed(d); }
+
+async function liveRefreshStatus() {
+  try {
+    const s = await api('/api/live/status');
+    const pill = document.getElementById('live-status-pill');
+    if (pill) {
+      pill.textContent = s.status;
+      pill.className = 'px-2 py-0.5 rounded-full border ' + (
+        s.status === 'running' ? 'bg-ok-500/10 text-ok-400 border-ok-500/30'
+        : s.status === 'error' ? 'bg-bad-500/10 text-bad-400 border-bad-500/40'
+        : 'bg-ink-800 text-slate-400 border-ink-600'
+      );
+    }
+    const up = document.getElementById('live-uptime');
+    if (up) up.textContent = (s.uptime_sec > 0) ? `${Math.round(s.uptime_sec)}s` : '–';
+    const pairs = document.getElementById('live-pairs');
+    if (pairs) pairs.textContent = (s.pairs || []).join(', ') || '–';
+    const openN = document.getElementById('live-open-n');
+    if (openN) {
+      const n = Object.values(s.open_positions || {}).reduce((acc, m) => acc + Object.keys(m || {}).length, 0);
+      openN.textContent = String(n);
+    }
+    const plansN = document.getElementById('live-plans-n');
+    if (plansN) plansN.textContent = String(s.plans_today ?? 0);
+  } catch (e) {
+    console.warn('live status', e);
+  }
+}
+
+async function liveRefreshPlans() {
+  try {
+    const r = await api('/api/live/plans?limit=200');
+    const rows = (r.plans || []);
+    const body = document.getElementById('live-plans-body');
+    if (!body) return;
+    body.innerHTML = rows.slice().reverse().map(p => `
+      <tr>
+        <td class="px-3 py-1 text-slate-300">${p.signal_bar_ts || '–'}</td>
+        <td class="px-3 py-1">${p.pair || '–'}</td>
+        <td class="px-3 py-1 text-right ${p.direction > 0 ? 'text-ok-400' : 'text-bad-400'}">${p.direction > 0 ? '+1' : '-1'}</td>
+        <td class="px-3 py-1 text-right">${_liveFmt(p.entry_ref_price)}</td>
+        <td class="px-3 py-1 text-right">${_liveFmt(p.sl_price)}</td>
+        <td class="px-3 py-1 text-right">${_liveFmt(p.tp_price)}</td>
+        <td class="px-3 py-1 text-slate-500 text-[11px]">${p.plan_id || ''}</td>
+      </tr>`).join('');
+    if (rows.length) _liveLastPlanId = rows[rows.length - 1].plan_id;
+  } catch (e) {
+    console.warn('live plans', e);
+  }
+}
+
+function liveStartPolling() {
+  if (_livePollHandle) return;
+  liveRefreshStatus(); liveRefreshPlans();
+  _livePollHandle = setInterval(() => {
+    liveRefreshStatus(); liveRefreshPlans();
+  }, LIVE_POLL_MS);
+}
+
+function liveStopPolling() {
+  if (_livePollHandle) { clearInterval(_livePollHandle); _livePollHandle = null; }
+}
+
+async function liveStart() {
+  const body = {
+    recipe: state.recipe,
+    overrides: state.overrides || {},
+    pairs: state.recipe?.pair ? [state.recipe.pair] : [],
+    // Broker profile comes from the VPS .env.live — UI sends empty placeholder;
+    // the runner service is expected to merge creds before calling broker.connect().
+    // For dev testing the Start button will error out unless a broker dict is posted.
+    broker: {
+      login: 0, password: "", server: "",
+      deviation_pips: 3, magic_number: 20260420,
+      symbol_map: {}
+    }
+  };
+  try {
+    const r = await api('/api/live/start', { method: 'POST', body: JSON.stringify(body) });
+    console.log('live start', r);
+    liveRefreshStatus();
+  } catch (e) {
+    alert(`live start failed: ${e.message}`);
+  }
+}
+
+async function liveStop() {
+  try {
+    await api('/api/live/stop', { method: 'POST', body: '{}' });
+    liveRefreshStatus();
+  } catch (e) {
+    alert(`live stop failed: ${e.message}`);
+  }
+}
+
+async function liveReconcile() {
+  const runId = prompt('run_id to reconcile against (stem of artifacts/runs/*.npz):');
+  if (!runId) return;
+  try {
+    const r = await api('/api/live/reconcile/run', {
+      method: 'POST',
+      body: JSON.stringify({ run_id: runId }),
+    });
+    console.log('reconcile', r);
+    const f = document.getElementById('live-reconcile-frame');
+    if (f) f.src = `/api/live/reconcile/latest.html?t=${Date.now()}`;
+  } catch (e) {
+    alert(`reconcile failed: ${e.message}`);
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const t = e.target;
+  if (!t || !t.id) return;
+  if (t.id === 'live-start-btn') liveStart();
+  if (t.id === 'live-stop-btn')  liveStop();
+  if (t.id === 'live-reconcile-btn') liveReconcile();
+  if (t.id === 'deploy-live-btn') deployToLive();
+});
+
+async function deployToLive() {
+  const runFile = state?.scatter?.runFile;
+  if (!runFile) { alert('No run loaded — run a backtest first.'); return; }
+
+  const pair = state?.recipe?.pair;
+  if (!pair) { alert('No pair set on the Parameters tab.'); return; }
+
+  const extraPairs = prompt(
+    `Trade these pairs live (comma-separated). Default is just ${pair}.`,
+    pair
+  );
+  if (!extraPairs) return;
+  const pairs = extraPairs.split(',').map(s => s.trim()).filter(Boolean);
+
+  const body = {
+    run_id: runFile,
+    recipe: state.recipe,
+    overrides: state.overrides || {},
+    pairs,
+    poll_interval_sec: 1.0,
+    size_lots: 0.01,
+  };
+
+  try {
+    const r = await api('/api/live/deploy_from_run', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    alert(
+      `Deployed.\n\nsource_run_id = ${r.source_run_id}\nconfig written to ${r.service_config_path}\n\n` +
+      `Next step on the VPS:\n  schtasks /Run /TN ff-live-runner\n\n` +
+      `Or locally: switch to the Live tab and hit Start.`
+    );
+    switchTab('live');
+  } catch (e) {
+    alert(`Deploy failed: ${e.message}`);
+  }
+}
+
+// Start/stop polling when the Live tab becomes visible.
+const _origSwitchTab = switchTab;
+switchTab = function(name) {
+  _origSwitchTab(name);
+  if (name === 'live') liveStartPolling();
+  else liveStopPolling();
+};
 
 // ── go ─────────────────────────────────────────────────────────────────
 
