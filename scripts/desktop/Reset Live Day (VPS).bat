@@ -7,14 +7,14 @@ REM   3. Flatten Fire Forex MT5 positions + archive today's plans/tickets/state
 REM   4. Restart the Scheduled Task so it picks up new code
 REM
 REM Everything under artifacts\live\ is archived under archive\<stamp>\
-REM — nothing is destroyed. Local uncommitted code IS discarded; the VPS
+REM - nothing is destroyed. Local uncommitted code IS discarded; the VPS
 REM should never hold edits so this is safe.
 
 setlocal
 cd /d "C:\Projects\Fire Forex"
 
 echo.
-echo === Fire Forex · pull + reset live day (VPS) ===
+echo === Fire Forex * pull + reset live day (VPS) ===
 echo.
 
 echo This will:
@@ -35,13 +35,13 @@ echo.
 echo --- 2/4 fetch + reset to origin/main ---
 git fetch origin main
 if errorlevel 1 (
-    echo git fetch failed — aborting before we touch anything.
+    echo git fetch failed - aborting before we touch anything.
     pause
     exit /b 1
 )
 git reset --hard origin/main
 if errorlevel 1 (
-    echo git reset failed — aborting.
+    echo git reset failed - aborting.
     pause
     exit /b 1
 )
@@ -51,7 +51,7 @@ echo --- 3/4 reset live day ---
 ".venv\Scripts\python.exe" "scripts\reset_live_day.py"
 set rc=%errorlevel%
 if not "%rc%"=="0" (
-    echo reset_live_day.py exited with errorlevel %rc% — NOT restarting runner.
+    echo reset_live_day.py exited with errorlevel %rc% - NOT restarting runner.
     pause
     exit /b %rc%
 )

@@ -7,7 +7,7 @@ cd /d "C:\Projects\Fire Forex"
 
 echo.
 echo =========================================================
-echo   Fire Forex live runner · status check
+echo   Fire Forex live runner * status check
 echo =========================================================
 echo.
 
@@ -17,14 +17,14 @@ echo.
 
 echo [2] Python process holding the runner:
 tasklist /FI "IMAGENAME eq python.exe" /V /FO LIST | findstr /R "^PID: ^Image ff.live.runner"
-if errorlevel 1 echo   (no python.exe — runner NOT running)
+if errorlevel 1 echo   (no python.exe - runner NOT running)
 echo.
 
 echo [3] state.json (open positions):
 if exist "artifacts\live\state.json" (
     type "artifacts\live\state.json"
 ) else (
-    echo   no state.json yet — runner hasn't persisted any open positions.
+    echo   no state.json yet - runner hasn't persisted any open positions.
 )
 echo.
 
@@ -48,21 +48,21 @@ if exist "artifacts\live\errors.jsonl" (
     echo   last 5 errors:
     powershell -NoProfile -Command "Get-Content 'artifacts\live\errors.jsonl' -Tail 5"
 ) else (
-    echo   no errors file — good.
+    echo   no errors file - good.
 )
 echo.
 
 echo [6] Crashes:
 if exist "artifacts\live\crashes.jsonl" (
-    echo   *** crashes file exists — runner has fallen over at least once ***
+    echo   *** crashes file exists - runner has fallen over at least once ***
     powershell -NoProfile -Command "Get-Content 'artifacts\live\crashes.jsonl' -Tail 3"
 ) else (
-    echo   no crashes file — good.
+    echo   no crashes file - good.
 )
 echo.
 
 echo [7] MT5 positions with Fire Forex magic number (20260420):
-powershell -NoProfile -Command "try { $p = Get-Process -Name terminal64 -ErrorAction Stop; Write-Host ('  MT5 terminal64 is running (PID ' + $p.Id + ')') } catch { Write-Host '  MT5 terminal64 NOT running — runner cannot place orders' }"
+powershell -NoProfile -Command "try { $p = Get-Process -Name terminal64 -ErrorAction Stop; Write-Host ('  MT5 terminal64 is running (PID ' + $p.Id + ')') } catch { Write-Host '  MT5 terminal64 NOT running - runner cannot place orders' }"
 echo.
 
 echo =========================================================
