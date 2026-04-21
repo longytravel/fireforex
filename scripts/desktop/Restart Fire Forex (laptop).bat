@@ -30,10 +30,18 @@ if errorlevel 1 (
 
 echo.
 echo [3/5] rebuilding Rust engine if core/ changed...
-git diff HEAD~1 --name-only 2>nul | findstr /r "^core/" >nul
-if not errorlevel 1 (
+REM findstr /r with a caret-anchored regex is fragile under CMD quoting
+REM (the caret gets eaten as an escape char and findstr errors "Cannot
+REM open ^core/" — which was enough on some laptops to kill the bat
+REM without reaching step 5). Use plain prefix match with /b /c: instead.
+set core_changed=0
+for /f "delims=" %%F in ('git diff HEAD~1 --name-only 2^>nul') do (
+    echo %%F | findstr /b /c:"core/" >nul 2>&1
+    if not errorlevel 1 set core_changed=1
+)
+if "%core_changed%"=="1" (
     echo    core/ changed — running maturin develop --release...
-    call .venv\Scripts\maturin.exe develop --release
+    call ".venv\Scripts\maturin.exe" develop --release
     if errorlevel 1 (
         echo    FAILED: maturin build.
         pause
@@ -73,4 +81,5 @@ echo  Done. New browser tab should be opening on the UI.
 echo  Old tab: hit Ctrl+F5 to hard-refresh.
 echo ============================================================
 echo.
-timeout /t 3 /nobreak >nul
+REM Keep the window visible long enough to see any trailing error.
+pause
