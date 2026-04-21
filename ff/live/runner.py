@@ -177,7 +177,14 @@ def _emit_plan(plan: dict[str, Any]) -> None:
 # ── Runner skeleton ────────────────────────────────────────────────────
 
 def _build_pair_state(pair: str, cfg: LiveConfig) -> PairState:
-    ea = complexity_to_ea(cfg.pair_recipe(pair), cfg.recipe.get("level", 1))
+    recipe = cfg.pair_recipe(pair)
+    ea = complexity_to_ea(
+        level=int(recipe.get("level", 1)),
+        pair=recipe["pair"],
+        main_tf=recipe["main_tf"],
+        sub_tf=recipe.get("sub_tf"),
+        name=recipe.get("name"),
+    )
     ea = apply_overrides(ea, cfg.overrides)
     return PairState(
         pair=pair,
