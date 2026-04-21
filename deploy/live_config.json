@@ -1,11 +1,11 @@
 {
-  "source_run_id": "complexity_L10_EUR_USD_M15_20260421_180937",
+  "source_run_id": "complexity_L10_EUR_USD_M15_20260421_182244",
   "recipe": {
     "pair": "EUR_USD",
     "main_tf": "M15",
     "sub_tf": "M1",
     "name": null,
-    "start_date": "2026-03-20",
+    "start_date": "2026-01-20",
     "end_date": "2026-04-20"
   },
   "overrides": {
@@ -40,39 +40,48 @@
     "AUD_JPY"
   ],
   "best_trial": {
-    "signal_variant": 3104,
+    "signal_variant": 624,
     "engine": {
       "stop_loss": {
-        "selector": "fixed",
-        "fixed": {
-          "pips": 43.0
+        "selector": "atr",
+        "atr": {
+          "mult": 5.549999999999989
         }
       },
       "take_profit": {
         "selector": "fixed",
         "fixed": {
-          "pips": 5.5
+          "pips": 47.5
         }
       },
       "trailing": {
-        "test": false
+        "test": true,
+        "when_on": {
+          "mode": {
+            "selector": "atr",
+            "atr": {
+              "mult": 1.5999999999999983
+            }
+          },
+          "activate": 6.5
+        }
       },
       "chandelier": {
         "test": true,
         "when_on": {
-          "activate": 11.0,
-          "atr_mult": 2.425000000000006
+          "activate": 19.125,
+          "atr_mult": 3.675000000000024
         }
       },
       "breakeven": {
-        "test": false
-      },
-      "partial": {
         "test": true,
         "when_on": {
-          "pct": 66.5,
-          "trigger": 12.75
+          "trigger": 8.75,
+          "offset": 0.6500000000000014
         }
+      },
+      "partial": {
+        "test": false
       },
       "stale": {
         "test": false
@@ -80,14 +89,17 @@
       "session": {
         "test": true,
         "when_on": {
-          "hours_start": 9,
-          "hours_end": 14
+          "hours_start": 1,
+          "hours_end": 2
         }
       },
       "max_bars": {
-        "test": false
+        "test": true,
+        "when_on": {
+          "bars": 144
+        }
       },
-      "days": 127
+      "days": 63
     }
   },
   "poll_interval_sec": 1.0,
