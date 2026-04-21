@@ -107,6 +107,7 @@ class LiveConfig:
     poll_interval_sec: float = 1.0
     lookback_bars: int = 500
     size_lots: float = 0.01
+    best_trial: dict[str, Any] | None = None
 
     def pair_recipe(self, pair: str) -> dict[str, Any]:
         """Recipe scoped to a single pair — used per-pair EA build."""
@@ -138,6 +139,7 @@ class PairState:
     main_buf: pd.DataFrame
     last_main_ts: pd.Timestamp | None
     open_positions: dict[str, OpenPosition] = field(default_factory=dict)
+    best_trial: dict[str, Any] | None = None
 
 
 # ── Persistence ────────────────────────────────────────────────────────
@@ -192,6 +194,7 @@ def _build_pair_state(pair: str, cfg: LiveConfig) -> PairState:
         m1_buf=pd.DataFrame(),
         main_buf=pd.DataFrame(),
         last_main_ts=None,
+        best_trial=cfg.best_trial,
     )
 
 
@@ -307,12 +310,20 @@ def _spawn_state_sync(stop_event: Event) -> Thread:
 
     def _loop() -> None:
         LOG.info("[live] state_sync thread running (every %ds)", interval)
+        consecutive_failures = 0
         while not stop_event.wait(interval):
             try:
                 if _ss.snapshot_and_push():
                     LOG.info("[live] state_sync pushed snapshot")
+                consecutive_failures = 0
             except Exception as exc:  # noqa: BLE001
+                consecutive_failures += 1
                 LOG.warning("[live] state_sync iteration failed: %r", exc)
+                _log_error({
+                    "stage": "state_sync",
+                    "consecutive_failures": consecutive_failures,
+                    "error": repr(exc),
+                })
 
     t = Thread(target=_loop, daemon=True, name="live-state-sync")
     t.start()
@@ -459,6 +470,16 @@ def _evaluate_and_fire(
     if hits.size == 0:
         return
 
+    # Parity: when a frozen best_trial is active, restrict hits to the variant
+    # the backtest picked. Without this, live would fire whatever variant
+    # sorted first in the library — a different signal than the backtest.
+    if state.best_trial is not None:
+        frozen_variant = state.best_trial.get("signal_variant")
+        if frozen_variant is not None:
+            hits = hits[lib.variant[hits] == int(frozen_variant)]
+            if hits.size == 0:
+                return
+
     # Fire first matching signal only — multi-fire on the same bar is rare,
     # and the live loop is single-trade-per-signal-bar.
     si = int(hits[0])
@@ -484,7 +505,10 @@ def _evaluate_and_fire(
     except Exception:  # pragma: no cover — defensive: never block a fire on telemetry
         spread_at_fire_pips = 0.0
 
-    sl_price, tp_price = _compute_sl_tp_live(ea, direction, entry_ref_price, atr_pips, pip_value)
+    sl_price, tp_price = _compute_sl_tp_live(
+        ea, direction, entry_ref_price, atr_pips, pip_value,
+        best_trial=state.best_trial,
+    )
 
     plan_id = _plan_id(state.pair, signal_bar_ts, direction)
     if _is_duplicate_plan(plan_id):
@@ -549,6 +573,50 @@ def _pip_value_for_pair(pair: str) -> float:
 
 
 def _compute_sl_tp_live(
+    ea: dict,
+    direction: int,
+    entry_price: float,
+    atr_pips: float,
+    pip_value: float,
+    best_trial: dict | None = None,
+) -> tuple[float, float]:
+    """SL/TP for a fired live plan. When ``best_trial`` is provided, use its
+    frozen ``engine.stop_loss`` / ``engine.take_profit`` dicts — the SAME
+    param vector the backtest ran. Falls back to EA schema defaults only
+    when no frozen trial exists (legacy code path).
+    """
+    if best_trial is not None:
+        eng = best_trial.get("engine", {})
+        sl_cfg = eng.get("stop_loss", {}) or {}
+        tp_cfg = eng.get("take_profit", {}) or {}
+        sl_mode = sl_cfg.get("selector", "atr")
+        if sl_mode == "fixed":
+            sl_pips = float(sl_cfg.get("fixed", {}).get("pips", 20.0))
+        elif sl_mode == "atr":
+            sl_pips = atr_pips * float(sl_cfg.get("atr", {}).get("mult", 1.5))
+        else:
+            sl_pips = atr_pips * 1.5
+
+        tp_mode = tp_cfg.get("selector", "rr")
+        if tp_mode == "rr":
+            tp_pips = sl_pips * float(tp_cfg.get("rr", {}).get("ratio", 1.5))
+        elif tp_mode == "atr":
+            tp_pips = atr_pips * float(tp_cfg.get("atr", {}).get("mult", 2.0))
+        elif tp_mode == "fixed":
+            tp_pips = float(tp_cfg.get("fixed", {}).get("pips", 30.0))
+        else:
+            tp_pips = sl_pips * 1.5
+
+        if direction == 1:
+            return entry_price - sl_pips * pip_value, entry_price + tp_pips * pip_value
+        return entry_price + sl_pips * pip_value, entry_price - tp_pips * pip_value
+
+    return _compute_sl_tp_live_legacy(
+        ea, direction, entry_price, atr_pips, pip_value,
+    )
+
+
+def _compute_sl_tp_live_legacy(
     ea: dict,
     direction: int,
     entry_price: float,

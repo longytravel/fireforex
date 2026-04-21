@@ -583,6 +583,7 @@ def post_live_start(body: dict[str, Any]) -> dict[str, Any]:
         broker_profile=body["broker"],
         poll_interval_sec=float(body.get("poll_interval_sec", 10.0)),
         size_lots=float(body.get("size_lots", 0.01)),
+        best_trial=body.get("best_trial"),
     )
     return host.status()
 

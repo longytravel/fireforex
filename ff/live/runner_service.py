@@ -84,6 +84,7 @@ def main() -> int:
             broker=runner.BrokerCfg(**broker_profile),
             poll_interval_sec=float(service_cfg.get("poll_interval_sec", 10.0)),
             size_lots=float(service_cfg.get("size_lots", 0.01)),
+            best_trial=service_cfg.get("best_trial"),
         )
 
         stop_event = Event()
