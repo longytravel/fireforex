@@ -1,8 +1,8 @@
 {
-  "source_run_id": "complexity_L10_EUR_USD_M15_20260421_182244",
+  "source_run_id": "complexity_L10_EUR_USD_H1_20260421_211542",
   "recipe": {
     "pair": "EUR_USD",
-    "main_tf": "M15",
+    "main_tf": "H1",
     "sub_tf": "M1",
     "name": null,
     "start_date": "2026-01-20",
@@ -10,75 +10,76 @@
   },
   "overrides": {
     "groups": {
-      "trailing": true,
-      "breakeven": true,
-      "partial": true,
-      "stale": true,
-      "session": true,
-      "max_bars": true
+      "trailing": false,
+      "breakeven": false,
+      "partial": false,
+      "stale": false,
+      "session": false,
+      "max_bars": false
     },
     "knobs": {},
     "signal_families": {
       "ema_cross": true,
-      "macd_cross": true,
-      "donchian": true
+      "macd_cross": false,
+      "donchian": false
     },
     "global": {
-      "step_multiplier": 0.25
+      "step_multiplier": 3
     }
   },
   "pairs": [
     "EUR_USD",
     "GBP_USD",
-    "USD_JPY",
     "AUD_USD",
-    "USD_CHF",
     "NZD_USD",
+    "USD_JPY",
+    "USD_CHF",
+    "USD_CAD",
     "EUR_GBP",
     "EUR_JPY",
+    "EUR_CHF",
+    "EUR_AUD",
+    "EUR_CAD",
+    "EUR_NZD",
     "GBP_JPY",
-    "AUD_JPY"
+    "GBP_C  HF",
+    "GBP_AUD",
+    "GBP_CAD",
+    "GBP_NZD",
+    "AUD_JPY",
+    "AUD_CHF",
+    "AUD_CAD",
+    "AUD_NZD",
+    "NZD_JPY",
+    "NZD_CHF",
+    "NZD_CAD",
+    "CAD_JPY",
+    "CAD_CHF",
+    "CHF_JPY"
   ],
   "best_trial": {
-    "signal_variant": 624,
+    "signal_variant": 35,
     "engine": {
       "stop_loss": {
-        "selector": "atr",
-        "atr": {
-          "mult": 5.549999999999989
+        "selector": "fixed",
+        "fixed": {
+          "pips": 80.0
         }
       },
       "take_profit": {
-        "selector": "fixed",
-        "fixed": {
-          "pips": 47.5
+        "selector": "rr",
+        "rr": {
+          "ratio": 4.1000000000000005
         }
       },
       "trailing": {
-        "test": true,
-        "when_on": {
-          "mode": {
-            "selector": "atr",
-            "atr": {
-              "mult": 1.5999999999999983
-            }
-          },
-          "activate": 6.5
-        }
+        "test": false
       },
       "chandelier": {
-        "test": true,
-        "when_on": {
-          "activate": 19.125,
-          "atr_mult": 3.675000000000024
-        }
+        "test": false
       },
       "breakeven": {
-        "test": true,
-        "when_on": {
-          "trigger": 8.75,
-          "offset": 0.6500000000000014
-        }
+        "test": false
       },
       "partial": {
         "test": false
@@ -87,19 +88,12 @@
         "test": false
       },
       "session": {
-        "test": true,
-        "when_on": {
-          "hours_start": 1,
-          "hours_end": 2
-        }
+        "test": false
       },
       "max_bars": {
-        "test": true,
-        "when_on": {
-          "bars": 144
-        }
+        "test": false
       },
-      "days": 63
+      "days": 127
     }
   },
   "poll_interval_sec": 1.0,
