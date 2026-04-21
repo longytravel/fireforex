@@ -181,7 +181,7 @@ def _log_tails() -> str:
 
 def main() -> int:
     parts: list[str] = []
-    parts.append(f"Fire Forex · VPS diagnostic  ({time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())})")
+    parts.append(f"Fire Forex -- VPS diagnostic  ({time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())})")
     parts.append(f"Report path: {DIAG_PATH}")
     for fn in (_git_state, _tasks, _config, _artifacts_listing,
                _log_tails, _mt5):

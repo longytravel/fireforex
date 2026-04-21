@@ -105,7 +105,7 @@ def _flatten_positions(magic_only: bool = False) -> int:
     try:
         import MetaTrader5 as mt5  # type: ignore
     except ImportError:
-        print("[reset] MetaTrader5 package not available — skipping flatten")
+        print("[reset] MetaTrader5 package not available -- skipping flatten")
         return 0
 
     if not mt5.initialize(
@@ -126,13 +126,13 @@ def _flatten_positions(magic_only: bool = False) -> int:
                   f"(leaving {len(positions) - len(ours)} other positions untouched)")
         else:
             ours = list(positions)
-            print(f"[reset] {len(ours)} open position(s) on the account — "
+            print(f"[reset] {len(ours)} open position(s) on the account -- "
                   f"closing ALL (pass --magic-only to filter by Fire Forex magic)")
 
         for p in ours:
             tick = mt5.symbol_info_tick(p.symbol)
             if tick is None:
-                print(f"[reset]  {p.symbol} no tick — SKIP")
+                print(f"[reset]  {p.symbol} no tick -- SKIP")
                 continue
             opposite_type = (
                 mt5.ORDER_TYPE_SELL if p.type == mt5.ORDER_TYPE_BUY
@@ -168,7 +168,7 @@ def _archive_and_wipe() -> Path:
     dst = ARCHIVE_ROOT / stamp
     dst.mkdir(parents=True, exist_ok=True)
 
-    print(f"[reset] archiving today's live files → {dst}")
+    print(f"[reset] archiving today's live files -> {dst}")
     for name in ARCHIVE_TARGETS:
         src = LIVE_DIR / name
         if not src.exists():
@@ -194,13 +194,13 @@ def main() -> int:
     parser.add_argument(
         "--restart", action="store_true",
         help="Re-arm the ff-live-runner Scheduled Task after the wipe. "
-             "Default leaves it stopped — Deploy from the laptop is the "
+             "Default leaves it stopped -- Deploy from the laptop is the "
              "intended way to resume trading.",
     )
     args = parser.parse_args()
 
     print("=" * 60)
-    print(f"Fire Forex · reset live day  ({time.strftime('%Y-%m-%d %H:%M:%S')})")
+    print(f"Fire Forex -- reset live day  ({time.strftime('%Y-%m-%d %H:%M:%S')})")
     print("=" * 60)
 
     _stop_task()
@@ -210,7 +210,7 @@ def main() -> int:
         closed = _flatten_positions(magic_only=args.magic_only)
         print(f"[reset] flattened {closed} position(s)")
     except Exception as exc:  # noqa: BLE001
-        print(f"[reset] flatten failed: {exc!r} — continuing to archive anyway")
+        print(f"[reset] flatten failed: {exc!r} -- continuing to archive anyway")
 
     archive_dir = _archive_and_wipe()
     print(f"[reset] live state archived at {archive_dir}")
