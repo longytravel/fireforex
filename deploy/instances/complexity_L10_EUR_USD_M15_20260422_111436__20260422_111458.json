@@ -95,6 +95,10 @@
         "test": false
       },
       "days": 63
+    },
+    "signal_family": "donchian",
+    "signal_params": {
+      "lookback": 62
     }
   },
   "poll_interval_sec": 1.0,

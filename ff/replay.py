@@ -120,20 +120,39 @@ def _build_ea_for_pair(config: dict[str, Any], pair: str) -> dict[str, Any]:
     return ea
 
 
-def _ensure_data(pair: str, start: date, end: date) -> None:
-    """Top up Dukascopy M1 + fan out higher TFs. Idempotent and additive."""
-    from .data import m1_bi5_downloader, resample
+def _ensure_data(pair: str, start: date, end: date,
+                 data_source: str = "dukascopy") -> None:
+    """Top up M1 data + fan out higher TFs for the chosen source. Idempotent.
+
+    ``data_source="dukascopy"`` uses the bi5 downloader against
+    ``DATA_ROOT``; ``data_source="mt5"`` uses the MT5 downloader against
+    ``MT5_DATA_ROOT``. Each source writes to its own parquet root so the
+    three-way reconcile can load them side-by-side.
+    """
+    from .data import m1_bi5_downloader, mt5_m1_downloader, resample
 
     def _log(msg: str) -> None:
-        LOG.info("[replay][data][%s] %s", pair, msg)
+        LOG.info("[replay][data][%s][%s] %s", data_source, pair, msg)
 
-    result = m1_bi5_downloader.download(
-        pair, start, end, append=True, log_cb=_log,
-    )
+    if data_source == "dukascopy":
+        result = m1_bi5_downloader.download(
+            pair, start, end, append=True, log_cb=_log,
+        )
+        root = harness.DATA_ROOT
+    elif data_source == "mt5":
+        result = mt5_m1_downloader.download(
+            pair, start, end, append=True, log_cb=_log,
+        )
+        root = mt5_m1_downloader.MT5_DATA_ROOT
+    else:
+        raise ValueError(
+            f"unknown data_source={data_source!r} (expected 'dukascopy' or 'mt5')"
+        )
+
     new_bars = int(result.get("new_bars", 0))
     if new_bars > 0:
         try:
-            written = resample.derive_higher_tfs(pair, source_tf="M1")
+            written = resample.derive_higher_tfs(pair, source_tf="M1", root=root)
             _log(f"derived higher TFs: {[p.name for p in written]}")
         except FileNotFoundError:
             _log("no M1 parquet to resample — skipping higher-TF fanout")
@@ -141,8 +160,20 @@ def _ensure_data(pair: str, start: date, end: date) -> None:
 
 def replay_service_config(
     config_path: Path | str = LIVE_DIR / "service_config.json",
+    *,
+    data_source: str = "dukascopy",
 ) -> dict[str, Any]:
-    """Replay the deployed config pair-by-pair. Returns the summary dict."""
+    """Replay the deployed config pair-by-pair. Returns the summary dict.
+
+    ``data_source`` picks which parquet root the backtest reads —
+    ``"dukascopy"`` (default) or ``"mt5"``. Output is stamped per-source
+    (``<source_run_id>/<stamp>_<data_source>/``) so successive runs don't
+    overwrite each other.
+    """
+    if data_source not in ("dukascopy", "mt5"):
+        raise ValueError(
+            f"unknown data_source={data_source!r} (expected 'dukascopy' or 'mt5')"
+        )
     config_path = Path(config_path)
     if not config_path.exists():
         raise FileNotFoundError(f"service_config not found: {config_path}")
@@ -167,9 +198,11 @@ def replay_service_config(
     LOG.info("[replay] window %s → %s  (%d pairs)",
              window_start, window_end, len(pairs))
 
-    # Stamp the replay output tree.
+    # Stamp the replay output tree. Suffix the data source so MT5 and
+    # Dukascopy runs for the same window don't clobber each other when the
+    # three-way reconcile fires both in succession.
     stamp = time.strftime("%Y%m%d_%H%M%S")
-    out_dir = REPLAY_DIR / source_run_id / stamp
+    out_dir = REPLAY_DIR / source_run_id / f"{stamp}_{data_source}"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     # Pin the per-pair backtest start/end inside the EA so the harness
@@ -186,7 +219,7 @@ def replay_service_config(
     for i, pair in enumerate(pairs, 1):
         LOG.info("[replay] (%d/%d) %s", i, len(pairs), pair)
         try:
-            _ensure_data(pair, window_start, window_end)
+            _ensure_data(pair, window_start, window_end, data_source=data_source)
         except Exception as e:
             LOG.error("[replay] data download failed for %s: %s", pair, e)
             per_pair_summary.append({
@@ -209,6 +242,7 @@ def replay_service_config(
                 open_browser=False,
                 frozen_trial=best_trial,
                 save_artifacts=False,
+                data_source=data_source,
             )
         except Exception as e:
             LOG.error("[replay] harness.run failed for %s: %s", pair, e)
@@ -262,6 +296,7 @@ def replay_service_config(
     summary = {
         "source_run_id": source_run_id,
         "stamp": stamp,
+        "data_source": data_source,
         "window": {"start": start_str, "end": end_str},
         "pairs": per_pair_summary,
         "n_trades_total": int(len(trades_all)),
@@ -274,10 +309,17 @@ def replay_service_config(
         json.dumps(summary, indent=2), encoding="utf-8"
     )
 
-    # Latest pointer — plain text on Windows, cross-platform safe.
-    (REPLAY_DIR / source_run_id / "latest_stamp.txt").write_text(
-        stamp, encoding="utf-8"
+    # Latest pointer — plain text on Windows, cross-platform safe. One
+    # pointer per data source so reconcile can find each independently.
+    (REPLAY_DIR / source_run_id / f"latest_stamp_{data_source}.txt").write_text(
+        f"{stamp}_{data_source}", encoding="utf-8"
     )
+    # Legacy pointer (dukascopy only) — kept so older reconcile callers
+    # still resolve without a migration step.
+    if data_source == "dukascopy":
+        (REPLAY_DIR / source_run_id / "latest_stamp.txt").write_text(
+            f"{stamp}_{data_source}", encoding="utf-8"
+        )
 
     LOG.info("[replay] done in %.2fs — %d trades across %d pairs → %s",
              elapsed, summary["n_trades_total"], len(pairs), npz_path)

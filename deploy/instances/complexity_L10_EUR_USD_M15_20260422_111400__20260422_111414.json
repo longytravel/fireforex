@@ -95,6 +95,12 @@
         "test": false
       },
       "days": 127
+    },
+    "signal_family": "macd_cross",
+    "signal_params": {
+      "fast": 12,
+      "slow": 45,
+      "signal": 9
     }
   },
   "poll_interval_sec": 1.0,

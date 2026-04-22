@@ -103,8 +103,8 @@ def test_replay_service_config_end_to_end(tmp_path: Path, monkeypatch):
     # Mock data ingest — just record calls, no network.
     download_calls = []
 
-    def _fake_ensure_data(pair, start, end):
-        download_calls.append((pair, start, end))
+    def _fake_ensure_data(pair, start, end, data_source="dukascopy"):
+        download_calls.append((pair, start, end, data_source))
 
     monkeypatch.setattr(replay, "_ensure_data", _fake_ensure_data)
 
@@ -143,8 +143,10 @@ def test_replay_service_config_end_to_end(tmp_path: Path, monkeypatch):
         assert call["save_artifacts"] is False
         assert call["n_trials"] == 1
 
-    # NPZ has every pair + execution scalars.
-    out_dir = tmp_path / "replay_out" / config["source_run_id"] / summary["stamp"]
+    # NPZ has every pair + execution scalars. Output dir is suffixed with
+    # the data source so the three-way reconcile can co-exist.
+    stamped = f"{summary['stamp']}_dukascopy"
+    out_dir = tmp_path / "replay_out" / config["source_run_id"] / stamped
     npz = np.load(out_dir / "trades.npz", allow_pickle=False)
     trades = npz["trades"]
     assert len(trades) == 6  # 3 pairs × 2 trades each
@@ -156,6 +158,6 @@ def test_replay_service_config_end_to_end(tmp_path: Path, monkeypatch):
     # Summary + latest pointer written.
     assert (out_dir / "summary.json").exists()
     latest_ptr = tmp_path / "replay_out" / config["source_run_id"] / "latest_stamp.txt"
-    assert latest_ptr.read_text(encoding="utf-8").strip() == summary["stamp"]
+    assert latest_ptr.read_text(encoding="utf-8").strip() == stamped
     assert summary["n_trades_total"] == 6
     assert summary["total_pips_all"] == pytest.approx(9.0)  # (1+2) * 3 pairs

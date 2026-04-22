@@ -498,7 +498,8 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
         n_trials: int = 2000, open_browser: bool = True,
         progress_cb: Callable[[float, str], None] | None = None,
         frozen_trial: dict | None = None,
-        save_artifacts: bool = True) -> dict:
+        save_artifacts: bool = True,
+        data_source: str = "dukascopy") -> dict:
     """Execute an EA end-to-end.
 
     Returns a dict with the key numbers — useful for programmatic parity checks.
@@ -540,9 +541,21 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
 
     print(f"Fire Forex · {ea['name']} · layer={layer_name} · opt={optimizer} · seed={seed}")
 
-    # 1. Load data.
-    path_main = DATA_ROOT / f"{pair}_{main_tf}.parquet"
-    path_sub = DATA_ROOT / f"{pair}_{sub_tf}.parquet"
+    # 1. Load data. ``data_source`` switches the parquet root between
+    # Dukascopy (default, ``DATA_ROOT``) and MT5 (``MT5_DATA_ROOT``). Two
+    # sources, two roots, zero overlap — so the three-way reconcile can
+    # actually compare them side-by-side without cross-contamination.
+    if data_source == "dukascopy":
+        root = DATA_ROOT
+    elif data_source == "mt5":
+        from .data.mt5_m1_downloader import MT5_DATA_ROOT as _mt5_root
+        root = _mt5_root
+    else:
+        raise ValueError(
+            f"unknown data_source={data_source!r} (expected 'dukascopy' or 'mt5')"
+        )
+    path_main = root / f"{pair}_{main_tf}.parquet"
+    path_sub = root / f"{pair}_{sub_tf}.parquet"
     _safe_progress(progress_cb, 0.02, f"loading data ({pair} {main_tf}/{sub_tf})")
     print(f"[load] main TF: {path_main.name}")
     t = time.perf_counter()
@@ -623,7 +636,26 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     # 6. Sample trials (or replay a single frozen trial).
     if frozen_trial is not None:
         n_trials = 1
-        trials = [dict(frozen_trial)]
+        ft = dict(frozen_trial)
+        # Fingerprint-first variant resolution. The int `signal_variant` is
+        # unstable across `build_signal_library` invocations because variant
+        # IDs are assigned by Cartesian-product order, which depends on dict
+        # iteration and which families are enabled. A deployed `best_trial`
+        # may carry `signal_family` + `signal_params` — resolve through that
+        # and overwrite the int to match the rebuilt library.
+        fam = ft.get("signal_family")
+        params = ft.get("signal_params")
+        if fam:
+            resolved = [i for i, v in enumerate(lib.variant_map)
+                        if v.get("family") == fam and v.get("params") == params]
+            if not resolved:
+                raise RuntimeError(
+                    f"frozen_trial signal {fam}{params} not found in rebuilt "
+                    f"signal library (n_variants={lib.n_variants}). "
+                    f"Data window or signals_cfg has drifted."
+                )
+            ft["signal_variant"] = int(resolved[0])
+        trials = [ft]
         print(f"[sample] 1 frozen trial (replay mode)")
         _safe_progress(progress_cb, 0.35, "replay: frozen trial")
     else:
@@ -765,9 +797,14 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     equity_curve = np.cumsum(pnl_best)
     total_runtime = time.perf_counter() - t_total
 
-    best_trial = trials[best]
+    best_trial = dict(trials[best])
     variant_id = best_trial["signal_variant"]
     variant_info = lib.variant_map[variant_id] if variant_id < len(lib.variant_map) else {}
+    # Fingerprint alongside int so live/replay can resolve the variant by
+    # (family, params) — int IDs reshuffle on every library rebuild, see
+    # docs/live/BUG-variant-id-not-stable-2026-04-22.md.
+    best_trial["signal_family"] = variant_info.get("family", "")
+    best_trial["signal_params"] = variant_info.get("params", {})
 
     # ── Print the 8 numbers ─────────────────────────────────────────
     wr = metrics_out[best, 1]

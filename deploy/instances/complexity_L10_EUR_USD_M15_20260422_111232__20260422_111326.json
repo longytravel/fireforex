@@ -95,6 +95,11 @@
         "test": false
       },
       "days": 31
+    },
+    "signal_family": "ema_cross",
+    "signal_params": {
+      "fast": 27,
+      "slow": 204
     }
   },
   "poll_interval_sec": 1.0,

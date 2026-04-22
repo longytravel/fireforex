@@ -622,10 +622,29 @@ def _evaluate_and_fire(
         return
 
     # Parity: when a frozen best_trial is active, restrict hits to the variant
-    # the backtest picked. Without this, live would fire whatever variant
-    # sorted first in the library — a different signal than the backtest.
+    # the backtest picked. Fingerprint-first — the int `signal_variant` is
+    # unstable across library rebuilds (see
+    # docs/live/BUG-variant-id-not-stable-2026-04-22.md). If the deployed
+    # best_trial carries `signal_family` + `signal_params`, resolve the
+    # current int from those and use it; fall back to the bare int only for
+    # legacy configs written before the fingerprint fields landed.
     if state.best_trial is not None:
-        frozen_variant = state.best_trial.get("signal_variant")
+        fam = state.best_trial.get("signal_family")
+        params = state.best_trial.get("signal_params")
+        if fam:
+            resolved = [i for i, v in enumerate(lib.variant_map)
+                        if v.get("family") == fam and v.get("params") == params]
+            if not resolved:
+                _log_error(cfg, {
+                    "pair": state.pair,
+                    "stage": "variant_resolve",
+                    "error": f"no match for {fam}{params} in rebuilt lib "
+                             f"(n_variants={lib.n_variants})",
+                })
+                return
+            frozen_variant = int(resolved[0])
+        else:
+            frozen_variant = state.best_trial.get("signal_variant")
         if frozen_variant is not None:
             hits = hits[lib.variant[hits] == int(frozen_variant)]
             if hits.size == 0:
