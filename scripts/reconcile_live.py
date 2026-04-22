@@ -27,6 +27,11 @@ import json
 import sys
 from pathlib import Path
 
+# Windows console default codepage can't encode the box-drawing + arrow
+# chars the harness prints. Match run.py so a reconcile from stdout works.
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 import numpy as np
 import pandas as pd
 
@@ -151,7 +156,7 @@ def main() -> int:
         summary = _replay.replay_service_config(args.config)
         source_run_id = summary["source_run_id"]
         stamp = summary["stamp"]
-        print(f"[reconcile] replay done → {source_run_id}/{stamp} "
+        print(f"[reconcile] replay done -> {source_run_id}/{stamp} "
               f"({summary['n_trades_total']} trades, {summary['elapsed_sec']}s)")
 
     bt_df = _load_bt_trades(source_run_id, stamp)

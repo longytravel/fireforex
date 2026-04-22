@@ -178,11 +178,63 @@ def _iter_days(start_d: date, end_d: date):
         cur = cur + timedelta(days=1)
 
 
+def _fetch_day_via_ticks(
+    pair: str, d: date, side: str, scale: float,
+    log_cb: LogCallback | None,
+    cancel_cb: CancelCallback | None,
+) -> pd.DataFrame:
+    """Fallback for today's partial day: fetch per-hour tick bi5 files and
+    aggregate to M1 OHLC for the requested side.
+
+    Dukascopy publishes per-day candle bi5 only AFTER the UTC day closes
+    (~24h lag). The per-hour tick bi5 files are published minutes after
+    each hour, so for today we stitch them together and roll up to M1.
+    Returns the same schema as ``_decode_candles``.
+    """
+    from . import tick_downloader as _td
+
+    day_start = datetime(d.year, d.month, d.day, tzinfo=timezone.utc)
+    now_utc = datetime.now(timezone.utc)
+    last_hour = now_utc.hour if d == now_utc.date() else 23
+    col = "bid" if side == "BID" else "ask"
+    frames: list[pd.DataFrame] = []
+
+    for h in range(0, last_hour + 1):
+        if cancel_cb is not None and cancel_cb():
+            break
+        hour_start = day_start + timedelta(hours=h)
+        url = _td._hour_url(pair, hour_start)
+        try:
+            raw = _td._fetch_hour(url)
+        except Exception as exc:
+            _emit(log_cb, f"    {side} tick fetch err @ {hour_start}: {exc}")
+            continue
+        ticks = _td._decode_ticks(raw, hour_start, scale)
+        if ticks.empty:
+            continue
+        frames.append(ticks[["timestamp", col]])
+        time.sleep(0.02)
+
+    if not frames:
+        return pd.DataFrame(columns=["timestamp", "open", "high", "low", "close", "volume"])
+
+    ticks_df = pd.concat(frames, ignore_index=True)
+    ticks_df = ticks_df.set_index("timestamp").sort_index()
+    # Resample ticks → M1 OHLC. Dropna() skips empty minutes (weekends etc.).
+    m1 = ticks_df[col].resample("1min").ohlc().dropna(how="any")
+    m1 = m1.reset_index()
+    m1["volume"] = 0.0  # tick files don't carry per-minute volume reliably
+    _emit(log_cb, f"  {side} tick-fallback @ {d.isoformat()}: "
+                  f"{len(m1)} M1 bars from {last_hour + 1} hours")
+    return m1[["timestamp", "open", "high", "low", "close", "volume"]]
+
+
 def _fetch_side(pair: str, days: list[date], side: str, scale: float,
                 log_cb: LogCallback | None,
                 cancel_cb: CancelCallback | None) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     fetched = 0
+    today = datetime.now(timezone.utc).date()
     for d in days:
         if cancel_cb is not None and cancel_cb():
             _emit(log_cb, f"cancelled by user ({side})")
@@ -198,6 +250,9 @@ def _fetch_side(pair: str, days: list[date], side: str, scale: float,
             _emit(log_cb, f"    {side} fetch error @ {d.isoformat()}: {exc}")
             continue
         df = _decode_candles(raw, day_start, scale)
+        if df.empty and d == today:
+            # Per-day candle file not published yet — stitch from ticks.
+            df = _fetch_day_via_ticks(pair, d, side, scale, log_cb, cancel_cb)
         if not df.empty:
             frames.append(df)
         fetched += 1
@@ -247,12 +302,16 @@ def download(pair: str, start: date, end: date, *,
 
     # Always honour the user's window. Skip days already covered (with at least
     # 1 bar) by the existing file — supports both backfill and forward-append.
+    # EXCEPTION: today's bars are always re-fetched — the per-hour tick
+    # fallback grows during the trading day, so yesterday's "covered" flag
+    # would otherwise freeze today at whatever partial state we first saw.
+    today = datetime.now(timezone.utc).date()
     requested_days = [d for d in _iter_days(start_d, end_d) if d.weekday() != 5]
     have_days: set[date] = set()
     if existing is not None and not existing.empty:
         ts_existing = pd.to_datetime(existing["timestamp"], utc=True, errors="coerce").dropna()
         have_days = set(ts_existing.dt.date.unique())
-    days = [d for d in requested_days if d not in have_days]
+    days = [d for d in requested_days if d == today or d not in have_days]
 
     if not days:
         _emit(log_cb, "nothing to fetch — every requested weekday already has bars")
