@@ -80,17 +80,60 @@ def _load_bt_trades(source_run_id: str, stamp: str) -> pd.DataFrame:
     return bt
 
 
+def _resolve_instance_config(instance_id: str | None,
+                              explicit_config: Path | None) -> Path:
+    """Pick which config.json to reconcile.
+
+    1. If ``--config`` passed explicitly, use that.
+    2. Else if ``--instance`` passed, use ``artifacts/live/<id>/config.json``.
+    3. Else if exactly one instance exists under ``artifacts/live/*/config.json``,
+       use it.
+    4. Else if legacy ``artifacts/live/service_config.json`` exists, use it.
+    5. Else error with the list of available instances.
+    """
+    if explicit_config is not None:
+        return explicit_config
+
+    if instance_id is not None:
+        path = LIVE_DIR / instance_id / "config.json"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"No config for instance '{instance_id}' at {path}")
+        return path
+
+    candidates = sorted(p for p in LIVE_DIR.glob("*/config.json")
+                        if p.parent.name not in ("archive", "reconcile"))
+    if len(candidates) == 1:
+        return candidates[0]
+    if len(candidates) == 0:
+        legacy = LIVE_DIR / "service_config.json"
+        if legacy.exists():
+            return legacy
+        raise FileNotFoundError(
+            f"No instance configs found under {LIVE_DIR}. "
+            "Deploy one via the web UI first.")
+    listed = "\n".join(f"  - {c.parent.name}" for c in candidates)
+    raise SystemExit(
+        f"Multiple active instances found; pass --instance <id>:\n{listed}")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fire Forex live vs backtest reconcile")
     parser.add_argument(
-        "--config", type=Path, default=LIVE_DIR / "service_config.json",
-        help="Path to service_config.json (default: artifacts/live/service_config.json)",
+        "--instance", type=str, default=None,
+        help="Instance id (dir under artifacts/live/). "
+             "Omit to auto-pick if only one active instance exists.",
+    )
+    parser.add_argument(
+        "--config", type=Path, default=None,
+        help="Explicit config path. Overrides --instance.",
     )
     parser.add_argument(
         "--skip-replay", action="store_true",
         help="Reuse the most recent replay NPZ instead of re-running the backtest.",
     )
     args = parser.parse_args()
+    args.config = _resolve_instance_config(args.instance, args.config)
 
     # Phase 1 — backtest side (fresh replay, or reuse latest).
     if args.skip_replay:
@@ -114,18 +157,24 @@ def main() -> int:
     bt_df = _load_bt_trades(source_run_id, stamp)
     print(f"[reconcile] backtest df: {len(bt_df)} rows")
 
-    # Phase 2 — live side from artifacts/live/.
-    plans = _load_plans(LIVE_DIR / "plans")
-    tickets = _read_jsonl(LIVE_DIR / "tickets.jsonl")
-    deals = _read_jsonl(LIVE_DIR / "deals.jsonl")
-    print(f"[reconcile] live inputs: plans={len(plans)} "
-          f"tickets={len(tickets)} deals={len(deals)}")
+    # Phase 2 — live side. Prefer the per-instance dir (next to config.json);
+    # fall back to the legacy flat layout if the config is the top-level
+    # service_config.json.
+    instance_root = args.config.parent if args.config.parent != LIVE_DIR \
+        else LIVE_DIR
+    plans = _load_plans(instance_root / "plans")
+    tickets = _read_jsonl(instance_root / "tickets.jsonl")
+    deals = _read_jsonl(instance_root / "deals.jsonl")
+    print(f"[reconcile] live inputs from {instance_root}: "
+          f"plans={len(plans)} tickets={len(tickets)} deals={len(deals)}")
     live_df = _reconcile.build_live_df(plans, tickets, deals)
     print(f"[reconcile] live df: {len(live_df)} rows")
 
-    # Phase 3 — match + write.
+    # Phase 3 — match + write. Report goes inside the instance's reconcile
+    # subdir (isolation; no collision across instances).
+    reconcile_out = instance_root / "reconcile"
     report = _reconcile.reconcile(bt_df, live_df)
-    html_path, json_path = _reconcile.write_report(report, RECONCILE_DIR, stamp)
+    html_path, json_path = _reconcile.write_report(report, reconcile_out, stamp)
 
     counts = {
         "matched": len(report.matched),

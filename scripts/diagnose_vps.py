@@ -66,16 +66,10 @@ def _tasks() -> str:
     return out
 
 
-def _config() -> str:
-    out = _section("service_config.json")
-    path = LIVE_DIR / "service_config.json"
-    if not path.exists():
-        return out + "(file does not exist)\n"
-    try:
-        cfg = json.loads(path.read_text(encoding="utf-8"))
-    except Exception as e:  # noqa: BLE001
-        return out + f"(failed to parse: {e!r})\n"
+def _config_one(cfg: dict, origin: str) -> dict:
     summary: dict[str, object] = {
+        "origin": origin,
+        "instance_id": cfg.get("instance_id"),
         "source_run_id": cfg.get("source_run_id"),
         "pairs": cfg.get("pairs"),
         "max_open_per_pair": cfg.get("max_open_per_pair"),
@@ -84,14 +78,57 @@ def _config() -> str:
     }
     bt = cfg.get("best_trial") or {}
     engine = bt.get("engine") or {}
-    group_on = {
+    summary["best_trial.signal_variant"] = bt.get("signal_variant")
+    summary["best_trial.groups_on"] = {
         name: bool((engine.get(name) or {}).get("test"))
         for name in ("trailing", "breakeven", "chandelier", "partial",
                      "session", "stale", "max_bars")
     }
-    summary["best_trial.signal_variant"] = bt.get("signal_variant")
-    summary["best_trial.groups_on"] = group_on
-    out += json.dumps(summary, indent=2, default=str)
+    return summary
+
+
+def _config() -> str:
+    out = _section("instances")
+    configs: list[dict] = []
+
+    # Prefer the multi-instance layout.
+    for sub in sorted(LIVE_DIR.glob("*/config.json")):
+        if sub.parent.name in ("archive", "reconcile"):
+            continue
+        try:
+            configs.append(_config_one(
+                json.loads(sub.read_text(encoding="utf-8")),
+                origin=str(sub.relative_to(LIVE_DIR.parent.parent)),
+            ))
+        except Exception as e:  # noqa: BLE001
+            configs.append({"origin": str(sub), "error": repr(e)})
+
+    # Legacy flat config (pre-migration) — still show if present.
+    legacy = LIVE_DIR / "service_config.json"
+    if legacy.exists():
+        try:
+            configs.append(_config_one(
+                json.loads(legacy.read_text(encoding="utf-8")),
+                origin="service_config.json (legacy)",
+            ))
+        except Exception as e:  # noqa: BLE001
+            configs.append({"origin": str(legacy), "error": repr(e)})
+
+    if not configs:
+        return out + "(no configs found)\n"
+
+    out += json.dumps(configs, indent=2, default=str)
+
+    # Also surface instances.json if present (active/inactive registry).
+    index_file = LIVE_DIR / "instances.json"
+    if index_file.exists():
+        try:
+            out += "\n\ninstances.json:\n" + json.dumps(
+                json.loads(index_file.read_text(encoding="utf-8")),
+                indent=2, default=str,
+            )
+        except Exception as e:  # noqa: BLE001
+            out += f"\n\ninstances.json parse error: {e!r}"
     return out
 
 

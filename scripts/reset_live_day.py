@@ -44,8 +44,14 @@ ARCHIVE_TARGETS = [
     "state.json",
     "errors.jsonl",
     "crashes.jsonl",
-    "service_config.json",   # reset wipes the trial; Deploy writes a fresh one
+    "service_config.json",   # legacy pre-multi-instance config
+    "instances.json",        # multi-instance index
+    "runner.log",            # shared process log
+    "state_sync_errors.jsonl",
 ]
+
+# In multi-instance layout, every artifacts/live/<instance_id>/ subdir is
+# archived in full. ARCHIVE_TARGETS above covers the flat top-level files.
 
 
 def _stop_task() -> None:
@@ -163,24 +169,54 @@ def _flatten_positions(magic_only: bool = False) -> int:
     return closed
 
 
-def _archive_and_wipe() -> Path:
+def _archive_and_wipe(only_instance: str | None = None) -> Path:
+    """Move today's live artifacts into a stamped archive dir.
+
+    Multi-instance layout: every ``artifacts/live/<instance_id>/`` subdir
+    (that is not ``archive`` itself) moves under
+    ``archive/<stamp>/<instance_id>/``. Top-level flat files in
+    ARCHIVE_TARGETS also move.
+
+    ``only_instance`` restricts archival to one instance_id; top-level
+    files stay where they are. Use for per-instance pause/cleanup.
+    """
     stamp = time.strftime("%Y%m%d_%H%M%S")
     dst = ARCHIVE_ROOT / stamp
     dst.mkdir(parents=True, exist_ok=True)
 
-    print(f"[reset] archiving today's live files -> {dst}")
-    for name in ARCHIVE_TARGETS:
-        src = LIVE_DIR / name
-        if not src.exists():
+    print(f"[reset] archiving live files -> {dst}"
+          f"{' (instance=' + only_instance + ')' if only_instance else ''}")
+
+    # 1. Per-instance subdirs.
+    for sub in sorted(LIVE_DIR.iterdir()):
+        if not sub.is_dir():
             continue
-        target = dst / name
-        if src.is_dir():
-            shutil.move(str(src), str(target))
-        else:
-            shutil.move(str(src), str(target))
-        print(f"[reset]  moved {name}")
-    # Recreate empty plans dir so the runner writes into it on boot.
-    (LIVE_DIR / "plans").mkdir(exist_ok=True)
+        if sub.name == "archive":
+            continue
+        if sub.name == "plans" and only_instance is None:
+            # legacy flat plans dir — handled via ARCHIVE_TARGETS below
+            continue
+        if only_instance is not None and sub.name != only_instance:
+            continue
+        target = dst / sub.name
+        shutil.move(str(sub), str(target))
+        print(f"[reset]  moved instance dir {sub.name}/")
+
+    # 2. Flat top-level files (only when archiving everything).
+    if only_instance is None:
+        for name in ARCHIVE_TARGETS:
+            src = LIVE_DIR / name
+            if not src.exists():
+                continue
+            target = dst / name
+            if src.is_dir():
+                shutil.move(str(src), str(target))
+            else:
+                shutil.move(str(src), str(target))
+            print(f"[reset]  moved {name}")
+        # Recreate empty plans dir so any legacy-path writer survives.
+        (LIVE_DIR / "plans").mkdir(exist_ok=True)
+
     return dst
 
 
@@ -197,6 +233,11 @@ def main() -> int:
              "Default leaves it stopped -- Deploy from the laptop is the "
              "intended way to resume trading.",
     )
+    parser.add_argument(
+        "--instance", type=str, default=None,
+        help="Archive + flatten only this instance_id. "
+             "Omit to reset everything.",
+    )
     args = parser.parse_args()
 
     print("=" * 60)
@@ -212,7 +253,7 @@ def main() -> int:
     except Exception as exc:  # noqa: BLE001
         print(f"[reset] flatten failed: {exc!r} -- continuing to archive anyway")
 
-    archive_dir = _archive_and_wipe()
+    archive_dir = _archive_and_wipe(only_instance=args.instance)
     print(f"[reset] live state archived at {archive_dir}")
 
     if args.restart:

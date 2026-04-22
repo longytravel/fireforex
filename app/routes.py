@@ -652,7 +652,40 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
 
     live_dir = ARTIFACTS_DIR / "live"
     live_dir.mkdir(parents=True, exist_ok=True)
+
+    # Mint a fresh instance_id for each deploy so multiple strategies
+    # can run concurrently without colliding on artifacts, magic numbers,
+    # or plan_ids. Format: <source_run_id>__<YYYYMMDD_HHMMSS>.
+    import time as _time
+    instance_id = body.get("instance_id") or f"{run_id}__{_time.strftime('%Y%m%d_%H%M%S')}"
+
+    # Allocate a unique magic. instances.json carries a monotonically
+    # increasing counter so a restart never re-issues an old magic.
+    index_file = live_dir / "instances.json"
+    index = {"magic_counter": 20260420, "instances": {}}
+    if index_file.exists():
+        try:
+            index = _json.loads(index_file.read_text(encoding="utf-8"))
+            index.setdefault("magic_counter", 20260420)
+            index.setdefault("instances", {})
+        except (_json.JSONDecodeError, TypeError):
+            pass
+    explicit_magic = body.get("magic_number")
+    if explicit_magic is None:
+        # Advance the counter past any already-used magic. Keeps the
+        # uniqueness property even if an operator deleted an instance
+        # dir without updating the index.
+        used = {int(m.get("magic") or 0) for m in index["instances"].values()}
+        next_magic = int(index["magic_counter"])
+        while next_magic in used:
+            next_magic += 1
+        magic = next_magic
+        index["magic_counter"] = next_magic + 1
+    else:
+        magic = int(explicit_magic)
+
     service_config = {
+        "instance_id": instance_id,
         "source_run_id": run_id,
         "recipe": recipe,
         "overrides": overrides,
@@ -661,14 +694,34 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
         "poll_interval_sec": float(body.get("poll_interval_sec", 1.0)),
         "size_lots": float(body.get("size_lots", 0.01)),
         "deviation_pips": float(body.get("deviation_pips", 3.0)),
-        "magic_number": int(body.get("magic_number", 20260420)),
+        "magic_number": magic,
         "symbol_map": body.get("symbol_map") or {},
         "auto_reconcile_interval_min": int(body.get("auto_reconcile_interval_min", 60)),
         "max_open_per_pair": int(body.get("max_open_per_pair", 1)),
     }
-    (live_dir / "service_config.json").write_text(
+
+    # Per-instance artifact dir. Plans, tickets, state, reconcile reports
+    # all live under artifacts/live/<instance_id>/.
+    inst_dir = live_dir / instance_id
+    inst_dir.mkdir(parents=True, exist_ok=True)
+    (inst_dir / "config.json").write_text(
         _json.dumps(service_config, default=str, indent=2), encoding="utf-8"
     )
+    (inst_dir / "pinned_run.json").write_text(
+        _json.dumps({"run_id": run_id}, indent=2), encoding="utf-8"
+    )
+
+    # Register in instances.json so the runner service (and UI) knows
+    # this instance is active.
+    import pandas as _pd
+    index["instances"][instance_id] = {
+        "active": True,
+        "source_run_id": run_id,
+        "magic": magic,
+        "pairs": list(pairs),
+        "started_at": _pd.Timestamp.now("UTC").isoformat(),
+    }
+    index_file.write_text(_json.dumps(index, indent=2), encoding="utf-8")
 
     # Also mirror the config to a committed location so the VPS can pull it via
     # git (see scripts/desktop/"Deploy Fire Forex.bat"). artifacts/live/ itself
@@ -676,13 +729,34 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
     # mirror is a separate path that IS committed.
     deploy_dir = ARTIFACTS_DIR.parent / "deploy"
     deploy_dir.mkdir(parents=True, exist_ok=True)
-    (deploy_dir / "live_config.json").write_text(
+    deploy_instances_dir = deploy_dir / "instances"
+    deploy_instances_dir.mkdir(parents=True, exist_ok=True)
+    (deploy_instances_dir / f"{instance_id}.json").write_text(
         _json.dumps(service_config, default=str, indent=2), encoding="utf-8"
     )
 
-    # Pin the source run so the auto-reconciler knows what to diff against.
-    (live_dir / "pinned_run.json").write_text(
-        _json.dumps({"run_id": run_id}, indent=2), encoding="utf-8"
+    # Manifest of actively-deployed instance ids. Runner service filters
+    # ``deploy/instances/*.json`` through this — stops historical committed
+    # deploys from being resurrected on a fresh VPS boot after a reset.
+    active_manifest_path = deploy_instances_dir / "active.json"
+    active_manifest: dict[str, Any] = {"active": []}
+    if active_manifest_path.exists():
+        try:
+            active_manifest = _json.loads(
+                active_manifest_path.read_text(encoding="utf-8"))
+            active_manifest.setdefault("active", [])
+        except Exception:
+            active_manifest = {"active": []}
+    if instance_id not in active_manifest["active"]:
+        active_manifest["active"].append(instance_id)
+    active_manifest_path.write_text(
+        _json.dumps(active_manifest, indent=2), encoding="utf-8")
+
+    # Backcompat: keep writing deploy/live_config.json pointing at the
+    # most-recent instance so the VPS Deploy bat continues to work
+    # until the bat is updated to consume deploy/instances/.
+    (deploy_dir / "live_config.json").write_text(
+        _json.dumps(service_config, default=str, indent=2), encoding="utf-8"
     )
 
     # Try to commit + push so the VPS can pull. Silently no-op on dev boxes
@@ -691,7 +765,9 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
     git_error: str | None = None
     import subprocess as _sp2
     try:
-        _sp2.run(["git", "add", "deploy/live_config.json"],
+        _sp2.run(["git", "add", "deploy/live_config.json",
+                  f"deploy/instances/{instance_id}.json",
+                  "deploy/instances/active.json"],
                  capture_output=True, check=False, timeout=10,
                  cwd=str(ARTIFACTS_DIR.parent))
         commit = _sp2.run(
@@ -729,8 +805,10 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
 
     return {
         "ok": True,
+        "instance_id": instance_id,
+        "magic_number": magic,
         "source_run_id": run_id,
-        "service_config_path": str((live_dir / "service_config.json").relative_to(ARTIFACTS_DIR.parent)),
+        "service_config_path": str((inst_dir / "config.json").relative_to(ARTIFACTS_DIR.parent)),
         "runner_kicked": runner_kicked,
         "kick_error": kick_error,
         "git_pushed": git_pushed,
@@ -812,25 +890,58 @@ def get_live_stats_by_pair() -> dict[str, Any]:
     rollup = report.by_pair()
 
     # Merge open-position flags so the card can show "has open trade".
+    # _read_open_positions returns {instance_id: {pair: {plan_id: ...}}}
+    # — flatten across every instance so a pair counts as "has open"
+    # whenever any instance holds a position on it.
     try:
         open_positions = live_jobs._read_open_positions()
     except Exception:
         open_positions = {}
-    open_pairs = {
-        p for p, d in open_positions.items() if isinstance(d, dict) and d
-    }
+    open_pairs: set[str] = set()
+    for per_instance in open_positions.values():
+        if not isinstance(per_instance, dict):
+            continue
+        for pair, plans in per_instance.items():
+            if isinstance(plans, dict) and plans:
+                open_pairs.add(pair)
     for pair in rollup:
         rollup[pair]["has_open_position"] = pair in open_pairs
 
-    # Pair universe: include pairs from the deployed config so the UI can
-    # render an empty card for pairs that haven't traded yet.
+    # Pair universe: include pairs from every active instance's config
+    # plus the legacy top-level service_config so the UI can render an
+    # empty card for pairs that haven't traded yet. Uses the same
+    # instances.json.active filter as the runner so inactive strategies
+    # don't leak pairs into the dashboard.
+    configured_pairs_set: set[str] = set()
+    active_filter: dict[str, bool] = {}
+    index_file = live_dir / "instances.json"
+    if index_file.exists():
+        try:
+            idx = _json.loads(index_file.read_text(encoding="utf-8"))
+            for iid, meta in (idx.get("instances") or {}).items():
+                active_filter[iid] = bool(meta.get("active", True))
+        except Exception:
+            pass
+    for inst_cfg in live_dir.glob("*/config.json"):
+        if inst_cfg.parent.name in ("archive", "reconcile"):
+            continue
+        if not active_filter.get(inst_cfg.parent.name, True):
+            continue
+        try:
+            configured_pairs_set.update(
+                _json.loads(inst_cfg.read_text(encoding="utf-8")).get("pairs") or []
+            )
+        except Exception:
+            continue
     svc_path = live_dir / "service_config.json"
-    configured_pairs: list[str] = []
     if svc_path.exists():
         try:
-            configured_pairs = _json.loads(svc_path.read_text(encoding="utf-8")).get("pairs") or []
+            configured_pairs_set.update(
+                _json.loads(svc_path.read_text(encoding="utf-8")).get("pairs") or []
+            )
         except Exception:
-            configured_pairs = []
+            pass
+    configured_pairs: list[str] = sorted(configured_pairs_set)
     for pair in configured_pairs:
         if pair not in rollup:
             rollup[pair] = {

@@ -64,7 +64,13 @@ class LiveRunnerHost:
 
             from ff.live.runner import BrokerCfg, LiveConfig, run as runner_run
 
+            # LiveRunnerHost is the laptop-side in-process runner (UI
+            # trigger). Each start gets its own instance_id scoped to
+            # the host process, so artifacts do not collide with a
+            # prior or concurrent deploy on the same machine.
+            instance_id = f"laptop_host_{int(time.time())}"
             cfg = LiveConfig(
+                instance_id=instance_id,
                 recipe=recipe,
                 overrides=overrides,
                 pairs=list(pairs),
@@ -147,46 +153,99 @@ def get_host() -> LiveRunnerHost:
 
 # ── Read helpers — exposed for the status endpoint ─────────────────────
 
+def _instance_roots() -> list[tuple[str, Any]]:
+    """Active instance dirs under artifacts/live/ plus the legacy flat
+    layout if present. Returned as ``[(instance_id, Path), ...]``.
+
+    Honours ``artifacts/live/instances.json.instances[<id>].active`` when
+    present; if missing (older state), treats every config-bearing
+    subdir as active.
+
+    ``instance_id`` is the subdir name, or ``"__legacy__"`` for the old
+    flat layout so callers can still group by some owner.
+    """
+    active_filter: dict[str, bool] = {}
+    index_file = _LIVE_DIR / "instances.json"
+    if index_file.exists():
+        try:
+            idx = json.loads(index_file.read_text(encoding="utf-8"))
+            for iid, meta in (idx.get("instances") or {}).items():
+                active_filter[iid] = bool(meta.get("active", True))
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    roots: list[tuple[str, Any]] = []
+    for sub in _LIVE_DIR.glob("*/config.json"):
+        if sub.parent.name in ("archive", "reconcile"):
+            continue
+        iid = sub.parent.name
+        if not active_filter.get(iid, True):
+            continue
+        roots.append((iid, sub.parent))
+    if (_LIVE_DIR / "state.json").exists() or (_LIVE_DIR / "plans").exists():
+        roots.append(("__legacy__", _LIVE_DIR))
+    return roots
+
+
 def _read_open_positions() -> dict[str, Any]:
-    state_file = _LIVE_DIR / "state.json"
-    if not state_file.exists():
-        return {}
-    try:
-        return json.loads(state_file.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
-        return {}
+    """Return ``{instance_id: {pair: {plan_id: position_dict}}}``.
+
+    Legacy flat layout surfaces under instance_id ``"__legacy__"`` to
+    keep the shape uniform.
+    """
+    out: dict[str, Any] = {}
+    for instance_id, root in _instance_roots():
+        state_file = root / "state.json"
+        if not state_file.exists():
+            continue
+        try:
+            out[instance_id] = json.loads(state_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            out[instance_id] = {}
+    return out
 
 
 def _count_plans_today() -> int:
     import datetime as _dt
 
     today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
-    plans_file = _LIVE_DIR / "plans" / f"{today}.jsonl"
-    if not plans_file.exists():
-        return 0
-    return sum(1 for _ in plans_file.open(encoding="utf-8"))
+    total = 0
+    for _instance_id, root in _instance_roots():
+        plans_file = root / "plans" / f"{today}.jsonl"
+        if not plans_file.exists():
+            continue
+        total += sum(1 for _ in plans_file.open(encoding="utf-8"))
+    return total
 
 
-def tail_plans(since_ts: str | None = None, pair: str | None = None, limit: int = 100) -> list[dict]:
-    """Return today's plans (newest last), optionally filtered."""
+def tail_plans(since_ts: str | None = None, pair: str | None = None,
+                limit: int = 100) -> list[dict]:
+    """Return today's plans across every instance (newest last),
+    optionally filtered. Each row is tagged with ``instance_id``.
+    """
     import datetime as _dt
 
     today = _dt.datetime.now(_dt.timezone.utc).strftime("%Y-%m-%d")
-    plans_file = _LIVE_DIR / "plans" / f"{today}.jsonl"
-    if not plans_file.exists():
-        return []
     rows: list[dict] = []
-    for line in plans_file.open(encoding="utf-8"):
-        line = line.strip()
-        if not line:
+    for instance_id, root in _instance_roots():
+        plans_file = root / "plans" / f"{today}.jsonl"
+        if not plans_file.exists():
             continue
-        try:
-            row = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if pair and row.get("pair") != pair:
-            continue
-        if since_ts and row.get("fired_at_ts", "") <= since_ts:
-            continue
-        rows.append(row)
+        for line in plans_file.open(encoding="utf-8"):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                row = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+            if pair and row.get("pair") != pair:
+                continue
+            if since_ts and row.get("fired_at_ts", "") <= since_ts:
+                continue
+            # Caller-side tag so plans can be grouped in the UI.
+            row.setdefault("instance_id", instance_id)
+            rows.append(row)
+    # Sort newest-last by fired_at_ts so cross-instance tail is coherent.
+    rows.sort(key=lambda r: r.get("fired_at_ts", ""))
     return rows[-limit:]

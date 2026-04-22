@@ -52,6 +52,7 @@ def _synth_m1(start: str, minutes: int, base_price: float = 1.1000) -> pd.DataFr
 def cfg():
     from ff.live.runner import LiveConfig, BrokerCfg
     return LiveConfig(
+        instance_id="test_instance",
         recipe={"pair": "EUR_USD", "main_tf": "H1", "sub_tf": "M1", "level": 1},
         overrides={},
         pairs=["EUR_USD"],
@@ -85,7 +86,7 @@ def test_poll_merges_m1_buf_and_rolls_up_to_h1(monkeypatch, cfg, pair_state):
         lambda *a, **k: None,
     )
 
-    live_runner._poll_pair(cfg, pair_state, broker)
+    live_runner._poll_pair(cfg, pair_state, broker, {"EUR_USD": pair_state})
 
     assert len(pair_state.m1_buf) == 120
     assert len(pair_state.main_buf) == 2  # two closed H1 bars
@@ -100,12 +101,12 @@ def test_poll_deduplicates_overlapping_m1(monkeypatch, cfg, pair_state):
     )
 
     broker.planned_response = _synth_m1("2026-04-20 10:00", 60)
-    live_runner._poll_pair(cfg, pair_state, broker)
+    live_runner._poll_pair(cfg, pair_state, broker, {"EUR_USD": pair_state})
     assert len(pair_state.m1_buf) == 60
 
     # Overlap last 30 M1 + 30 new
     broker.planned_response = _synth_m1("2026-04-20 10:30", 60)
-    live_runner._poll_pair(cfg, pair_state, broker)
+    live_runner._poll_pair(cfg, pair_state, broker, {"EUR_USD": pair_state})
 
     # 60 original + 30 new (last 30 of 2nd batch extend past original) = 90
     assert len(pair_state.m1_buf) == 90
@@ -118,24 +119,24 @@ def test_last_main_ts_only_advances_on_new_closed_bar(monkeypatch, cfg, pair_sta
     fired = []
     monkeypatch.setattr(
         live_runner, "_evaluate_and_fire",
-        lambda cfg, state, broker, ts: fired.append(ts),
+        lambda cfg, state, broker, ts, pair_states: fired.append(ts),
     )
 
     # First poll: 119 M1 (only 1 H1 bar closed)
     broker.planned_response = _synth_m1("2026-04-20 10:00", 119)
-    live_runner._poll_pair(cfg, pair_state, broker)
+    live_runner._poll_pair(cfg, pair_state, broker, {"EUR_USD": pair_state})
     assert len(fired) == 1
     assert fired[0] == pd.Timestamp("2026-04-20 10:00", tz="UTC")
 
     # Second poll: 120 M1 — no new H1 closed yet (11:00 H1 needs 11:00..11:59 M1 plus bar at 12:00)
     broker.planned_response = _synth_m1("2026-04-20 10:00", 120)
-    live_runner._poll_pair(cfg, pair_state, broker)
+    live_runner._poll_pair(cfg, pair_state, broker, {"EUR_USD": pair_state})
     # One more H1 closed.
     assert len(fired) == 2
 
     # Third poll: no new M1 — no advance
     broker.planned_response = _synth_m1("2026-04-20 10:00", 120)
-    live_runner._poll_pair(cfg, pair_state, broker)
+    live_runner._poll_pair(cfg, pair_state, broker, {"EUR_USD": pair_state})
     assert len(fired) == 2  # still two fires
 
 
@@ -181,13 +182,13 @@ def test_plan_carries_parity_fields(monkeypatch, cfg, pair_state):
 
     # Prevent the emitted plan hitting disk + bypass duplicate-plan check.
     emitted: list[dict] = []
-    monkeypatch.setattr(live_runner, "_emit_plan", lambda plan: emitted.append(plan))
-    monkeypatch.setattr(live_runner, "_is_duplicate_plan", lambda _pid: False)
+    monkeypatch.setattr(live_runner, "_emit_plan", lambda _c, plan: emitted.append(plan))
+    monkeypatch.setattr(live_runner, "_is_duplicate_plan", lambda _c, _pid: False)
     monkeypatch.setattr(live_runner, "_append_jsonl", lambda *a, **k: None)
 
     broker = _MockBroker()
     signal_bar_ts = pair_state.main_buf.index[-1]
-    live_runner._evaluate_and_fire(cfg, pair_state, broker, signal_bar_ts)
+    live_runner._evaluate_and_fire(cfg, pair_state, broker, signal_bar_ts, {"EUR_USD": pair_state})
 
     assert len(emitted) == 1, f"expected 1 plan, got {len(emitted)}"
     plan = emitted[0]
@@ -226,13 +227,13 @@ def test_max_open_per_pair_blocks_stacking(monkeypatch, cfg, pair_state):
         lambda *a, **k: _StubLibrary(latest_bar_idx=len(pair_state.main_buf) - 1),
     )
     monkeypatch.setattr(live_runner, "_sl", sl)
-    monkeypatch.setattr(live_runner, "_emit_plan", lambda plan: None)
-    monkeypatch.setattr(live_runner, "_is_duplicate_plan", lambda _pid: False)
+    monkeypatch.setattr(live_runner, "_emit_plan", lambda _c, plan: None)
+    monkeypatch.setattr(live_runner, "_is_duplicate_plan", lambda _c, _pid: False)
 
     cap_errors: list[dict] = []
     monkeypatch.setattr(
         live_runner, "_log_error",
-        lambda row: cap_errors.append(row) if row.get("stage") == "cap" else None,
+        lambda _c, row: cap_errors.append(row) if row.get("stage") == "cap" else None,
     )
     # Ensure we can detect that submit_market_order was not invoked.
     submitted: list = []
@@ -241,9 +242,81 @@ def test_max_open_per_pair_blocks_stacking(monkeypatch, cfg, pair_state):
 
     cfg.max_open_per_pair = 1
     signal_bar_ts = pair_state.main_buf.index[-1]
-    live_runner._evaluate_and_fire(cfg, pair_state, broker, signal_bar_ts)
+    live_runner._evaluate_and_fire(cfg, pair_state, broker, signal_bar_ts, {"EUR_USD": pair_state})
 
     assert submitted == [], "cap should have blocked the submit"
     assert len(cap_errors) == 1
     assert cap_errors[0]["open_count"] == 1
     assert cap_errors[0]["cap"] == 1
+
+
+# ── Multi-instance ─────────────────────────────────────────────────────
+
+def test_plan_id_includes_instance_id_so_same_pair_bar_does_not_collide():
+    """Two instances firing the same pair on the same bar must produce
+    distinct plan_ids. Without the instance_id prefix, dedup would
+    collapse instance B's fire onto instance A's ticket."""
+    ts = pd.Timestamp("2026-04-22T10:00:00", tz="UTC")
+    p1 = live_runner._plan_id("inst_a", "EUR_USD", ts, 1)
+    p2 = live_runner._plan_id("inst_b", "EUR_USD", ts, 1)
+    assert p1 != p2
+    assert p1.startswith("inst_a_")
+    assert p2.startswith("inst_b_")
+
+
+def test_run_rejects_duplicate_instance_ids():
+    """Startup must fail loudly on duplicate instance_id — silent
+    pair_states overwrite is hard to diagnose later."""
+    from ff.live.runner import LiveConfig, BrokerCfg, run
+    a = LiveConfig(
+        instance_id="dup", recipe={"main_tf": "H1"}, overrides={},
+        pairs=["EUR_USD"],
+        broker=BrokerCfg(login=0, password="x", server="x", magic_number=100),
+    )
+    b = LiveConfig(
+        instance_id="dup", recipe={"main_tf": "H1"}, overrides={},
+        pairs=["GBP_USD"],
+        broker=BrokerCfg(login=0, password="x", server="x", magic_number=101),
+    )
+    with pytest.raises(RuntimeError, match="duplicate instance_id"):
+        run([a, b])
+
+
+def test_run_rejects_duplicate_magic_numbers():
+    """Duplicate magic across instances breaks MT5-side attribution."""
+    from ff.live.runner import LiveConfig, BrokerCfg, run
+    a = LiveConfig(
+        instance_id="a", recipe={"main_tf": "H1"}, overrides={},
+        pairs=["EUR_USD"],
+        broker=BrokerCfg(login=0, password="x", server="x", magic_number=200),
+    )
+    b = LiveConfig(
+        instance_id="b", recipe={"main_tf": "H1"}, overrides={},
+        pairs=["GBP_USD"],
+        broker=BrokerCfg(login=0, password="x", server="x", magic_number=200),
+    )
+    with pytest.raises(RuntimeError, match="duplicate magic_number"):
+        run([a, b])
+
+
+def test_dedup_scans_plans_file_not_just_tickets(tmp_path, monkeypatch):
+    """A crash between _emit_plan and _append_jsonl(tickets) must not
+    cause a refire on restart. Dedup checks plans too."""
+    from ff.live.runner import LiveConfig, BrokerCfg, _is_duplicate_plan, _emit_plan
+    cfg = LiveConfig(
+        instance_id="t", recipe={"main_tf": "H1"}, overrides={},
+        pairs=["EUR_USD"],
+        broker=BrokerCfg(login=0, password="x", server="x"),
+    )
+    # Redirect LIVE_DIR to a fresh tmp path so the test does not pollute
+    # artifacts/live.
+    monkeypatch.setattr(live_runner, "LIVE_DIR", tmp_path)
+    cfg.plans_dir.mkdir(parents=True, exist_ok=True)
+
+    plan_id = "t_EUR_USD_2026-04-22T10:00:00+00:00_+1"
+    assert _is_duplicate_plan(cfg, plan_id) is False
+
+    _emit_plan(cfg, {"plan_id": plan_id, "pair": "EUR_USD"})
+    # Tickets file still missing — would have returned False before the
+    # plans-scan fix.
+    assert _is_duplicate_plan(cfg, plan_id) is True

@@ -156,7 +156,13 @@ def replay_service_config(
         raise ValueError("service_config has no best_trial — cannot replay")
     source_run_id = str(config.get("source_run_id") or "unknown_run")
 
-    plans_dir = LIVE_DIR / "plans"
+    # Plans live next to the config — works for both the legacy flat
+    # layout (artifacts/live/plans) and the multi-instance layout
+    # (artifacts/live/<id>/plans).
+    plans_dir = config_path.parent / "plans"
+    if not plans_dir.exists():
+        # Legacy fallback — old flat layout kept plans at the top level.
+        plans_dir = LIVE_DIR / "plans"
     window_start, window_end = _resolve_window(plans_dir)
     LOG.info("[replay] window %s → %s  (%d pairs)",
              window_start, window_end, len(pairs))

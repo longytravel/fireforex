@@ -40,12 +40,34 @@ SYNC_BRANCH = "live-state"
 REMOTE = "origin"
 
 # Which live files to mirror. Glob patterns relative to LIVE_DIR.
+#
+# Per-instance artifacts live under ``<instance_id>/`` subdirs after the
+# multi-instance refactor. Top-level globs cover shared process-wide
+# files (crashes.jsonl, state_sync_errors.jsonl, instances.json) that
+# don't have an instance owner. The ``*/...`` globs fan out across every
+# instance automatically — no need to update this list when a new
+# instance is deployed.
 SYNC_GLOBS = [
+    # Process-shared.
+    "crashes.jsonl",
+    "state_sync_errors.jsonl",
+    "instances.json",
+    # Per-instance.
+    "*/config.json",
+    "*/plans/*.jsonl",
+    "*/tickets.jsonl",
+    "*/state.json",
+    "*/errors.jsonl",
+    "*/pinned_run.json",
+    "*/reconcile/latest.html",
+    "*/reconcile/latest.json",
+    # Legacy single-instance (pre-multi-instance) — still synced so the
+    # pre-migration snapshot stays visible until migration happens.
     "plans/*.jsonl",
     "tickets.jsonl",
     "state.json",
     "errors.jsonl",
-    "crashes.jsonl",
+    "service_config.json",
 ]
 
 
