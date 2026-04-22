@@ -421,10 +421,16 @@ def _pool_init(df: pd.DataFrame, pip_value: float, atr_period: int) -> None:
 
 
 def _pool_worker(family_name: str, combo: dict):
-    """Build one variant. Returns a SignalSet or None (invalid/empty).
+    """Build one variant. Returns a SignalSet or None (InvalidCombo only).
 
     Families are registered at module import time via ``@register`` decorators,
-    so the registry is populated in every spawned worker.
+    so the registry is populated in every spawned worker. 0-signal variants
+    are KEPT (empty SignalSet) so variant-id → (family, params) mapping stays
+    stable across buffer sizes — the live runner rebuilds the library from a
+    trailing window that may not yet contain enough bars to fire every
+    long-lookback variant, and dropping those here would make the fingerprint
+    resolver in `frozen_trial` / live `_evaluate_and_fire` bail out on every
+    tick until the buffer warms up.
     """
     fn = get_family(family_name)
     try:
@@ -433,8 +439,6 @@ def _pool_worker(family_name: str, combo: dict):
                 atr_period=_WORKER_STATE["atr_period"],
                 **combo)
     except InvalidCombo:
-        return None
-    if ss.bar_index.size == 0:
         return None
     return ss
 
@@ -555,11 +559,10 @@ def _run_variants_serial(tasks: list[tuple[str, dict]], main_tf_df: pd.DataFrame
         except InvalidCombo:
             outcomes.append(None)
         else:
-            if ss.bar_index.size == 0:
-                outcomes.append(None)
-            else:
-                outcomes.append(ss)
-                kept += 1
+            # Keep even 0-signal variants so the variant_map covers every
+            # (family, params) in the grid. See `_pool_worker` docstring.
+            outcomes.append(ss)
+            kept += 1
         if progress_cb is not None:
             now = _time.perf_counter()
             if now - last_tick > 0.2:
