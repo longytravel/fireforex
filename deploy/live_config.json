@@ -1,12 +1,12 @@
 {
-  "source_run_id": "complexity_L10_EUR_USD_H1_20260422_105736",
+  "source_run_id": "complexity_L10_EUR_USD_M15_20260422_105928",
   "recipe": {
     "pair": "EUR_USD",
-    "main_tf": "H1",
+    "main_tf": "M15",
     "sub_tf": "M1",
     "name": null,
-    "start_date": "2026-03-20",
-    "end_date": "2026-04-20"
+    "start_date": null,
+    "end_date": null
   },
   "overrides": {
     "groups": {
@@ -20,8 +20,8 @@
     "knobs": {},
     "signal_families": {
       "ema_cross": false,
-      "macd_cross": true,
-      "donchian": false
+      "macd_cross": false,
+      "donchian": true
     },
     "global": {
       "step_multiplier": 0.25
@@ -58,47 +58,43 @@
     "CHF_JPY"
   ],
   "best_trial": {
-    "signal_variant": 703,
+    "signal_variant": 96,
     "engine": {
       "stop_loss": {
         "selector": "fixed",
         "fixed": {
-          "pips": 92.5
+          "pips": 44.0
         }
       },
       "take_profit": {
         "selector": "rr",
         "rr": {
-          "ratio": 3.449999999999996
+          "ratio": 0.8500000000000003
         }
       },
       "trailing": {
         "test": true,
         "when_on": {
           "mode": {
-            "selector": "atr",
-            "atr": {
-              "mult": 1.6249999999999982
+            "selector": "fixed",
+            "fixed": {
+              "distance": 27.625
             }
           },
-          "activate": 97.5
+          "activate": 10.5
         }
       },
       "chandelier": {
         "test": false
       },
       "breakeven": {
-        "test": true,
-        "when_on": {
-          "trigger": 8.75,
-          "offset": 5.1499999999999915
-        }
+        "test": false
       },
       "partial": {
         "test": true,
         "when_on": {
-          "pct": 22.75,
-          "trigger": 48.5
+          "pct": 38.5,
+          "trigger": 38.25
         }
       },
       "stale": {
@@ -108,10 +104,7 @@
         "test": false
       },
       "max_bars": {
-        "test": true,
-        "when_on": {
-          "bars": 152
-        }
+        "test": false
       },
       "days": 31
     }
