@@ -55,10 +55,17 @@ def _install_signal_handlers(stop_event: Event) -> None:
 
 
 def main() -> int:
+    _LIVE_DIR.mkdir(parents=True, exist_ok=True)
+    _log_file = _LIVE_DIR / "runner.log"
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.FileHandler(_log_file, mode="w", encoding="utf-8"),
+            logging.StreamHandler(),
+        ],
     )
+    LOG.info("[svc] starting runner_service; log=%s", _log_file)
     if not _SERVICE_CONFIG.exists():
         LOG.error("[svc] no service_config.json at %s — write one via the web UI first",
                   _SERVICE_CONFIG)
