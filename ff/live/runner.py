@@ -954,6 +954,17 @@ def _manage_open_positions(cfg: LiveConfig, state: PairState, broker: Any,
             if rc == 10009:
                 closed.append(plan_id)
                 mutated = True
+            elif rc == -1:
+                # Phantom ticket — broker positions_get returned empty or
+                # order_send returned None. Position no longer exists on
+                # broker side (already closed by SL/TP). Drop from state
+                # to end the retry loop.
+                _log_error(cfg, {"pair": state.pair, "stage": "close",
+                            "ticket": pos.ticket, "retcode": rc,
+                            "exit_reason": action.exit_reason,
+                            "action": "dropped_phantom"})
+                closed.append(plan_id)
+                mutated = True
             else:
                 _log_error(cfg, {"pair": state.pair, "stage": "close",
                             "ticket": pos.ticket, "retcode": rc,
