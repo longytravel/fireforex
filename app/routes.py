@@ -696,7 +696,7 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
         "deviation_pips": float(body.get("deviation_pips", 3.0)),
         "magic_number": magic,
         "symbol_map": body.get("symbol_map") or {},
-        "auto_reconcile_interval_min": int(body.get("auto_reconcile_interval_min", 60)),
+        "auto_reconcile_interval_min": int(body.get("auto_reconcile_interval_min", 0)),
         "max_open_per_pair": int(body.get("max_open_per_pair", 1)),
     }
 

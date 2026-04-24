@@ -368,12 +368,18 @@ def _spawn_heartbeat(
 def _spawn_auto_reconciler(
     instances: "list[LiveConfig]", stop_event: Event,
 ) -> Thread:
-    """Run the reconciler every hour (configurable) against each
-    instance's pinned source run. No-op for any instance without a
-    ``pinned_run.json``.
+    """Optionally run the legacy VPS-side reconciler.
+
+    The normal workflow is laptop/UI reconciliation. Set
+    ``auto_reconcile_interval_min`` to 0 to keep the VPS focused on
+    execution + live artifact capture only.
     """
     def _loop() -> None:
         interval_min = _read_auto_reconcile_interval_min()
+        if interval_min <= 0:
+            LOG.info("[live] auto-reconcile disabled (interval=%s)",
+                     interval_min)
+            return
         # Wait a grace period after startup so at least one plan can fire.
         if stop_event.wait(60.0):
             return
@@ -424,27 +430,25 @@ def _spawn_deal_sync(
 
 
 def _read_auto_reconcile_interval_min() -> int:
-    """Global knob — if any instance config or legacy service_config.json
-    sets ``auto_reconcile_interval_min``, use the smallest. Default 60.
-    """
+    """Read VPS-side reconcile interval; <=0 disables it."""
     candidates: list[int] = []
     # Legacy top-level config (pre-multi-instance) still honoured if present.
     legacy = LIVE_DIR / "service_config.json"
     if legacy.exists():
         try:
             v = int(json.loads(legacy.read_text(encoding="utf-8"))
-                    .get("auto_reconcile_interval_min", 60))
+                    .get("auto_reconcile_interval_min", 0))
             candidates.append(v)
         except (json.JSONDecodeError, ValueError, TypeError):
             pass
     for sub in LIVE_DIR.glob("*/config.json"):
         try:
             v = int(json.loads(sub.read_text(encoding="utf-8"))
-                    .get("auto_reconcile_interval_min", 60))
+                    .get("auto_reconcile_interval_min", 0))
             candidates.append(v)
         except (json.JSONDecodeError, ValueError, TypeError):
             continue
-    return min(candidates) if candidates else 60
+    return min(candidates) if candidates else 0
 
 
 def _spawn_state_sync(stop_event: Event) -> Thread:

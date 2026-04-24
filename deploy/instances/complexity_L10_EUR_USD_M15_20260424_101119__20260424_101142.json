@@ -108,6 +108,6 @@
   "deviation_pips": 3.0,
   "magic_number": 20260421,
   "symbol_map": {},
-  "auto_reconcile_interval_min": 60,
+  "auto_reconcile_interval_min": 0,
   "max_open_per_pair": 1
 }
