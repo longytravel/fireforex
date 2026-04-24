@@ -32,7 +32,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -360,12 +360,19 @@ class MT5Broker:
     # --------------------------------------------------------------- history
     def fetch_recent_deals(self, since_ts: datetime) -> list[dict[str, Any]]:
         mt5 = _require_mt5()
-        deals = mt5.history_deals_get(since_ts, datetime.now(tz=timezone.utc))
+        # MT5 deal history uses the broker-server timestamp domain, the same
+        # offset observed from live ticks. Query in broker time, then persist
+        # true UTC so reconciliation does not have to guess the offset later.
+        offset = timedelta(seconds=int(self._broker_to_utc_sec))
+        broker_since = since_ts - offset
+        broker_until = datetime.now(tz=timezone.utc) - offset
+        deals = mt5.history_deals_get(broker_since, broker_until)
         if deals is None:
             return []
         out = []
         for d in deals:
             reason_code = int(getattr(d, "reason", -1))
+            broker_time = int(d.time)
             out.append({
                 "ticket": int(d.ticket),
                 "position_id": int(getattr(d, "position_id", 0)),
@@ -380,7 +387,14 @@ class MT5Broker:
                 "fee": float(getattr(d, "fee", 0.0)),
                 "reason_code": reason_code,
                 "reason": DEAL_REASON_NAMES.get(reason_code, "UNKNOWN"),
-                "time": datetime.fromtimestamp(int(d.time), tz=timezone.utc).isoformat(),
+                "time": datetime.fromtimestamp(
+                    broker_time + int(self._broker_to_utc_sec),
+                    tz=timezone.utc,
+                ).isoformat(),
+                "broker_time": datetime.fromtimestamp(
+                    broker_time,
+                    tz=timezone.utc,
+                ).isoformat(),
                 "comment": str(getattr(d, "comment", "")),
             })
         return out

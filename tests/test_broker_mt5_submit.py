@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import pandas as pd
 from types import SimpleNamespace
 
@@ -58,6 +59,32 @@ class _FakeMT5Rates:
                 "spread": 3,
                 "real_volume": 0,
             }
+        ]
+
+
+class _FakeMT5History:
+    def __init__(self):
+        self.calls = []
+
+    def history_deals_get(self, since, until):
+        self.calls.append((since, until))
+        return [
+            SimpleNamespace(
+                ticket=123,
+                position_id=456,
+                magic=20260421,
+                symbol="GBPNZD",
+                type=1,
+                volume=0.01,
+                price=2.29966,
+                profit=-1.17,
+                commission=-0.03,
+                swap=0.0,
+                fee=0.0,
+                reason=4,
+                time=int(datetime(2026, 4, 24, 13, 20, 5, tzinfo=timezone.utc).timestamp()),
+                comment="[sl 2.29967]",
+            )
         ]
 
 
@@ -141,3 +168,21 @@ def test_copy_rates_m1_skips_current_forming_bar(monkeypatch):
     assert isinstance(df.index, pd.DatetimeIndex)
     assert df.index.tz is not None
     assert df.iloc[0]["close"] == 1.15
+
+
+def test_fetch_recent_deals_queries_broker_time_and_stores_utc(monkeypatch):
+    fake = _FakeMT5History()
+    monkeypatch.setattr(broker_mt5, "_mt5", fake)
+
+    broker = broker_mt5.MT5Broker(
+        BrokerCfg(login=1, password="x", server="x", deviation_pips=3)
+    )
+    broker._broker_to_utc_sec = -3 * 60 * 60
+    since = datetime(2026, 4, 24, 10, 0, tzinfo=timezone.utc)
+    deals = broker.fetch_recent_deals(since)
+
+    assert fake.calls[0][0] == datetime(2026, 4, 24, 13, 0, tzinfo=timezone.utc)
+    assert fake.calls[0][1] > fake.calls[0][0]
+    assert deals[0]["time"] == "2026-04-24T10:20:05+00:00"
+    assert deals[0]["broker_time"] == "2026-04-24T13:20:05+00:00"
+    assert deals[0]["reason"] == "SL"
