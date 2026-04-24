@@ -168,7 +168,9 @@ class MT5Broker:
         """
         mt5 = _require_mt5()
         symbol = self.cfg.symbol_map.get(pair, pair.replace("_", ""))
-        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 0, n_bars)
+        # MT5 position 0 is the current, still-forming M1 candle. Skip it so
+        # higher-timeframe rollups only evaluate bars built from closed M1 data.
+        rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M1, 1, n_bars)
         if rates is None or len(rates) == 0:
             return pd.DataFrame()
         df = pd.DataFrame(rates)

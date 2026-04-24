@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pandas as pd
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,7 @@ from ff.live.runner import BrokerCfg
 
 
 class _FakeMT5:
+    TIMEFRAME_M1 = 1
     TRADE_ACTION_DEAL = 1
     ORDER_TYPE_BUY = 0
     ORDER_TYPE_SELL = 1
@@ -35,6 +37,28 @@ class _FakeMT5:
 
     def last_error(self):
         return (0, "ok")
+
+
+class _FakeMT5Rates:
+    TIMEFRAME_M1 = 1
+
+    def __init__(self):
+        self.calls = []
+
+    def copy_rates_from_pos(self, symbol, timeframe, start_pos, count):
+        self.calls.append((symbol, timeframe, start_pos, count))
+        return [
+            {
+                "time": 1_775_000_000,
+                "open": 1.1,
+                "high": 1.2,
+                "low": 1.0,
+                "close": 1.15,
+                "tick_volume": 42,
+                "spread": 3,
+                "real_volume": 0,
+            }
+        ]
 
 
 def _plan():
@@ -96,3 +120,24 @@ def test_submit_market_order_comment_names_signal(monkeypatch):
     broker.submit_market_order(_plan())
 
     assert fake.requests[0]["comment"] == "ff_ema_cross"
+
+
+def test_copy_rates_m1_skips_current_forming_bar(monkeypatch):
+    fake = _FakeMT5Rates()
+    monkeypatch.setattr(broker_mt5, "_mt5", fake)
+
+    broker = broker_mt5.MT5Broker(
+        BrokerCfg(
+            login=1,
+            password="x",
+            server="x",
+            deviation_pips=3,
+            symbol_map={"EUR_USD": "EURUSD.a"},
+        )
+    )
+    df = broker.copy_rates_m1("EUR_USD", 200)
+
+    assert fake.calls == [("EURUSD.a", fake.TIMEFRAME_M1, 1, 200)]
+    assert isinstance(df.index, pd.DatetimeIndex)
+    assert df.index.tz is not None
+    assert df.iloc[0]["close"] == 1.15
