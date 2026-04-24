@@ -31,6 +31,10 @@ _CRASHES_FILE = _LIVE_DIR / "crashes.jsonl"
 _ENV_FILE = _ROOT / ".env.live"
 
 
+def _read_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
 def _log_crash(exc: BaseException) -> None:
     import traceback
     import pandas as pd
@@ -81,7 +85,7 @@ def _distribute_deploy_configs() -> None:
     active_ids: set[str] | None
     if active_manifest.exists():
         try:
-            manifest = json.loads(active_manifest.read_text(encoding="utf-8"))
+            manifest = _read_json(active_manifest)
             active_ids = set(manifest.get("active") or [])
         except (json.JSONDecodeError, TypeError):
             LOG.warning("[svc] deploy/instances/active.json unparseable; "
@@ -96,7 +100,7 @@ def _distribute_deploy_configs() -> None:
     index: dict[str, Any] = {"magic_counter": 20260420, "instances": {}}
     if index_file.exists():
         try:
-            index = json.loads(index_file.read_text(encoding="utf-8"))
+            index = _read_json(index_file)
             index.setdefault("magic_counter", 20260420)
             index.setdefault("instances", {})
         except (json.JSONDecodeError, TypeError):
@@ -114,7 +118,7 @@ def _distribute_deploy_configs() -> None:
         if live_cfg.exists():
             continue
         try:
-            cfg = json.loads(deploy_cfg.read_text(encoding="utf-8"))
+            cfg = _read_json(deploy_cfg)
         except (json.JSONDecodeError, OSError):
             LOG.warning("[svc] bad deploy config %s — skipping", deploy_cfg)
             continue
@@ -186,7 +190,7 @@ def _discover_instance_configs() -> list[Path]:
     index_file = _LIVE_DIR / "instances.json"
     if index_file.exists():
         try:
-            idx = json.loads(index_file.read_text(encoding="utf-8"))
+            idx = _read_json(index_file)
             for iid, meta in (idx.get("instances") or {}).items():
                 active_filter[iid] = bool(meta.get("active", True))
         except (json.JSONDecodeError, TypeError):
@@ -224,7 +228,7 @@ def _auto_migrate_legacy() -> Path | None:
 
     import shutil
 
-    cfg = json.loads(_SERVICE_CONFIG.read_text(encoding="utf-8"))
+    cfg = _read_json(_SERVICE_CONFIG)
     src_run = cfg.get("source_run_id") or "legacy"
 
     # If this config carries an instance_id AND a matching
@@ -269,7 +273,7 @@ def _auto_migrate_legacy() -> Path | None:
                             "instances": {}}
     if index_file.exists():
         try:
-            idx = json.loads(index_file.read_text(encoding="utf-8"))
+            idx = _read_json(index_file)
             idx.setdefault("magic_counter", int(cfg["magic_number"]) + 1)
             idx.setdefault("instances", {})
         except (json.JSONDecodeError, TypeError):
@@ -294,7 +298,7 @@ def _build_live_config(config_path: Path,
     """Read one instance config.json -> LiveConfig."""
     from ff.live import runner
 
-    svc = json.loads(config_path.read_text(encoding="utf-8"))
+    svc = _read_json(config_path)
     instance_id = svc.get("instance_id") or config_path.parent.name
 
     broker_profile = {

@@ -28,6 +28,11 @@ def _write_json(path: Path, obj: dict) -> None:
     path.write_text(json.dumps(obj), encoding="utf-8")
 
 
+def _write_json_bom(path: Path, obj: dict) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(obj), encoding="utf-8-sig")
+
+
 def _svc(instance_id: str, magic: int = 20260420, pairs=("EUR_USD",)) -> dict:
     return {
         "instance_id": instance_id,
@@ -121,6 +126,33 @@ def test_distribute_forces_filename_identity(tmp_root):
     loaded = json.loads(
         (rs._LIVE_DIR / "true_id" / "config.json").read_text(encoding="utf-8"))
     assert loaded["instance_id"] == "true_id"
+
+
+def test_distribute_accepts_windows_bom_json(tmp_root):
+    """Windows tooling can write UTF-8 with a BOM; the VPS service must
+    still parse those configs on boot.
+    """
+    from ff.live import runner_service as rs
+
+    deploy_dir = tmp_root / "deploy" / "instances"
+    _write_json_bom(deploy_dir / "alpha.json", _svc("alpha", magic=100))
+    _write_json_bom(deploy_dir / "active.json", {"active": ["alpha"]})
+
+    rs._distribute_deploy_configs()
+
+    assert (rs._LIVE_DIR / "alpha" / "config.json").exists()
+
+
+def test_runner_interval_read_accepts_windows_bom_json(tmp_root, monkeypatch):
+    from ff.live import runner
+
+    monkeypatch.setattr(runner, "LIVE_DIR", tmp_root / "artifacts" / "live")
+    _write_json_bom(
+        runner.LIVE_DIR / "alpha" / "config.json",
+        {**_svc("alpha"), "auto_reconcile_interval_min": 0},
+    )
+
+    assert runner._read_auto_reconcile_interval_min() == 0
 
 
 def test_migration_skipped_when_deploy_already_has_same_instance(tmp_root):

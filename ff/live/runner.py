@@ -75,6 +75,10 @@ LIVE_DIR = _ROOT / "artifacts" / "live"
 # instances.json, archive/.
 
 
+def _read_json(path: Path) -> Any:
+    return json.loads(path.read_text(encoding="utf-8-sig"))
+
+
 # ── Config ─────────────────────────────────────────────────────────────
 
 @dataclass
@@ -436,15 +440,13 @@ def _read_auto_reconcile_interval_min() -> int:
     legacy = LIVE_DIR / "service_config.json"
     if legacy.exists():
         try:
-            v = int(json.loads(legacy.read_text(encoding="utf-8"))
-                    .get("auto_reconcile_interval_min", 0))
+            v = int(_read_json(legacy).get("auto_reconcile_interval_min", 0))
             candidates.append(v)
         except (json.JSONDecodeError, ValueError, TypeError):
             pass
     for sub in LIVE_DIR.glob("*/config.json"):
         try:
-            v = int(json.loads(sub.read_text(encoding="utf-8"))
-                    .get("auto_reconcile_interval_min", 0))
+            v = int(_read_json(sub).get("auto_reconcile_interval_min", 0))
             candidates.append(v)
         except (json.JSONDecodeError, ValueError, TypeError):
             continue
@@ -465,15 +467,13 @@ def _spawn_state_sync(stop_event: Event) -> Thread:
     legacy = LIVE_DIR / "service_config.json"
     if legacy.exists():
         try:
-            raw = json.loads(legacy.read_text(encoding="utf-8")).get(
-                "state_sync_interval_sec", 60)
+            raw = _read_json(legacy).get("state_sync_interval_sec", 60)
             candidates.append(int(raw) if raw else 0)
         except (json.JSONDecodeError, ValueError, TypeError):
             candidates.append(60)
     for sub in LIVE_DIR.glob("*/config.json"):
         try:
-            raw = json.loads(sub.read_text(encoding="utf-8")).get(
-                "state_sync_interval_sec", 60)
+            raw = _read_json(sub).get("state_sync_interval_sec", 60)
             candidates.append(int(raw) if raw else 0)
         except (json.JSONDecodeError, ValueError, TypeError):
             candidates.append(60)
@@ -522,7 +522,7 @@ def _run_auto_reconcile(cfg: LiveConfig) -> None:
     pinned = cfg.pinned_run_file
     if not pinned.exists():
         return
-    run_id = json.loads(pinned.read_text(encoding="utf-8")).get("run_id")
+    run_id = _read_json(pinned).get("run_id")
     if not run_id:
         return
 
@@ -1187,7 +1187,7 @@ def _load_state(cfg: LiveConfig, pair_states: dict[str, PairState]) -> int:
     if not cfg.state_file.exists():
         return 0
     try:
-        payload = json.loads(cfg.state_file.read_text(encoding="utf-8"))
+        payload = _read_json(cfg.state_file)
     except (OSError, json.JSONDecodeError) as exc:
         LOG.warning("[live] instance=%s state load failed: %r",
                     cfg.instance_id, exc)
@@ -1223,7 +1223,7 @@ def _load_state(cfg: LiveConfig, pair_states: dict[str, PairState]) -> int:
 def _load_pinned_params(cfg: LiveConfig) -> dict[str, Any] | None:
     path = cfg.params_pinned_file
     if path.exists():
-        return json.loads(path.read_text(encoding="utf-8"))
+        return _read_json(path)
     return None
 
 
