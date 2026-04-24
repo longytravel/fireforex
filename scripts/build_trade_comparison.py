@@ -73,6 +73,45 @@ def _latest_reconcile(inst_dir: Path, tag: str) -> dict | None:
     return json.loads(files[-1].read_text(encoding="utf-8-sig"))
 
 
+def _load_bt_trades(source_run_id: str, stamp: str):
+    """Load the backtest trade log produced by the replay stamp."""
+    import numpy as np
+    import pandas as pd
+
+    replay_dir = ROOT / "artifacts" / "replay" / source_run_id / stamp
+    npz = replay_dir / "trades.npz"
+    if not npz.exists():
+        return None
+    d = np.load(npz, allow_pickle=True)
+    if "trades" not in d.files:
+        return None
+    df = pd.DataFrame(d["trades"])
+    if df.empty:
+        return df
+    df["entry_ts"] = pd.to_datetime(df["entry_ts"], utc=True)
+    df["exit_ts"] = pd.to_datetime(df["exit_ts"], utc=True)
+    return df
+
+
+def _load_replay_df(inst_dir: Path, source: str):
+    """Pick the most recent replay stamp for this source and load its trades."""
+    cfg_path = inst_dir / "config.json"
+    if not cfg_path.exists():
+        return None
+    cfg = json.loads(cfg_path.read_text(encoding="utf-8-sig"))
+    run_id = cfg.get("source_run_id")
+    if not run_id:
+        return None
+    replay_root = ROOT / "artifacts" / "replay" / run_id
+    if not replay_root.exists():
+        return None
+    stamp_file = replay_root / f"latest_stamp_{source}.txt"
+    if not stamp_file.exists():
+        return None
+    stamp = stamp_file.read_text(encoding="utf-8-sig").strip()
+    return _load_bt_trades(run_id, stamp)
+
+
 def _plan_by_id(plans: list[dict]) -> dict[str, dict]:
     return {p["plan_id"]: p for p in plans}
 
@@ -154,8 +193,16 @@ def _round_trips(inst: dict) -> list[dict]:
     return out
 
 
-def _attach_replay(row: dict, reconcile: dict | None, source: str) -> None:
-    """Fill in ``{source}_*`` fields from the reconcile report's matched list."""
+def _attach_replay(row: dict, bt_df, source: str) -> None:
+    """Fill in ``{source}_*`` fields by matching against the BT trade log.
+
+    The reconciler's ``matched`` list drops live trades it considers duplicates,
+    so we go to the replay NPZ directly. We pick the BT trade on the same pair
+    and direction whose entry_ts falls in the 15 minutes after the live plan's
+    signal bar — i.e. the BT fired the same M15 signal.
+    """
+    import pandas as pd
+
     prefix = source
     fields = (f"{prefix}_match_status", f"{prefix}_bt_entry",
               f"{prefix}_bt_exit", f"{prefix}_bt_pnl_pips",
@@ -165,59 +212,57 @@ def _attach_replay(row: dict, reconcile: dict | None, source: str) -> None:
               f"{prefix}_bt_spread_pips")
     for f in fields:
         row.setdefault(f, "")
-    if reconcile is None:
+
+    if bt_df is None or len(bt_df) == 0:
         row[f"{prefix}_match_status"] = "no_replay"
         return
+
     pair = row["pair"]
     direction = 1 if row["direction"] == "LONG" else -1
-    sig_bar = str(row["signal_bar"] or "").replace("T", " ")[:19]
-    match = None
-    for m in reconcile.get("matched", []):
-        m_sig = str(m.get("signal_bar_ts", "")).replace("T", " ")[:19]
-        if (m.get("pair") == pair and int(m.get("direction", 0)) == direction
-                and m_sig == sig_bar):
-            match = m
-            break
-    if match is None:
+    sig_bar = row["signal_bar"]
+    if not sig_bar:
+        row[f"{prefix}_match_status"] = "no_signal_bar"
+        return
+    sig_dt = pd.to_datetime(sig_bar, utc=True)
+
+    cand = bt_df[
+        (bt_df["pair"] == pair)
+        & (bt_df["direction"].astype(float).astype(int) == direction)
+        & (bt_df["entry_ts"] >= sig_dt)
+        & (bt_df["entry_ts"] < sig_dt + pd.Timedelta(minutes=16))
+    ]
+    if len(cand) == 0:
         row[f"{prefix}_match_status"] = "no_match"
         return
+    match = cand.iloc[0]
+
     pip = _pip(pair)
     row[f"{prefix}_match_status"] = "exact_signal_bar"
-    row[f"{prefix}_bt_entry"] = round(float(match.get("bt_entry_price", 0.0)), 5)
-    row[f"{prefix}_bt_exit"] = round(float(match.get("bt_exit_price", 0.0)), 5)
-    row[f"{prefix}_bt_pnl_pips"] = _nan_safe(match.get("bt_pnl_pips"))
-    row[f"{prefix}_bt_close_reason"] = match.get("bt_close_reason", "")
-    row[f"{prefix}_bt_spread_pips"] = _nan_safe(match.get("bt_spread_pips"))
+    row[f"{prefix}_bt_entry"] = round(float(match["entry_price"]), 5)
+    row[f"{prefix}_bt_exit"] = round(float(match["exit_price"]), 5)
+    row[f"{prefix}_bt_pnl_pips"] = round(float(match["pnl_pips"]), 2)
+    row[f"{prefix}_bt_close_reason"] = str(match.get("exit_reason_name", ""))
+    row[f"{prefix}_bt_spread_pips"] = _nan_safe(match.get("spread_entry_pips"))
+    row[f"{prefix}_bt_exit_ts"] = str(match["exit_ts"])
 
     live_px_in = row["open_price"]
     live_px_out = row["close_price"]
-    bt_in = match.get("bt_entry_price")
-    bt_out = match.get("bt_exit_price")
-    if bt_in is not None and not _isnan(bt_in):
-        row[f"{prefix}_entry_delta_pips"] = round(
-            (live_px_in - bt_in) / pip * direction, 2)
-    if bt_out is not None and not _isnan(bt_out):
-        row[f"{prefix}_exit_delta_pips"] = round(
-            (live_px_out - bt_out) / pip * direction, 2)
-    live_pnl = row["report_pnl_pips"]
-    bt_pnl = match.get("bt_pnl_pips")
-    if bt_pnl is not None and not _isnan(bt_pnl):
-        row[f"{prefix}_pnl_delta_pips"] = round(live_pnl - bt_pnl, 2)
-    # exit time delta in minutes
-    bt_exit_ts = match.get("bt_exit_ts")
-    if bt_exit_ts:
-        try:
-            bt_dt = datetime.fromisoformat(str(bt_exit_ts).replace("Z", "+00:00"))
-            live_dt = datetime.fromisoformat(row["close_time_utc"].replace("Z", "+00:00"))
-            if bt_dt.tzinfo is None:
-                bt_dt = bt_dt.replace(tzinfo=timezone.utc)
-            if live_dt.tzinfo is None:
-                live_dt = live_dt.replace(tzinfo=timezone.utc)
-            delta_min = (live_dt - bt_dt).total_seconds() / 60.0
-            row[f"{prefix}_exit_delta_min"] = round(delta_min, 2)
-            row[f"{prefix}_bt_exit_ts"] = bt_exit_ts
-        except Exception:
-            pass
+    row[f"{prefix}_entry_delta_pips"] = round(
+        (live_px_in - float(match["entry_price"])) / pip * direction, 2)
+    row[f"{prefix}_exit_delta_pips"] = round(
+        (live_px_out - float(match["exit_price"])) / pip * direction, 2)
+    row[f"{prefix}_pnl_delta_pips"] = round(
+        row["report_pnl_pips"] - float(match["pnl_pips"]), 2)
+
+    try:
+        bt_dt = match["exit_ts"]
+        live_dt = datetime.fromisoformat(row["close_time_utc"].replace("Z", "+00:00"))
+        if live_dt.tzinfo is None:
+            live_dt = live_dt.replace(tzinfo=timezone.utc)
+        delta_min = (live_dt - bt_dt.to_pydatetime()).total_seconds() / 60.0
+        row[f"{prefix}_exit_delta_min"] = round(delta_min, 2)
+    except Exception:
+        pass
 
 
 def _isnan(x) -> bool:
@@ -500,13 +545,11 @@ def main(argv: list[str] | None = None) -> int:
     for inst in sorted(p for p in args.live_dir.glob("complexity_*")
                        if p.is_dir()):
         data = _load_instance(inst)
-        duka = _latest_reconcile(inst, "dukascopy_live_vs_dukascopy")
-        mt5 = _latest_reconcile(inst, "mt5_A_live_vs_duka")
-        if mt5 is None:
-            mt5 = _latest_reconcile(inst, "mt5_live_vs_mt5")
+        duka_df = _load_replay_df(inst, "dukascopy")
+        mt5_df = _load_replay_df(inst, "mt5")
         for row in _round_trips(data):
-            _attach_replay(row, duka, "duka")
-            _attach_replay(row, mt5, "mt5")
+            _attach_replay(row, duka_df, "duka")
+            _attach_replay(row, mt5_df, "mt5")
             rows.append(row)
 
     rows.sort(key=lambda r: r.get("open_time_utc", ""))
