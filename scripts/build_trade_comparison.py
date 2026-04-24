@@ -285,6 +285,10 @@ def _nan_safe(x):
 
 
 def _verdict(row: dict) -> tuple[str, str]:
+    if row.get("duka_match_status") != "exact_signal_bar":
+        return ("No backtest match", "bad")
+    if str(row.get("duka_bt_close_reason", "")).upper() == "NONE":
+        return ("Backtest data cut off", "warn")
     pnl_d = row.get("duka_pnl_delta_pips", "")
     exit_m = row.get("duka_exit_delta_min", "")
     entry_d = row.get("duka_entry_delta_pips", "")
@@ -302,6 +306,12 @@ def _verdict(row: dict) -> tuple[str, str]:
         return ("Good match", "good")
     if abs(pnl_f) <= 5 and t <= 10:
         return ("Close enough, review", "warn")
+    # Same exit reason + small pnl diff = broker price-path divergence, not bug
+    live_reason = str(row.get("close_reason", ""))
+    bt_reason = str(row.get("duka_bt_close_reason", ""))
+    if (abs(pnl_f) <= 5 and "sl" in live_reason.lower()
+            and bt_reason.upper() == "SL"):
+        return ("Broker price-path drift", "warn")
     return ("Material difference", "bad")
 
 
@@ -431,11 +441,13 @@ def _write_html(rows: list[dict], out: Path, stamp: str) -> None:
         mt5_match = ("yes" if r.get("mt5_match_status") == "exact_signal_bar"
                      else "no")
         why_bits = []
+        bt_reason_u = str(r.get("duka_bt_close_reason", "")).upper()
+        if bt_reason_u == "NONE":
+            why_bits.append("backtest data ran out before trade closed")
+        elif bt_reason_u and bt_reason_u not in ("SL", "TP"):
+            why_bits.append(f"backtest exited via {bt_reason_u}")
         if mt5_match == "no":
-            why_bits.append("MT5 replay did not produce this signal")
-        if r.get("duka_bt_close_reason") and r.get("duka_bt_close_reason") != "SL":
-            why_bits.append(
-                f"backtest exited via {r['duka_bt_close_reason']}")
+            why_bits.append("no MT5 replay coverage for this pair")
         try:
             if abs(float(pnl_d or 0)) > 5:
                 why_bits.append("pnl differs by more than 5 pips")
