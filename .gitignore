@@ -43,6 +43,6 @@ artifacts/replay/
 # Transient laptop-side staging for VPS artifact sync + one-off diagnostics.
 artifacts/_incoming/
 artifacts/live_archive_*/
-artifacts/_reconcile_rerun_*.log
+artifacts/_*_rerun_*.log
 artifacts/diag_*.txt
 scripts/_tmp_*.py
