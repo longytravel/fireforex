@@ -45,6 +45,7 @@ def _plan():
         "size_lots": 0.01,
         "sl_price": 1.0900,
         "tp_price": 1.1200,
+        "signal_family": "ema_cross",
     }
 
 
@@ -80,3 +81,18 @@ def test_submit_market_order_retries_requote_once(monkeypatch):
     assert len(fake.requests) == 2
     assert fake.requests[0]["deviation"] == 30
     assert fake.requests[1]["deviation"] == 60
+
+
+def test_submit_market_order_comment_names_signal(monkeypatch):
+    fake = _FakeMT5([
+        SimpleNamespace(retcode=10009, order=12345, price=1.1002,
+                        volume=0.01, comment="done"),
+    ])
+    monkeypatch.setattr(broker_mt5, "_mt5", fake)
+
+    broker = broker_mt5.MT5Broker(
+        BrokerCfg(login=1, password="x", server="x", deviation_pips=3)
+    )
+    broker.submit_market_order(_plan())
+
+    assert fake.requests[0]["comment"] == "ff_ema_cross"

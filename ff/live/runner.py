@@ -631,7 +631,7 @@ def _refresh_deals(cfg: LiveConfig, broker: Any) -> None:
                     filtered.append(deal)
             except (TypeError, ValueError):
                 continue
-        elif str(deal.get("comment", "")).startswith("fireforex"):
+        elif str(deal.get("comment", "")).startswith(("fireforex", "ff_")):
             # Legacy broker rows before magic was persisted.
             filtered.append(deal)
     # Stable de-dupe: history can include the same deal every refresh.
@@ -715,8 +715,9 @@ def _poll_pair(cfg: LiveConfig, state: PairState, broker: Any,
         return
 
     latest_main_ts = state.main_buf.index[-1]
-    main_bar_closed = state.last_main_ts is None or latest_main_ts > state.last_main_ts
-    if main_bar_closed:
+    if state.last_main_ts is None:
+        state.last_main_ts = latest_main_ts
+    elif latest_main_ts > state.last_main_ts:
         state.last_main_ts = latest_main_ts
         _evaluate_and_fire(cfg, state, broker, latest_main_ts, pair_states)
 

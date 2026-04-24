@@ -125,19 +125,20 @@ def test_last_main_ts_only_advances_on_new_closed_bar(monkeypatch, cfg, pair_sta
     # First poll: 119 M1 (only 1 H1 bar closed)
     broker.planned_response = _synth_m1("2026-04-20 10:00", 119)
     live_runner._poll_pair(cfg, pair_state, broker, {"EUR_USD": pair_state})
-    assert len(fired) == 1
-    assert fired[0] == pd.Timestamp("2026-04-20 10:00", tz="UTC")
+    assert len(fired) == 0
+    assert pair_state.last_main_ts == pd.Timestamp("2026-04-20 10:00", tz="UTC")
 
     # Second poll: 120 M1 — no new H1 closed yet (11:00 H1 needs 11:00..11:59 M1 plus bar at 12:00)
     broker.planned_response = _synth_m1("2026-04-20 10:00", 120)
     live_runner._poll_pair(cfg, pair_state, broker, {"EUR_USD": pair_state})
     # One more H1 closed.
-    assert len(fired) == 2
+    assert len(fired) == 1
+    assert fired[0] == pd.Timestamp("2026-04-20 11:00", tz="UTC")
 
     # Third poll: no new M1 — no advance
     broker.planned_response = _synth_m1("2026-04-20 10:00", 120)
     live_runner._poll_pair(cfg, pair_state, broker, {"EUR_USD": pair_state})
-    assert len(fired) == 2  # still two fires
+    assert len(fired) == 1  # still one fire
 
 
 class _StubLibrary:

@@ -30,6 +30,7 @@ No silent retries. Every outcome is logged.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,6 +57,25 @@ DEAL_REASON_NAMES: dict[int, str] = {
     8: "VMARGIN",
     9: "SPLIT",
 }
+
+
+_COMMENT_MAX_LEN = 31
+_COMMENT_PREFIX = "ff_"
+_COMMENT_ALIASES = {
+    "ema_cross": "ema_cross",
+    "macd_cross": "macd_cross",
+    "donchian": "donchian",
+}
+
+
+def _order_comment(plan: dict[str, Any]) -> str:
+    """Short MT5-safe comment showing which signal family fired."""
+    raw = str(plan.get("signal_family") or "").strip().lower()
+    signal = _COMMENT_ALIASES.get(raw, raw)
+    signal = re.sub(r"[^a-z0-9_]+", "_", signal).strip("_")
+    if not signal:
+        return "fireforex"
+    return f"{_COMMENT_PREFIX}{signal}"[:_COMMENT_MAX_LEN]
 
 
 # Lazy import — MetaTrader5 is Windows-only and not available on dev boxes.
@@ -194,9 +214,9 @@ class MT5Broker:
             "tp": float(plan["tp_price"]),
             "deviation": deviation_points,
             "magic": int(self.cfg.magic_number),
-            # MT5 rejects colons / '+' / '-' and caps comment length at 31.
-            # plan_id gets linked to the ticket via tickets.jsonl instead.
-            "comment": "fireforex",
+            # MT5 caps comments at 31 chars. Keep the plan_id in
+            # tickets.jsonl and use the visible MT5 comment for signal ID.
+            "comment": _order_comment(plan),
             "type_filling": mt5.ORDER_FILLING_IOC,
         }
 
