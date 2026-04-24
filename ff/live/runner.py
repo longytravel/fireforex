@@ -319,9 +319,11 @@ def run(instances: "list[LiveConfig] | LiveConfig",
     all_pair_states: dict[str, dict[str, PairState]] = {}
     for cfg in instances:
         ps = {p: _build_pair_state(p, cfg) for p in cfg.pairs}
+        loaded_open = _load_state(cfg, ps)
         all_pair_states[cfg.instance_id] = ps
-        LOG.info("[live] instance=%s initialised %d pair states: %s",
-                 cfg.instance_id, len(ps), cfg.pairs)
+        LOG.info("[live] instance=%s initialised %d pair states "
+                 "(loaded_open=%d): %s",
+                 cfg.instance_id, len(ps), loaded_open, cfg.pairs)
 
     hb = _spawn_heartbeat(all_pair_states, stop_event)
     ar = _spawn_auto_reconciler(instances, stop_event)
@@ -1174,6 +1176,42 @@ def _persist_state(cfg: LiveConfig,
         for pair, openmap in open_positions_by_pair.items()
     }
     _atomic_write_json(cfg.state_file, payload)
+
+
+def _load_state(cfg: LiveConfig, pair_states: dict[str, PairState]) -> int:
+    """Reload persisted open-position state after a service restart."""
+    if not cfg.state_file.exists():
+        return 0
+    try:
+        payload = json.loads(cfg.state_file.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        LOG.warning("[live] instance=%s state load failed: %r",
+                    cfg.instance_id, exc)
+        return 0
+
+    if not isinstance(payload, dict):
+        return 0
+
+    allowed = set(OpenPosition.__dataclass_fields__)
+    loaded = 0
+    for pair, positions in payload.items():
+        state = pair_states.get(str(pair))
+        if state is None or not isinstance(positions, dict):
+            continue
+        for plan_id, raw in positions.items():
+            if not isinstance(raw, dict):
+                continue
+            row = {k: raw[k] for k in allowed if k in raw}
+            row.setdefault("plan_id", str(plan_id))
+            try:
+                pos = OpenPosition(**row)
+            except TypeError as exc:
+                LOG.warning("[live] instance=%s pair=%s bad state row %s: %r",
+                            cfg.instance_id, pair, plan_id, exc)
+                continue
+            state.open_positions[pos.plan_id] = pos
+            loaded += 1
+    return loaded
 
 
 # ── Helpers for tests ─────────────────────────────────────────────────

@@ -15,6 +15,8 @@ backtest golden test.
 """
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import numpy as np
 import pytest
@@ -139,6 +141,36 @@ def test_last_main_ts_only_advances_on_new_closed_bar(monkeypatch, cfg, pair_sta
     broker.planned_response = _synth_m1("2026-04-20 10:00", 120)
     live_runner._poll_pair(cfg, pair_state, broker, {"EUR_USD": pair_state})
     assert len(fired) == 1  # still one fire
+
+
+def test_load_state_restores_open_positions(monkeypatch, tmp_path, cfg, pair_state):
+    monkeypatch.setattr(live_runner, "LIVE_DIR", tmp_path)
+    state_dir = tmp_path / cfg.instance_id
+    state_dir.mkdir(parents=True)
+    plan_id = "test_instance_EUR_USD_2026-04-20T10:00:00+00:00_+1"
+    (state_dir / "state.json").write_text(json.dumps({
+        "EUR_USD": {
+            plan_id: {
+                "plan_id": plan_id,
+                "ticket": 12345,
+                "pair": "EUR_USD",
+                "direction": 1,
+                "entry_price": 1.1002,
+                "sl_price": 1.0900,
+                "tp_price": 1.1200,
+                "opened_at": "2026-04-20T10:00:00+00:00",
+                "size_lots": 0.01,
+                "atr_pips_at_entry": 10.0,
+                "last_known_sl": 1.0900,
+                "partial_done": False,
+            }
+        }
+    }), encoding="utf-8")
+
+    loaded = live_runner._load_state(cfg, {"EUR_USD": pair_state})
+
+    assert loaded == 1
+    assert pair_state.open_positions[plan_id].ticket == 12345
 
 
 class _StubLibrary:
