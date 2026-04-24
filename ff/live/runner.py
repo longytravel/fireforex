@@ -143,6 +143,10 @@ class LiveConfig:
         return self.artifact_root / "tickets.jsonl"
 
     @property
+    def deals_file(self) -> Path:
+        return self.artifact_root / "deals.jsonl"
+
+    @property
     def errors_file(self) -> Path:
         return self.artifact_root / "errors.jsonl"
 
@@ -319,6 +323,7 @@ def run(instances: "list[LiveConfig] | LiveConfig",
 
     hb = _spawn_heartbeat(all_pair_states, stop_event)
     ar = _spawn_auto_reconciler(instances, stop_event)
+    ds = _spawn_deal_sync(instances, broker, stop_event)
     # Push plans/tickets/state.json to the remote ``live-state`` branch so
     # the laptop's Restart shortcut can fetch them and populate the parity
     # workbench. Best-effort — failures are logged and swallowed.
@@ -329,6 +334,7 @@ def run(instances: "list[LiveConfig] | LiveConfig",
         stop_event.set()
         hb.join(timeout=2.0)
         ar.join(timeout=2.0)
+        ds.join(timeout=2.0)
         broker.disconnect()
         LOG.info("[live] runner stopped cleanly")
 
@@ -376,6 +382,39 @@ def _spawn_auto_reconciler(
                                 cfg.instance_id, exc)
 
     t = Thread(target=_loop, daemon=True, name="live-auto-reconcile")
+    t.start()
+    return t
+
+
+def _spawn_deal_sync(
+    instances: "list[LiveConfig]", broker: Any, stop_event: Event,
+) -> Thread:
+    """Persist MT5 deal history for every active instance.
+
+    Plans/tickets prove a signal was submitted; deals prove what actually
+    filled and closed. The reconciler needs all three, so keep a small
+    per-instance ``deals.jsonl`` snapshot fresh while the runner is alive.
+    """
+    def _loop() -> None:
+        # First pass soon after startup, then every minute. This is slow-path
+        # evidence capture, not part of order execution.
+        if stop_event.wait(10.0):
+            return
+        while not stop_event.is_set():
+            for cfg in instances:
+                try:
+                    _refresh_deals(cfg, broker)
+                except Exception as exc:  # noqa: BLE001
+                    _log_error(cfg, {
+                        "stage": "deal_sync",
+                        "error": repr(exc),
+                    })
+                    LOG.warning("[live] deal sync %s failed: %r",
+                                cfg.instance_id, exc)
+            if stop_event.wait(60.0):
+                return
+
+    t = Thread(target=_loop, daemon=True, name="live-deal-sync")
     t.start()
     return t
 
@@ -497,8 +536,10 @@ def _run_auto_reconcile(cfg: LiveConfig) -> None:
     if "pair" not in bt.columns:
         bt["pair"] = cfg.recipe.get("pair") or (cfg.pairs or ["EUR_USD"])[0]
 
-    # TODO: ingest MT5 deals for live side. For v1 we reconcile plans only.
-    live_df = pd.DataFrame([])
+    plans = _load_plans(cfg.plans_dir)
+    tickets = _read_jsonl(cfg.tickets_file)
+    deals = _read_jsonl(cfg.deals_file)
+    live_df = _recon.build_live_df(plans, tickets, deals)
 
     report = _recon.reconcile(bt, live_df)
     stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -510,6 +551,98 @@ def _run_auto_reconcile(cfg: LiveConfig) -> None:
 
 
 _ROOT_RUNS = Path(__file__).resolve().parent.parent.parent / "artifacts" / "runs"
+
+
+def _read_jsonl(path: Path) -> list[dict[str, Any]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, Any]] = []
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rows.append(json.loads(line))
+            except json.JSONDecodeError:
+                continue
+    except OSError:
+        return []
+    return rows
+
+
+def _load_plans(plans_dir: Path) -> list[dict[str, Any]]:
+    plans: list[dict[str, Any]] = []
+    if not plans_dir.exists():
+        return plans
+    for path in sorted(plans_dir.glob("*.jsonl")):
+        plans.extend(_read_jsonl(path))
+    return plans
+
+
+def _atomic_write_jsonl(path: Path, rows: list[dict[str, Any]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with tmp.open("w", encoding="utf-8") as f:
+        for row in rows:
+            f.write(json.dumps(row, default=str) + "\n")
+    tmp.replace(path)
+
+
+def _deal_sync_since(cfg: LiveConfig) -> pd.Timestamp:
+    """Earliest relevant timestamp for MT5 deal history.
+
+    Prefer actual ticket submission time. Plans are a fallback for the
+    crash-between-plan-and-ticket case. Pad by one day so broker clock and
+    weekend/session edges don't clip an opening deal.
+    """
+    candidates: list[pd.Timestamp] = []
+    for row in _read_jsonl(cfg.tickets_file):
+        raw = row.get("submitted_at") or row.get("filled_at")
+        if raw:
+            ts = pd.to_datetime(raw, utc=True, errors="coerce")
+            if pd.notna(ts):
+                candidates.append(ts)
+    for row in _load_plans(cfg.plans_dir):
+        raw = row.get("fired_at_ts") or row.get("created_at_ts")
+        if raw:
+            ts = pd.to_datetime(raw, utc=True, errors="coerce")
+            if pd.notna(ts):
+                candidates.append(ts)
+    if not candidates:
+        return pd.Timestamp.now("UTC") - pd.Timedelta(days=3)
+    return min(candidates) - pd.Timedelta(days=1)
+
+
+def _refresh_deals(cfg: LiveConfig, broker: Any) -> None:
+    since = _deal_sync_since(cfg)
+    deals = _with_broker_cfg(
+        broker, cfg,
+        lambda: broker.fetch_recent_deals(since.to_pydatetime()),
+    )
+    magic = int(cfg.broker.magic_number)
+    filtered: list[dict[str, Any]] = []
+    for deal in deals:
+        if "magic" in deal:
+            try:
+                if int(deal.get("magic", 0)) == magic:
+                    filtered.append(deal)
+            except (TypeError, ValueError):
+                continue
+        elif str(deal.get("comment", "")).startswith("fireforex"):
+            # Legacy broker rows before magic was persisted.
+            filtered.append(deal)
+    # Stable de-dupe: history can include the same deal every refresh.
+    dedup: dict[int, dict[str, Any]] = {}
+    for deal in filtered:
+        try:
+            dedup[int(deal["ticket"])] = deal
+        except (KeyError, TypeError, ValueError):
+            continue
+    _atomic_write_jsonl(
+        cfg.deals_file,
+        [dedup[k] for k in sorted(dedup)],
+    )
 
 
 def _main_loop(

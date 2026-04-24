@@ -169,6 +169,10 @@ class MT5Broker:
     def submit_market_order(self, plan: dict[str, Any]) -> Ticket:
         mt5 = _require_mt5()
         symbol = self.cfg.symbol_map.get(plan["pair"], plan["pair"].replace("_", ""))
+        try:
+            mt5.symbol_select(symbol, True)
+        except AttributeError:
+            pass
         info = mt5.symbol_info_tick(symbol)
         if info is None:
             raise RuntimeError(f"no tick for {symbol}")
@@ -201,16 +205,47 @@ class MT5Broker:
         if result is None:
             raise RuntimeError(f"order_send returned None: {mt5.last_error()}")
 
+        requote_code = int(getattr(mt5, "TRADE_RETCODE_REQUOTE", 10004))
+        done_code = int(getattr(mt5, "TRADE_RETCODE_DONE", 10009))
+        if int(result.retcode) == requote_code:
+            retry = dict(request)
+            retry["deviation"] = int(request["deviation"]) * 2
+            tick = mt5.symbol_info_tick(symbol)
+            if tick is not None:
+                retry["price"] = tick.ask if plan["direction"] > 0 else tick.bid
+            LOG.warning(
+                "[mt5] requote on %s plan=%s; retrying deviation=%s points",
+                symbol, plan.get("plan_id"), retry["deviation"],
+            )
+            result = mt5.order_send(retry)
+            if result is None:
+                raise RuntimeError(
+                    f"order_send retry returned None: {mt5.last_error()}"
+                )
+
+        if int(result.retcode) != done_code:
+            raise RuntimeError(
+                "order_send rejected "
+                f"plan={plan.get('plan_id')} symbol={symbol} "
+                f"retcode={int(result.retcode)} "
+                f"comment={getattr(result, 'comment', '')!r} "
+                f"last_error={mt5.last_error()!r}"
+            )
+
         ticket = Ticket(
             plan_id=plan["plan_id"],
             ticket=int(getattr(result, "order", 0)),
             submitted_at=submitted_at,
-            filled_at=_now_iso() if result.retcode == mt5.TRADE_RETCODE_DONE else None,
+            filled_at=_now_iso(),
             fill_price=float(getattr(result, "price", 0.0)),
             fill_volume=float(getattr(result, "volume", 0.0)),
             retcode=int(result.retcode),
             comment=str(getattr(result, "comment", "")),
         )
+        if ticket.ticket <= 0:
+            raise RuntimeError(
+                f"order_send filled but returned no ticket: {result!r}"
+            )
         return ticket
 
     def modify_sl(self, ticket: int, new_sl: float) -> int:
@@ -312,6 +347,7 @@ class MT5Broker:
             out.append({
                 "ticket": int(d.ticket),
                 "position_id": int(getattr(d, "position_id", 0)),
+                "magic": int(getattr(d, "magic", 0)),
                 "symbol": str(d.symbol),
                 "type": int(d.type),
                 "volume": float(d.volume),

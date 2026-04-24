@@ -320,3 +320,38 @@ def test_dedup_scans_plans_file_not_just_tickets(tmp_path, monkeypatch):
     # Tickets file still missing — would have returned False before the
     # plans-scan fix.
     assert _is_duplicate_plan(cfg, plan_id) is True
+
+
+def test_refresh_deals_filters_by_instance_magic(tmp_path, monkeypatch):
+    """Per-instance deals.jsonl must not absorb another strategy's MT5
+    fills just because every order comment starts with fireforex."""
+    import json
+    from ff.live.runner import LiveConfig, BrokerCfg, _refresh_deals
+
+    monkeypatch.setattr(live_runner, "LIVE_DIR", tmp_path)
+    cfg = LiveConfig(
+        instance_id="inst_a", recipe={"main_tf": "H1"}, overrides={},
+        pairs=["EUR_USD"],
+        broker=BrokerCfg(
+            login=0, password="x", server="x", magic_number=20260420,
+        ),
+    )
+
+    class _DealBroker:
+        def fetch_recent_deals(self, _since):
+            return [
+                {"ticket": 1, "position_id": 1, "magic": 20260420,
+                 "comment": "fireforex", "price": 1.1},
+                {"ticket": 2, "position_id": 2, "magic": 20260421,
+                 "comment": "fireforex", "price": 1.2},
+            ]
+
+    broker = _DealBroker()
+    broker.cfg = cfg.broker
+    _refresh_deals(cfg, broker)
+
+    rows = [
+        json.loads(line)
+        for line in cfg.deals_file.read_text(encoding="utf-8").splitlines()
+    ]
+    assert [r["ticket"] for r in rows] == [1]

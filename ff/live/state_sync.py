@@ -56,6 +56,7 @@ SYNC_GLOBS = [
     "*/config.json",
     "*/plans/*.jsonl",
     "*/tickets.jsonl",
+    "*/deals.jsonl",
     "*/state.json",
     "*/errors.jsonl",
     "*/pinned_run.json",
@@ -65,6 +66,7 @@ SYNC_GLOBS = [
     # pre-migration snapshot stays visible until migration happens.
     "plans/*.jsonl",
     "tickets.jsonl",
+    "deals.jsonl",
     "state.json",
     "errors.jsonl",
     "service_config.json",
