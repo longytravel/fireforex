@@ -50,7 +50,7 @@ def _read_jsonl(path: Path) -> list[dict]:
     if not path.exists():
         return []
     out: list[dict] = []
-    for line in path.read_text(encoding="utf-8").splitlines():
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line:
             continue
@@ -214,7 +214,7 @@ def main() -> int:
     )
     args = parser.parse_args()
     args.config = _resolve_instance_config(args.instance, args.config)
-    config = json.loads(args.config.read_text(encoding="utf-8"))
+    config = json.loads(args.config.read_text(encoding="utf-8-sig"))
 
     sources = (["dukascopy", "mt5"] if args.data_source == "both"
                else [args.data_source])

@@ -60,7 +60,7 @@ def _resolve_window(plans_dir: Path) -> tuple[date, date]:
     if plans_dir.exists():
         for jsonl in sorted(plans_dir.glob("*.jsonl")):
             try:
-                for line in jsonl.read_text(encoding="utf-8").splitlines():
+                for line in jsonl.read_text(encoding="utf-8-sig").splitlines():
                     line = line.strip()
                     if not line:
                         continue
@@ -179,7 +179,7 @@ def replay_service_config(
     config_path = Path(config_path)
     if not config_path.exists():
         raise FileNotFoundError(f"service_config not found: {config_path}")
-    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config = json.loads(config_path.read_text(encoding="utf-8-sig"))
 
     pairs: list[str] = list(config.get("pairs") or [])
     if not pairs:
