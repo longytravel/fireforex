@@ -30,6 +30,7 @@ import pandas as pd
 from ff import signal_lib as _sl
 from ff.defaults.complexity import complexity_to_ea
 from ff.defaults.overrides import apply_overrides
+from ff.live.frozen_signal import pin_frozen_signal
 
 
 LOG = logging.getLogger(__name__)
@@ -250,6 +251,7 @@ def _build_pair_state(pair: str, cfg: LiveConfig) -> PairState:
         name=recipe.get("name"),
     )
     ea = apply_overrides(ea, cfg.overrides)
+    ea = pin_frozen_signal(ea, cfg.best_trial)
     return PairState(
         pair=pair,
         ea=ea,

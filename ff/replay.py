@@ -37,6 +37,7 @@ import numpy as np
 
 from .defaults.complexity import complexity_to_ea
 from .defaults.overrides import apply_overrides
+from .live.frozen_signal import pin_frozen_signal
 from . import harness
 
 LOG = logging.getLogger(__name__)
@@ -117,6 +118,7 @@ def _build_ea_for_pair(config: dict[str, Any], pair: str) -> dict[str, Any]:
     overrides = config.get("overrides") or {}
     if overrides:
         ea = apply_overrides(ea, overrides)
+    ea = pin_frozen_signal(ea, config.get("best_trial"))
     return ea
 
 
