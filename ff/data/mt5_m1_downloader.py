@@ -204,12 +204,33 @@ def download(
                 "total_bars": int(len(existing)) if existing is not None else 0,
                 "start_ts": None, "end_ts": None}
 
-    mt5 = _ensure_mt5_connected()
-    _emit(log_cb, f"→ MT5 {pair} ({symbol}) M1  "
-                  f"{start.isoformat()} → {end.isoformat()}")
+    # Allow off-terminal replays: if FF_MT5_SKIP_DOWNLOAD=1 OR the local
+    # MetaTrader5 package / terminal is unavailable, reuse existing parquet
+    # without trying to top it up. The laptop doesn't have MT5 installed so
+    # reconcile runs would otherwise fail outright, even when G-drive has
+    # fresh enough bars to cover the live trades.
+    skip_env = os.environ.get("FF_MT5_SKIP_DOWNLOAD", "").lower() in ("1", "true", "yes")
+    try:
+        mt5 = None if skip_env else _ensure_mt5_connected()
+    except RuntimeError as e:
+        mt5 = None
+        _emit(log_cb, f"MT5 terminal not reachable; using on-disk parquet only ({e})")
 
-    new_df = _fetch_window(mt5, symbol, start_utc, end_utc)
-    _emit(log_cb, f"  {len(new_df):,} new M1 bars from MT5")
+    if mt5 is None:
+        new_df = pd.DataFrame(columns=[
+            "timestamp", "open", "high", "low", "close", "volume", "spread",
+        ])
+        if existing is None:
+            raise FileNotFoundError(
+                f"No MT5 terminal and no existing parquet at {path}. "
+                "Run scripts/fetch_mt5_history.py once on a Windows box with "
+                "MT5 installed, or unset FF_MT5_SKIP_DOWNLOAD."
+            )
+    else:
+        _emit(log_cb, f"→ MT5 {pair} ({symbol}) M1  "
+                      f"{start.isoformat()} → {end.isoformat()}")
+        new_df = _fetch_window(mt5, symbol, start_utc, end_utc)
+        _emit(log_cb, f"  {len(new_df):,} new M1 bars from MT5")
 
     new_bars = int(len(new_df))
 

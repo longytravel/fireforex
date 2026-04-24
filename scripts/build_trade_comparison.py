@@ -24,7 +24,7 @@ import json
 import math
 import sys
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -284,6 +284,31 @@ def _nan_safe(x):
         return x
 
 
+def _fire_offset_seconds(row: dict) -> int | None:
+    """How far the live fire event was from the signal bar's CLOSE.
+
+    Signal bar 10:00:00 has close at 10:15:00. Post-fix trades fire
+    1-30s AFTER 10:15. Pre-fix (provisional-candle) trades fire BEFORE
+    10:15 — roughly 14 min into the M15 bar. Returns seconds relative
+    to bar close (negative = fired early = provisional-candle bug).
+    """
+    fired = row.get("fired_at_utc")
+    sig = row.get("signal_bar")
+    if not fired or not sig:
+        return None
+    try:
+        f = datetime.fromisoformat(str(fired).replace("Z", "+00:00"))
+        s = datetime.fromisoformat(str(sig).replace("Z", "+00:00"))
+        if f.tzinfo is None:
+            f = f.replace(tzinfo=timezone.utc)
+        if s.tzinfo is None:
+            s = s.replace(tzinfo=timezone.utc)
+        bar_close = s + timedelta(minutes=15)
+        return int((f - bar_close).total_seconds())
+    except Exception:
+        return None
+
+
 def _verdict(row: dict) -> tuple[str, str]:
     if row.get("duka_match_status") != "exact_signal_bar":
         return ("No backtest match", "bad")
@@ -442,12 +467,18 @@ def _write_html(rows: list[dict], out: Path, stamp: str) -> None:
                      else "no")
         why_bits = []
         bt_reason_u = str(r.get("duka_bt_close_reason", "")).upper()
+        fire_off = _fire_offset_seconds(r)
         if bt_reason_u == "NONE":
             why_bits.append("backtest data ran out before trade closed")
         elif bt_reason_u and bt_reason_u not in ("SL", "TP"):
             why_bits.append(f"backtest exited via {bt_reason_u}")
-        if mt5_match == "no":
-            why_bits.append("no MT5 replay coverage for this pair")
+        if mt5_match == "no" and fire_off is not None and fire_off < -30:
+            why_bits.append(
+                f"pre-forming-fix trade — fired {-fire_off}s BEFORE M15 bar "
+                f"closed, so MT5 replay (closed-bar only) cannot reproduce it"
+            )
+        elif mt5_match == "no":
+            why_bits.append("MT5 replay did not reproduce this signal")
         try:
             if abs(float(pnl_d or 0)) > 5:
                 why_bits.append("pnl differs by more than 5 pips")

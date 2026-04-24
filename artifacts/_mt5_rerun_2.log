@@ -1,0 +1,933 @@
+[reconcile][mt5] replaying C:\Users\ROG\Projects\Fire Forex\artifacts\live\complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142\config.json
+Fire Forex · complexity_L10_EUR_USD_M15 · layer=replay_EUR_USD · opt=random · seed=42
+[load] main TF: EUR_USD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  EUR_USD_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 12 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 12 signals)…
+        done in 0.00s  →  17,422 evals/sec
+
+┌── complexity_L10_EUR_USD_M15 · replay_EUR_USD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       17,422
+│   total runtime  :         0.04 s
+│ ACTIVITY
+│   trades (best)  :           10
+│   win rate       :        20.00 %
+│ MONEY
+│   total pips     :         -123
+│   expectancy     :       -12.35 pips/trade
+│ RISK
+│   max drawdown   :       100.00 %
+│   profit factor  :        0.156
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_GBP_USD_M15 · layer=replay_GBP_USD · opt=random · seed=42
+[load] main TF: GBP_USD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.02s
+[load] sub TF:  GBP_USD_M1.parquet
+       2,559 bars  2026-04-22 21:00:03+00:00 → 2026-04-24 15:39:03+00:00  in 0.04s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:03+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 18 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 18 signals)…
+        done in 0.00s  →  50,251 evals/sec
+
+┌── complexity_L10_GBP_USD_M15 · replay_GBP_USD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       50,251
+│   total runtime  :         0.06 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_AUD_USD_M15 · layer=replay_AUD_USD · opt=random · seed=42
+[load] main TF: AUD_USD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.06s
+[load] sub TF:  AUD_USD_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.03s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 12 pooled signals in 0.02s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 12 signals)…
+        done in 0.00s  →  8,834 evals/sec
+
+┌── complexity_L10_AUD_USD_M15 · replay_AUD_USD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :        8,834
+│   total runtime  :         0.11 s
+│ ACTIVITY
+│   trades (best)  :            9
+│   win rate       :        33.33 %
+│ MONEY
+│   total pips     :          -49
+│   expectancy     :        -5.40 pips/trade
+│ RISK
+│   max drawdown   :       100.00 %
+│   profit factor  :        0.448
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_NZD_USD_M15 · layer=replay_NZD_USD · opt=random · seed=42
+[load] main TF: NZD_USD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.03s
+[load] sub TF:  NZD_USD_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 14 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 14 signals)…
+        done in 0.00s  →  22,124 evals/sec
+
+┌── complexity_L10_NZD_USD_M15 · replay_NZD_USD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       22,124
+│   total runtime  :         0.06 s
+│ ACTIVITY
+│   trades (best)  :            7
+│   win rate       :        42.86 %
+│ MONEY
+│   total pips     :          -24
+│   expectancy     :        -3.36 pips/trade
+│ RISK
+│   max drawdown   :       171.51 %
+│   profit factor  :        0.622
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_USD_JPY_M15 · layer=replay_USD_JPY · opt=random · seed=42
+[load] main TF: USD_JPY_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  USD_JPY_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 16 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 16 signals)…
+        done in 0.00s  →  26,954 evals/sec
+
+┌── complexity_L10_USD_JPY_M15 · replay_USD_JPY · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       26,954
+│   total runtime  :         0.05 s
+│ ACTIVITY
+│   trades (best)  :           15
+│   win rate       :        40.00 %
+│ MONEY
+│   total pips     :          -71
+│   expectancy     :        -4.71 pips/trade
+│ RISK
+│   max drawdown   :       100.00 %
+│   profit factor  :        0.595
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_USD_CHF_M15 · layer=replay_USD_CHF · opt=random · seed=42
+[load] main TF: USD_CHF_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.02s
+[load] sub TF:  USD_CHF_M1.parquet
+       2,559 bars  2026-04-22 21:00:02+00:00 → 2026-04-24 15:39:02+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:02+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 17 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 17 signals)…
+        done in 0.00s  →  22,026 evals/sec
+
+┌── complexity_L10_USD_CHF_M15 · replay_USD_CHF · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       22,026
+│   total runtime  :         0.05 s
+│ ACTIVITY
+│   trades (best)  :           13
+│   win rate       :        23.08 %
+│ MONEY
+│   total pips     :         -533
+│   expectancy     :       -41.01 pips/trade
+│ RISK
+│   max drawdown   :       100.00 %
+│   profit factor  :        0.064
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_USD_CAD_M15 · layer=replay_USD_CAD · opt=random · seed=42
+[load] main TF: USD_CAD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  USD_CAD_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 17 pooled signals in 0.00s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 17 signals)…
+        done in 0.00s  →  90,909 evals/sec
+
+┌── complexity_L10_USD_CAD_M15 · replay_USD_CAD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       90,909
+│   total runtime  :         0.02 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_EUR_GBP_M15 · layer=replay_EUR_GBP · opt=random · seed=42
+[load] main TF: EUR_GBP_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.02s
+[load] sub TF:  EUR_GBP_M1.parquet
+       2,559 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:39:00+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:00+00:00 → 2026-04-24 15:30:00+00:00  main=159 · sub=2,370
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 11 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 11 signals)…
+        done in 0.00s  →  33,003 evals/sec
+
+┌── complexity_L10_EUR_GBP_M15 · replay_EUR_GBP · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       33,003
+│   total runtime  :         0.05 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_EUR_JPY_M15 · layer=replay_EUR_JPY · opt=random · seed=42
+[load] main TF: EUR_JPY_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.02s
+[load] sub TF:  EUR_JPY_M1.parquet
+       2,555 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,376
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,366
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 19 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 19 signals)…
+        done in 0.00s  →  31,153 evals/sec
+
+┌── complexity_L10_EUR_JPY_M15 · replay_EUR_JPY · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       31,153
+│   total runtime  :         0.05 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_EUR_CHF_M15 · layer=replay_EUR_CHF · opt=random · seed=42
+[load] main TF: EUR_CHF_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.02s
+[load] sub TF:  EUR_CHF_M1.parquet
+       2,554 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,377
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,367
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 15 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 15 signals)…
+        done in 0.00s  →  50,000 evals/sec
+
+┌── complexity_L10_EUR_CHF_M15 · replay_EUR_CHF · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       50,000
+│   total runtime  :         0.04 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_EUR_AUD_M15 · layer=replay_EUR_AUD · opt=random · seed=42
+[load] main TF: EUR_AUD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.03s
+[load] sub TF:  EUR_AUD_M1.parquet
+       2,555 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,378
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,368
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 15 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 15 signals)…
+        done in 0.00s  →  60,606 evals/sec
+
+┌── complexity_L10_EUR_AUD_M15 · replay_EUR_AUD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       60,606
+│   total runtime  :         0.05 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_EUR_CAD_M15 · layer=replay_EUR_CAD · opt=random · seed=42
+[load] main TF: EUR_CAD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.03s
+[load] sub TF:  EUR_CAD_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 16 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 16 signals)…
+        done in 0.00s  →  27,624 evals/sec
+
+┌── complexity_L10_EUR_CAD_M15 · replay_EUR_CAD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       27,624
+│   total runtime  :         0.06 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_EUR_NZD_M15 · layer=replay_EUR_NZD · opt=random · seed=42
+[load] main TF: EUR_NZD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  EUR_NZD_M1.parquet
+       2,557 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 13 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 13 signals)…
+        done in 0.00s  →  45,249 evals/sec
+
+┌── complexity_L10_EUR_NZD_M15 · replay_EUR_NZD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       45,249
+│   total runtime  :         0.03 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_GBP_JPY_M15 · layer=replay_GBP_JPY · opt=random · seed=42
+[load] main TF: GBP_JPY_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.02s
+[load] sub TF:  GBP_JPY_M1.parquet
+       2,559 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:39:00+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:00+00:00 → 2026-04-24 15:30:00+00:00  main=159 · sub=2,370
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 20 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 20 signals)…
+        done in 0.00s  →  29,499 evals/sec
+
+┌── complexity_L10_GBP_JPY_M15 · replay_GBP_JPY · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       29,499
+│   total runtime  :         0.06 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_GBP_CHF_M15 · layer=replay_GBP_CHF · opt=random · seed=42
+[load] main TF: GBP_CHF_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  GBP_CHF_M1.parquet
+       2,559 bars  2026-04-22 21:00:02+00:00 → 2026-04-24 15:39:02+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:02+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 19 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 19 signals)…
+        done in 0.00s  →  19,920 evals/sec
+
+┌── complexity_L10_GBP_CHF_M15 · replay_GBP_CHF · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       19,920
+│   total runtime  :         0.04 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_GBP_AUD_M15 · layer=replay_GBP_AUD · opt=random · seed=42
+[load] main TF: GBP_AUD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  GBP_AUD_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 21 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 21 signals)…
+        done in 0.00s  →  44,643 evals/sec
+
+┌── complexity_L10_GBP_AUD_M15 · replay_GBP_AUD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       44,643
+│   total runtime  :         0.05 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_GBP_CAD_M15 · layer=replay_GBP_CAD · opt=random · seed=42
+[load] main TF: GBP_CAD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  GBP_CAD_M1.parquet
+       2,559 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:39:00+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:00+00:00 → 2026-04-24 15:30:00+00:00  main=159 · sub=2,370
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 24 pooled signals in 0.00s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 24 signals)…
+        done in 0.00s  →  53,764 evals/sec
+
+┌── complexity_L10_GBP_CAD_M15 · replay_GBP_CAD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       53,764
+│   total runtime  :         0.03 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_GBP_NZD_M15 · layer=replay_GBP_NZD · opt=random · seed=42
+[load] main TF: GBP_NZD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  GBP_NZD_M1.parquet
+       2,559 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:39:00+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:00+00:00 → 2026-04-24 15:30:00+00:00  main=159 · sub=2,370
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 22 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 22 signals)…
+        done in 0.00s  →  36,900 evals/sec
+
+┌── complexity_L10_GBP_NZD_M15 · replay_GBP_NZD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       36,900
+│   total runtime  :         0.03 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_AUD_JPY_M15 · layer=replay_AUD_JPY · opt=random · seed=42
+[load] main TF: AUD_JPY_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  AUD_JPY_M1.parquet
+       2,559 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:39:00+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:00+00:00 → 2026-04-24 15:30:00+00:00  main=159 · sub=2,370
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 15 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 15 signals)…
+        done in 0.00s  →  14,472 evals/sec
+
+┌── complexity_L10_AUD_JPY_M15 · replay_AUD_JPY · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       14,472
+│   total runtime  :         0.04 s
+│ ACTIVITY
+│   trades (best)  :            5
+│   win rate       :        20.00 %
+│ MONEY
+│   total pips     :          -85
+│   expectancy     :       -16.96 pips/trade
+│ RISK
+│   max drawdown   :       100.00 %
+│   profit factor  :        0.091
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_AUD_CHF_M15 · layer=replay_AUD_CHF · opt=random · seed=42
+[load] main TF: AUD_CHF_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.03s
+[load] sub TF:  AUD_CHF_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 26 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 26 signals)…
+        done in 0.00s  →  30,675 evals/sec
+
+┌── complexity_L10_AUD_CHF_M15 · replay_AUD_CHF · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       30,675
+│   total runtime  :         0.06 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_AUD_CAD_M15 · layer=replay_AUD_CAD · opt=random · seed=42
+[load] main TF: AUD_CAD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  AUD_CAD_M1.parquet
+       2,559 bars  2026-04-22 21:00:02+00:00 → 2026-04-24 15:39:02+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:02+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 16 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 16 signals)…
+        done in 0.00s  →  56,180 evals/sec
+
+┌── complexity_L10_AUD_CAD_M15 · replay_AUD_CAD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       56,180
+│   total runtime  :         0.03 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_AUD_NZD_M15 · layer=replay_AUD_NZD · opt=random · seed=42
+[load] main TF: AUD_NZD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  AUD_NZD_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 17 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 17 signals)…
+        done in 0.00s  →  47,393 evals/sec
+
+┌── complexity_L10_AUD_NZD_M15 · replay_AUD_NZD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       47,393
+│   total runtime  :         0.04 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_NZD_JPY_M15 · layer=replay_NZD_JPY · opt=random · seed=42
+[load] main TF: NZD_JPY_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  NZD_JPY_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 16 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 16 signals)…
+        done in 0.00s  →  38,168 evals/sec
+
+┌── complexity_L10_NZD_JPY_M15 · replay_NZD_JPY · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       38,168
+│   total runtime  :         0.03 s
+│ ACTIVITY
+│   trades (best)  :            3
+│   win rate       :        33.33 %
+│ MONEY
+│   total pips     :          -26
+│   expectancy     :        -8.50 pips/trade
+│ RISK
+│   max drawdown   :       100.00 %
+│   profit factor  :        0.320
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_NZD_CHF_M15 · layer=replay_NZD_CHF · opt=random · seed=42
+[load] main TF: NZD_CHF_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.02s
+[load] sub TF:  NZD_CHF_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 15 pooled signals in 0.00s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 15 signals)…
+        done in 0.00s  →  80,000 evals/sec
+
+┌── complexity_L10_NZD_CHF_M15 · replay_NZD_CHF · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       80,000
+│   total runtime  :         0.04 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_NZD_CAD_M15 · layer=replay_NZD_CAD · opt=random · seed=42
+[load] main TF: NZD_CAD_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  NZD_CAD_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 16 pooled signals in 0.00s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 16 signals)…
+        done in 0.00s  →  78,125 evals/sec
+
+┌── complexity_L10_NZD_CAD_M15 · replay_NZD_CAD · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       78,125
+│   total runtime  :         0.03 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_CAD_JPY_M15 · layer=replay_CAD_JPY · opt=random · seed=42
+[load] main TF: CAD_JPY_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  CAD_JPY_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 12 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 12 signals)…
+        done in 0.00s  →  13,351 evals/sec
+
+┌── complexity_L10_CAD_JPY_M15 · replay_CAD_JPY · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       13,351
+│   total runtime  :         0.04 s
+│ ACTIVITY
+│   trades (best)  :            3
+│   win rate       :        33.33 %
+│ MONEY
+│   total pips     :           -8
+│   expectancy     :        -2.67 pips/trade
+│ RISK
+│   max drawdown   :       182.50 %
+│   profit factor  :        0.615
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_CAD_CHF_M15 · layer=replay_CAD_CHF · opt=random · seed=42
+[load] main TF: CAD_CHF_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  CAD_CHF_M1.parquet
+       2,559 bars  2026-04-22 21:00:02+00:00 → 2026-04-24 15:39:02+00:00  in 0.01s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:02+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 18 pooled signals in 0.00s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 18 signals)…
+        done in 0.00s  →  64,516 evals/sec
+
+┌── complexity_L10_CAD_CHF_M15 · replay_CAD_CHF · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       64,516
+│   total runtime  :         0.02 s
+│ ACTIVITY
+│   trades (best)  :            0
+│   win rate       :         0.00 %
+│ MONEY
+│   total pips     :           +0
+│   expectancy     :        +0.00 pips/trade
+│ RISK
+│   max drawdown   :         0.00 %
+│   profit factor  :        0.000
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+Fire Forex · complexity_L10_CHF_JPY_M15 · layer=replay_CHF_JPY · opt=random · seed=42
+[load] main TF: CHF_JPY_M15.parquet
+       171 bars  2026-04-22 21:00:00+00:00 → 2026-04-24 15:30:00+00:00  in 0.01s
+[load] sub TF:  CHF_JPY_M1.parquet
+       2,559 bars  2026-04-22 21:00:01+00:00 → 2026-04-24 15:39:01+00:00  in 0.02s
+[window] user-requested 2026-04-23 → 2026-04-24  main=159 · sub=2,379
+[align] shared window 2026-04-23 00:00:01+00:00 → 2026-04-24 15:30:00+00:00  main=158 · sub=2,369
+[map]  main→sub built in 0.00s
+[signals] building library
+          1 variants · 15 pooled signals in 0.01s
+[sample] 1 frozen trial (replay mode)
+[sweep] calling batch_evaluate(1 × 15 signals)…
+        done in 0.00s  →  49,261 evals/sec
+
+┌── complexity_L10_CHF_JPY_M15 · replay_CHF_JPY · random · N=1 ─────
+│ SPEED
+│   backtests/sec  :       49,261
+│   total runtime  :         0.04 s
+│ ACTIVITY
+│   trades (best)  :            4
+│   win rate       :        25.00 %
+│ MONEY
+│   total pips     :          -84
+│   expectancy     :       -21.07 pips/trade
+│ RISK
+│   max drawdown   :       100.00 %
+│   profit factor  :        0.105
+│ best variant
+│   id=0  family=macd_cross  params={'fast': 14, 'slow': 48, 'signal': 5}
+│ best trial (engine)
+│   stop_loss.selector=fixed · stop_loss.fixed.pips=26.000 · take_profit.selector=rr · take_profit.rr.ratio=4.700 · trailing.test=False · chandelier.test=False · breakeven.test=False · partial.test=False · stale.test=False · session.test=False · max_bars.test=False · days=127
+└──────────────────────────────────────────────────────────
+
+[reconcile][mt5] replay done -> complexity_L10_EUR_USD_M15_20260424_101119/20260424_200253_mt5 (69 trades, 4.66s)
+[reconcile][mt5] backtest df: 69 rows
+[reconcile] live inputs from C:\Users\ROG\Projects\Fire Forex\artifacts\live\complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142: plans=37 tickets=37 deals=45
+[reconcile] live df: 95 rows
+[reconcile][live_vs_mt5] counts: {'matched': 6, 'missing_in_live': 63, 'extra_in_live': 89}
+[reconcile][live_vs_mt5] html:  C:\Users\ROG\Projects\Fire Forex\artifacts\live\complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142\reconcile\20260424_200253_mt5_live_vs_mt5.html
+[reconcile][live_vs_mt5] json:  C:\Users\ROG\Projects\Fire Forex\artifacts\live\complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142\reconcile\20260424_200253_mt5_live_vs_mt5.json
+[reconcile] summary: {'live_vs_mt5': {'matched': 6, 'missing_in_live': 63, 'extra_in_live': 89}}
