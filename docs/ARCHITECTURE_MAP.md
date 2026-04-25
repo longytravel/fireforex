@@ -315,6 +315,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `tests/test_routes_data.py` | Web API data routes (list, health, inventory) | ✅ | FastAPI route serialization + response schemas. |
 | `tests/test_groups.py` | Pair group headings (Majors, Crosses, Metals…) | ✅ | Static data source of truth for Data tab. |
 | `tests/test_runner_service_multi_instance.py` | Multi-instance deploy pipeline (active.json, deactivation) | ✅ | Covers instance distribution, filename/ID reconciliation. |
+| `tests/test_check_map.py` | Architecture-map completeness checker (substring + glob coverage + self-paths) | ✅ | 8 cases covering `find_unmapped_files` semantics. Hermetic — no repo state required for the unit tests; one smoke test runs `git ls-files`. |
 
 **Coverage gaps** (worth flagging for Pillars 2 + 3):
 
@@ -359,7 +360,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 |---|---|---|---|---|
 | `.claude/hooks/session-start.sh` | SessionStart (startup, resume, clear, compact) | Load HANDOFF + PROGRESS; show git log, branch, status, open issues | ✅ | Gracefully degrades if files missing or git unavailable; logs firings to `.claude/hooks/log.txt`. |
 | `.claude/hooks/update-paperwork.sh` | Stop (session end) | HARD BLOCK if HANDOFF stale vs HEAD or real work uncommitted; SOFT WARN if commits landed but PROGRESS untouched | ✅ | Reentry guard avoids re-trigger on same stop event. |
-| `.claude/hooks/check-architecture-map.sh` | _(not yet created — Phase G of this stocktake)_ | Stop-hook nag if mapped-dir code changed but `ARCHITECTURE_MAP.md` didn't | 🔘 | Lands in Phase G alongside `scripts/check_map.py`. |
+| `.claude/hooks/check-architecture-map.sh` | Stop | Nag if mapped-dir files changed in session but `ARCHITECTURE_MAP.md` didn't | ✅ | Wired alongside `update-paperwork.sh` in `settings.json`. Filters changes to `app|core|ff|scripts|docs|eas|tests|.claude|.github` per documented intent. |
 
 ### Commands
 
@@ -386,6 +387,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `scripts/ff_start_server.ps1` | Start uvicorn directly (discouraged) | ❌ | Superseded by `ff_restart_server.ps1`; CLAUDE.md forbids direct use. Cleanup candidate. |
 | `scripts/pre-pr.ps1` | Pre-PR review ritual: run Codex mini as read-only reviewer on diff vs main | ✅ | Part of sanctioned workflow. Output to `artifacts/` for pasting into PR. |
 | `scripts/migrate_best_trial_fingerprint.py` | Backfill `signal_family` + `signal_params` into old `deploy/live` configs | ✅ | Idempotent one-shot migration (BUG-variant-id-not-stable-2026-04-22); safe to re-run. |
+| `scripts/check_map.py` | Architecture-map completeness checker (the load-bearing acceptance criterion) | ✅ | Walks `git ls-files`; exits non-zero if any tracked file isn't referenced in `ARCHITECTURE_MAP.md` (literal substring or backtick-wrapped glob). Tested by `tests/test_check_map.py`. |
 | `scripts/desktop/Check Fire Forex.bat` | Status check — see if live runner is alive and what it's doing | ✅ | Desktop shortcut for VPS; read-only. |
 | `scripts/desktop/Deploy Fire Forex.bat` | Deploy & kick off trading (orchestrates git pull, runner restart, trial setup) | ✅ | Primary laptop→VPS deployment button. |
 | `scripts/desktop/Diagnose Fire Forex.bat` | Full diagnostic dump (MT5 positions, task state, config shape, git HEAD, logs) | ✅ | Read-only debug tool; safe any time. |
