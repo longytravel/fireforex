@@ -44,11 +44,24 @@
 
 ## What's next — concrete priority order
 
-1. **Pillar 5 — live↔backtest parity (start here):** flow the 14-day MT5 trade history through reconciliation against backtest replay. The active deploy is `complexity_L10_EUR_USD_M15_*` × 3 instances trading 20+ pairs in portfolio mode. Compare each closed trade vs what backtest says should have happened. The 41% WR is the gap to diagnose.
-2. **Live trade management toolkit (extends MT5 work):** `mt5.order_send(action=TRADE_ACTION_SLTP, ...)` to adjust SL/TP on open positions; emergency close-all from laptop; live diff "config says trade X pairs, MT5 has positions on Y pairs"; real-time spread monitor. Today the live runner only PLACES orders — it never re-touches them.
-3. **Triage remaining dependabot PRs:** comment `@dependabot rebase` on #1, #2, #4, #5, #8, #9, #10. (Mass-commenting on PRs needs explicit user OK per agent-permission policy.)
-4. **Open issues:** #12 (path-traversal in `app/routes.py`), #13 (sig_bar_index OOB in `core/src/trade_full.rs`), #14 (`win_rate` vs `win_rate_pct` mismatch).
-5. **Pillar 2 (Multi-optimiser bench):** Optuna / CMA-ES / walk-forward — only after parity is healthy.
+**The user asked for these three to be top of the list, in this order:**
+
+1. **STOP THE STOPS — fix the mid-task pausing problem.** The user is fed up with me serialising tool calls and triggering "file modified since read" guards. Concrete actions:
+   - Build `scripts/finalize_pr.sh` — runs `ruff format` + `git add` + `git commit` + `git push` in one atomic command (kills the format-then-recommit double-cycle).
+   - Build `scripts/merge_pr.sh <PR#>` — resolves all unresolved review threads via GraphQL + waits for CI green + merges + deletes branch in one command (kills the resolve-merge-check three-step dance).
+   - Tighten the CLAUDE.md "Do" batching rule to be unambiguous: every Read + Edit on the same file MUST be in the same response; every grep + bash + status check MUST be batched. Add a checklist at session start to self-audit batching.
+   - Both helper scripts are ~50 lines of bash each. Land them as ONE PR.
+
+2. **Check MT5 trades — daily.** Use the new toolkit (`scripts/mt5_status.py` and `scripts/import_mt5_report.py`). Each session start: run both, paste-summary into chat. If anything stands out (open-position count drifted, win rate changed, account balance moved unexpectedly), surface it before diving into other work. The 14-day baseline today: 67 open, 41% WR, -£8 floating.
+
+3. **Backtest the MT5 trades (Pillar 5 — live↔backtest parity).** This is the load-bearing one. Take the 14-day MT5 trade history (already in `artifacts/live/incoming/`) and replay backtest for the same window against the active deploy config (`complexity_L10_EUR_USD_M15_*` × 3 instances trading 20+ pairs portfolio-mode). For each closed trade: classify match / better / worse / missing / extra. The 41% WR is the gap to diagnose — backtest probably shows much higher.
+
+### Then (lower priority, in order):
+
+4. **Live trade management toolkit (extends MT5 work):** `mt5.order_send(action=TRADE_ACTION_SLTP, ...)` to adjust SL/TP on open positions; emergency close-all from laptop; live diff "config says trade X pairs, MT5 has positions on Y pairs"; real-time spread monitor. Today the live runner only PLACES orders — it never re-touches them.
+5. **Triage remaining dependabot PRs:** comment `@dependabot rebase` on #1, #2, #4, #5, #8, #9, #10. (Mass-commenting on PRs needs explicit user OK per agent-permission policy.)
+6. **Open issues:** #12 (path-traversal in `app/routes.py`), #13 (sig_bar_index OOB in `core/src/trade_full.rs`), #14 (`win_rate` vs `win_rate_pct` mismatch).
+7. **Pillar 2 (Multi-optimiser bench):** Optuna / CMA-ES / walk-forward — only after parity is healthy.
 
 ## Where to look
 
