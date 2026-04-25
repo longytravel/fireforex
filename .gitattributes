@@ -1,0 +1,3 @@
+# Bash scripts must have LF line endings — Git Bash on Windows fails on
+# CRLF-terminated shebang lines (`#!/usr/bin/env bash\r` → "no such file").
+*.sh text eol=lf

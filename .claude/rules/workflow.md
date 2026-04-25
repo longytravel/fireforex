@@ -27,6 +27,11 @@ description: PR workflow and PROGRESS.md maintenance — keeps the user out of t
 - **Rule of thumb:** if multiple phases touch the same file, are all docs-only, or are all under ~300 added lines, bundle them. Split when the diff exceeds ~500 lines or crosses a clear boundary (docs ↔ code, code ↔ infra).
 - Stacked PRs (one branch on top of another) are fragile — when the base branch merges via squash, GitHub auto-closes the stacked PR. Prefer a fresh branch off `main` after each merge.
 
+## Three scripts that kill the mid-task stops
+- **`bash scripts/finalize_pr.sh "<commit-message>"`** — `ruff format` + `git add -A` + `git commit` + `git push`. One stop instead of three (no more "pre-commit reformatted, re-stage, re-commit" loops). Refuses to commit directly to `main`.
+- **`bash scripts/merge_pr.sh <PR#>`** — resolves every review thread via GraphQL, waits for CI green, squash-merges, deletes branch, syncs local `main`. One stop instead of four. Assumes comments are addressed; CI / branch protection is the real gate.
+- **`bash scripts/sync_main.sh [--force-reset]`** — re-syncs local `main` to origin/main. Default ff-only; `--force-reset` is the curated escape hatch when local `main` has drifted with stale commits (the deny list correctly blocks `git reset --hard` for ad-hoc use).
+
 ## MT5 — direct-query conventions (no manual export)
 - **Trade history:** `scripts/import_mt5_report.py` (or `scripts/desktop/Import MT5 Report.bat`) hits the running MT5 terminal via the `MetaTrader5` Python package and pulls the last `--days` (default 14) of closed trades. No HTML export, no Desktop dropping.
 - **Live state:** `scripts/mt5_status.py` (or `scripts/desktop/Show MT5 Status.bat`) — account balance / equity / floating P&L, every open position with unrealised P&L + SL + TP, every pending order, live spread + swap per symbol. `--save` writes a JSON snapshot.
