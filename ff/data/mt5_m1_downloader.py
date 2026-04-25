@@ -147,9 +147,18 @@ def _fetch_window(
     else:
         df["volume"] = 0.0
 
-    # Spread: MT5 gives points → /10 = pips on 5-digit / 3-digit-JPY brokers.
+    # Spread: MT5 returns spread in broker "points". Convert to PRICE UNITS to
+    # match the Dukascopy convention — the engine's max-spread filter does
+    # `spread / pip_value` and expects price units (e.g. 0.0001 = 1 pip on
+    # EUR_USD). Storing pips instead would inflate the result by ~10000× on
+    # 5-digit pairs and silently filter out every signal — that bug shipped
+    # for weeks and made MT5 BT replay generate 0 trades on every non-JPY
+    # pair, breaking live↔BT parity. Use the broker's actual point size from
+    # symbol_info so the math is right on any 4/3/5/2-digit instrument.
     if "spread" in df.columns:
-        df["spread"] = df["spread"].astype("float64") / 10.0
+        sym_info = mt5.symbol_info(symbol)
+        point_size = sym_info.point if sym_info is not None and sym_info.point > 0 else 0.00001
+        df["spread"] = df["spread"].astype("float64") * point_size
     else:
         df["spread"] = float("nan")
 
