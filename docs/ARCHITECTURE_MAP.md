@@ -13,16 +13,16 @@
 
 ```mermaid
 flowchart TD
-    D[1 · DATA INGEST<br/>Dukascopy + MT5 broker sync]
-    E[2 · EA DEFINITION<br/>schema + overrides]
-    S[3 · BACKTEST SWEEP<br/>random today; Pillar 2 adds Bayesian/CMA/walk-forward]
-    I[4 · INSPECT &amp; PICK<br/>Web UI + baseline compare]
-    DE[5 · DEPLOY TO VPS<br/>git push + scheduled task]
-    R[6 · RECONCILE LIVE ⇄ BACKTEST<br/>match/better/worse/missing/extra]
+    D["1 · DATA INGEST<br/>Dukascopy + MT5 broker sync"]
+    E["2 · EA DEFINITION<br/>schema + overrides"]
+    S["3 · BACKTEST SWEEP<br/>random today; Pillar 2 adds Bayesian/CMA/walk-forward"]
+    I["4 · INSPECT & PICK<br/>Web UI + baseline compare"]
+    DE["5 · DEPLOY TO VPS<br/>git push + scheduled task"]
+    R["6 · RECONCILE LIVE ⇄ BACKTEST<br/>match/better/worse/missing/extra"]
 
     D --> E --> S --> I --> DE --> R
-    R -. drift &amp; alerts .-> I
-    DE -. MT5 data round-trip .-> D
+    R -. "drift & alerts" .-> I
+    DE -. "MT5 data round-trip" .-> D
 ```
 
 Stages 1–6 below.
@@ -417,7 +417,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | File | Purpose | Verdict | Notes |
 |---|---|---|---|
 | `README.md` | Top-level project intro | ✅ | Describes Fire Forex as local optimisation workbench for forex strategies. |
-| `CLAUDE.md` | Operating manual for Claude (≤150 lines discipline) | ⚠️ | Current line count: **181**. Exceeds the 150-line discipline it sets for itself. Trim candidate. |
+| `CLAUDE.md` | Operating manual for Claude (≤150 lines discipline) | ✅ | Current line count: 118 (verified against `main`). Within the 150-line discipline; the earlier Phase C audit report of 181 lines was confused by uncommitted local session-start modifications. |
 | `HANDOFF.md` | Session-end state — refreshed by Stop hook | ✅ | Last updated 2026-04-25. |
 | `PROGRESS.md` | Milestone register (tick-only, never rewrite) | ✅ | Last updated 2026-04-25. |
 | `run.py` | CLI entry — `web` for UI, positional EA path for sweep | ✅ | Per CLAUDE.md run-commands section. |
@@ -475,13 +475,20 @@ Files explicitly recommended for deletion or relocation, sourced from the audit 
 | `docs/live/SESSION-2026-04-21-night-handover.md` | Dated session journal, superseded | Appendix A |
 | `docs/live/WAKE-UP-2026-04-22.md` | Dated wake-up handover, no long-term reference value | Appendix A |
 | `docs/live/parity-plan-2026-04-24.md` | Dated parity plan; current parity work is Pillar 5 | Appendix A |
-| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111232__20260422_111326.json` | Old trial bundle; not the active instance | Stage 5 |
-| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111400__20260422_111414.json` | Old trial bundle; not the active instance | Stage 5 |
-| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111436__20260422_111458.json` | Old trial bundle; not the active instance | Stage 5 |
-| `deploy/instances/complexity_L10_EUR_USD_M15_20260424_100942__20260424_101044.json` | Old trial bundle; not the active instance | Stage 5 |
-| `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142.json` | Old trial bundle; not the active instance | Stage 5 |
-| `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101204__20260424_101238.json` | Old trial bundle; not the active instance | Stage 5 |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111232__20260422_111326.json` | Old trial bundle (04-22); not in `deploy/instances/active.json` | Stage 5 |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111400__20260422_111414.json` | Old trial bundle (04-22); not in `deploy/instances/active.json` | Stage 5 |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111436__20260422_111458.json` | Old trial bundle (04-22); not in `deploy/instances/active.json` | Stage 5 |
 | `scripts/ff_start_server.ps1` | Superseded by `ff_restart_server.ps1`; CLAUDE.md forbids direct uvicorn spawn | Appendix F |
+
+### DO NOT DELETE — currently active
+
+Verified against `deploy/instances/active.json` (2026-04-25). These three bundles are the live trading instances and must be preserved through Phase H:
+
+- `deploy/instances/complexity_L10_EUR_USD_M15_20260424_100942__20260424_101044.json`
+- `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142.json`
+- `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101204__20260424_101238.json`
+
+(Earlier draft of this list flagged all six 04-22 + 04-24 bundles as cleanup; CodeRabbit caught the conflict with Stage 5's "may be active" note. `active.json` is the source of truth.)
 
 ### Relocate / re-route (not delete)
 
@@ -494,8 +501,7 @@ Files explicitly recommended for deletion or relocation, sourced from the audit 
 
 | Path | Action | Source |
 |---|---|---|
-| `CLAUDE.md` | Currently 181 lines; the file's own discipline says ≤150. Trim to fit. | Appendix G |
-| `pyproject.toml` | Tighten ruff per-file ignores (F841 / E402 / E701 / E702 currently global) per Codex review on PR #11 | Appendix H |
+| `pyproject.toml` | Further tighten ruff per-file ignores (`F841` / `E402` / `E701` / `E702` are already restricted to specific paths in `[tool.ruff.per-file-ignores]`; consider narrowing further per Codex review on PR #11) | Appendix H |
 
 ### Preserve (called out so future audits don't re-flag)
 
