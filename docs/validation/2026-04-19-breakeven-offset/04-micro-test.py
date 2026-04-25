@@ -291,9 +291,9 @@ def _run_scenario(scenario: dict) -> tuple[int, float]:
 def test_breakeven_offset_scenario(scenario):
     n_trades, trade_pnl = _run_scenario(scenario)
 
-    assert (
-        n_trades == 1
-    ), f"{scenario['name']}: expected exactly 1 trade, got {n_trades}. Scenario setup rejected the signal — check the fixture."
+    assert n_trades == 1, (
+        f"{scenario['name']}: expected exactly 1 trade, got {n_trades}. Scenario setup rejected the signal — check the fixture."
+    )
 
     expected = scenario["expected_pnl_pips"]
     tol = 0.15  # 0.15 pip tolerance swallows rounding / sub-bar arithmetic

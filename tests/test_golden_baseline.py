@@ -67,18 +67,18 @@ def test_golden_complex01_seed42_500trials():
     expected = golden["metrics"]
     # Integer / coarse asserts first — these catch structural changes quickly.
     assert int(result["trades"]) == expected["trades_best"], f"trades_best: expected {expected['trades_best']}, got {result['trades']}"
-    assert (
-        abs(float(result["win_rate_pct"]) - expected["win_rate_pct"]) < 0.05
-    ), f"win_rate_pct: expected {expected['win_rate_pct']}, got {result['win_rate_pct']:.4f}"
-    assert (
-        abs(int(round(result["total_pips"])) - expected["total_pips"]) <= 2
-    ), f"total_pips: expected {expected['total_pips']}, got {result['total_pips']:.2f}"
-    assert (
-        abs(float(result["expectancy_pips"]) - expected["expectancy_pips_per_trade"]) < 0.02
-    ), f"expectancy_pips: expected {expected['expectancy_pips_per_trade']}, got {result['expectancy_pips']:.4f}"
-    assert (
-        abs(float(result["max_dd_pct"]) - expected["max_drawdown_pct"]) < 0.2
-    ), f"max_drawdown_pct: expected {expected['max_drawdown_pct']}, got {result['max_dd_pct']:.4f}"
-    assert (
-        abs(float(result["profit_factor"]) - expected["profit_factor"]) < 0.005
-    ), f"profit_factor: expected {expected['profit_factor']}, got {result['profit_factor']:.4f}"
+    assert abs(float(result["win_rate_pct"]) - expected["win_rate_pct"]) < 0.05, (
+        f"win_rate_pct: expected {expected['win_rate_pct']}, got {result['win_rate_pct']:.4f}"
+    )
+    assert abs(int(round(result["total_pips"])) - expected["total_pips"]) <= 2, (
+        f"total_pips: expected {expected['total_pips']}, got {result['total_pips']:.2f}"
+    )
+    assert abs(float(result["expectancy_pips"]) - expected["expectancy_pips_per_trade"]) < 0.02, (
+        f"expectancy_pips: expected {expected['expectancy_pips_per_trade']}, got {result['expectancy_pips']:.4f}"
+    )
+    assert abs(float(result["max_dd_pct"]) - expected["max_drawdown_pct"]) < 0.2, (
+        f"max_drawdown_pct: expected {expected['max_drawdown_pct']}, got {result['max_dd_pct']:.4f}"
+    )
+    assert abs(float(result["profit_factor"]) - expected["profit_factor"]) < 0.005, (
+        f"profit_factor: expected {expected['profit_factor']}, got {result['profit_factor']:.4f}"
+    )

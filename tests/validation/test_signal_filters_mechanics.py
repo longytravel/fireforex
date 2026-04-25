@@ -387,9 +387,9 @@ def test_encoding_defaults_for_pk_slots():
     mapping = [(bc.PL_SIGNAL_VARIANT, enc.slot_int(("signal_variant",)))]
     pm = enc.encode([trial], mapping)
     for f in range(bc.NUM_SIGNAL_PARAMS):
-        assert (
-            pm[0, bc.PL_SIGNAL_P0 + f] == -1.0
-        ), f"PL_SIGNAL_P{f} defaulted to {pm[0, bc.PL_SIGNAL_P0 + f]}, expected -1.0. D2 fix regressed."
+        assert pm[0, bc.PL_SIGNAL_P0 + f] == -1.0, (
+            f"PL_SIGNAL_P{f} defaulted to {pm[0, bc.PL_SIGNAL_P0 + f]}, expected -1.0. D2 fix regressed."
+        )
 
 
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=[s["name"] for s in SCENARIOS])
