@@ -15,3 +15,32 @@ module-name = "ff_core"
 markers = [
     "slow: long-running end-to-end tests (~1s+); skip with -m 'not slow'",
 ]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 140
+extend-exclude = [
+    "artifacts",
+    "core/target",
+    ".venv",
+    "_tmp_*.py",
+    "pytest-of-*",
+    "pytest-tmp",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+# E741: `o,h,l,c` (open/high/low/close) is domain-standard in forex code.
+# E402: imports below module-level setup are sometimes required for Rust log levels etc.
+# E701/E702: single-line statements are tolerated in tight numeric helpers.
+# F841: scripts often capture subprocess results for clarity even if unread.
+ignore = ["E741", "E402", "E701", "E702", "F841"]
+
+[tool.ruff.lint.per-file-ignores]
+# HTML template strings — wrapping would break the rendered report.
+"scripts/build_forensic_report.py" = ["E501"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
