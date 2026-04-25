@@ -22,9 +22,14 @@ artifacts/data_inventory.json
 # Editor / OS
 .idea/
 .vscode/
-.claude/
 Thumbs.db
 .DS_Store
+
+# Claude Code: keep shared workflow files (settings.json, hooks, rules,
+# commands) tracked; ignore machine-local state and runtime logs.
+.claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/hooks/log.txt
 
 # Local dev scaffolding
 artifacts/_kill.ps1
