@@ -386,6 +386,9 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `scripts/desktop/Show MT5 Status.bat` | Live MT5 status — open positions, pending orders, account balance | ✅ | One-click snapshot of the running terminal; delegates to `scripts/mt5_status.py --save`. |
 | `scripts/import_mt5_report.py` | Pull closed-trade history directly from running MT5 terminal into `artifacts/live/incoming/` | ✅ | Uses `MetaTrader5` Python package — no manual HTML export. Broker→UTC offset applied. SL/TP enriched via `history_orders_get`. Prints per-symbol summary. |
 | `scripts/mt5_status.py` | Live MT5 status dump — account info + open positions + pending orders + spreads | ✅ | Hits the running terminal directly. Optional `--save` writes JSON snapshot to `artifacts/live/incoming/`. |
+| `scripts/finalize_pr.sh` | Format + commit + push in one atomic step (kills the format-then-recommit double-cycle) | ✅ | Refuses to commit directly to `main`. Documented in `.claude/rules/workflow.md` — "Three scripts that kill the mid-task stops". |
+| `scripts/merge_pr.sh` | Resolve unresolved review threads via GraphQL + wait for CI green + squash-merge + delete branch + sync local `main` | ✅ | Assumes comments are addressed substantively; CI / branch protection is the real gate. Documented in `.claude/rules/workflow.md`. |
+| `scripts/sync_main.sh` | Bring local `main` back in sync with `origin/main`; ff-only by default, `--force-reset` is the curated escape hatch when local has stray commits | ✅ | The deny list correctly blocks `git reset --hard` for ad-hoc use; this script is the sanctioned way. Documented in `.claude/rules/workflow.md`. |
 
 ## Appendix G — Root files
 
@@ -404,6 +407,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `ff/__init__.py` | Python package marker for `ff/` | ✅ | Re-route to Stage 2/3 grouping in Phase D (not a root file). |
 | `ff/VERSION.py` | `ff` package version constant | ✅ | Re-route to Stage 2/3 grouping in Phase D (not a root file). |
 | `.gitignore` | git ignore rules (also Appendix H aspect) | ✅ | Standard; expanded recently for laptop-side VPS staging. |
+| `.gitattributes` | Line-ending rules — locks `*.sh` to LF so Git Bash on Windows doesn't choke on CRLF shebang lines | ✅ | Added alongside the three stop-killer scripts in Appendix F. |
 | `.coderabbit.yaml` | CodeRabbit review config (also Appendix H) | ✅ | "chill" profile; cross-referenced. |
 | `.pre-commit-config.yaml` | Pre-commit hooks (also Appendix H) | ✅ | Check-only — auto-fixers removed per Failed-approaches note. |
 | `requirements-web.txt` | Web UI deps (FastAPI, uvicorn, pyyaml…) | ✅ | Lightweight supplemental file; pinned alongside `pyproject.toml`. |
