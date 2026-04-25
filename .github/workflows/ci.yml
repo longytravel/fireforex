@@ -48,12 +48,19 @@ jobs:
         run: ruff format --check .
 
       - name: Unit + integration tests
-        # MT5-touching tests skip on Linux (MetaTrader5 is Windows-only,
-        # and these tests transitively import it).
+        # Skipped tests fall into two buckets:
+        #   1. MT5-touching: MetaTrader5 is Windows-only.
+        #   2. Data-dependent: golden_baseline + trade_log_roundtrip read
+        #      from G:\My Drive\BackTestData. To be fixed in the architecture
+        #      stocktake by either pinning a small fixture parquet under
+        #      tests/fixtures/ or making the tests auto-skip when data is
+        #      missing.
         run: |
           pytest tests/ -v \
             --ignore=tests/test_live_runner_synthetic.py \
-            --ignore=tests/test_broker_mt5_submit.py
+            --ignore=tests/test_broker_mt5_submit.py \
+            --ignore=tests/test_golden_baseline.py \
+            --ignore=tests/test_trade_log_roundtrip.py
 
   rust:
     name: rust
