@@ -141,7 +141,7 @@ For each line in `/tmp/repo-inventory.txt`, decide which section it belongs to a
 - `ff/data/*`, data downloaders, volatility cache, parquet helpers → Stage 1
 - `eas/*`, `ff/schema.py`, `ff/sampler.py`, `ff/encoding.py`, `ff/defaults/*` (excluding volatility) → Stage 2
 - `ff/harness.py`, `ff/signal_lib.py`, `core/**` → Stage 3
-- `app/routes.py`, `app/static/*`, `app/jobs.py`, `app/baselines.py` → Stage 4
+- `app/routes.py`, `app/static/*`, `app/jobs.py`, `app/baseline.py` → Stage 4
 - `scripts/deploy*.py`, `scripts/*vps*.ps1`, `app/live_runner/**` → Stage 5
 - `scripts/reconcile*.py`, scripts that build trade-comparison reports → Stage 6
 - `docs/**` → Appendix A
@@ -318,7 +318,7 @@ gh pr create --fill
 
 - [ ] **Step 1: Branch from main; Step 2: Read each component**
 
-Components: `app/routes.py`, `app/baselines.py`, `app/jobs.py`, `app/static/*` (HTML/JS/CSS), `run.py:web` entrypoint.
+Components: `app/routes.py`, `app/baseline.py`, `app/jobs.py`, `app/static/*` (HTML/JS/CSS), `run.py:web` entrypoint.
 
 Known references:
 
@@ -769,7 +769,7 @@ git checkout -b feat/stocktake-phase-f
 
 - [ ] **Step 2: Replace the placeholder with the Mermaid block**
 
-````markdown
+```markdown
 ## End-to-end flow
 
 ```mermaid
@@ -785,7 +785,7 @@ flowchart TD
     R -. drift &amp; alerts .-> I
     DE -. MT5 data round-trip .-> D
 ```
-````
+```
 
 - [ ] **Step 3: Verify it renders**
 
@@ -941,7 +941,7 @@ def load_map_text(map_path: Path = MAP_PATH) -> str:
 
 
 def find_unmapped_files(tracked: set[str], map_text: str) -> set[str]:
-    """Files whose path does not appear (anywhere — backticks or prose) in the map."""
+    """Files that don't appear (as substring) anywhere in the map."""
     return {p for p in tracked if p not in SELF_PATHS and p not in map_text}
 
 
