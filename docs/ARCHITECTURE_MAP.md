@@ -91,19 +91,29 @@ _Mermaid diagram lands in Phase F. Stages 1–6 below._
 **Flows down to Stage 4** via `artifacts/runs/{layer}_{stamp}.npz` (per-run trial outputs) and `artifacts/history.csv` (one row per run); the Web UI reads both for baseline comparison.
 
 ## 4 · INSPECT & PICK (Web UI)
-_Audit table lands in Phase B. Files in this stage:_
 
-- `app/__init__.py`
-- `app/api.py`
-- `app/baselines.py`
-- `app/jobs.py`
-- `app/models.py`
-- `app/pairs_scan.py`
-- `app/routes.py`
-- `app/static/app.js`
-- `app/static/index.html`
-- `app/static/styles.css`
-- `ff/inspect.py`
+**Supposed to:** Show every knob of every EA in plain English, run sweeps as one-at-a-time background jobs, persist a pinned baseline run, and let the user compare each new run against that baseline. Local-only on `127.0.0.1` — never hosted.
+
+| Component | Path | Supposed to | Verdict | Notes |
+|---|---|---|---|---|
+| Web app package init | `app/__init__.py` | Package marker | ✅ | |
+| FastAPI app entry | `app/api.py` | Mount router + static files; bind 127.0.0.1 only; kick the live-state daemon | ✅ | Docstring's `uvicorn app.api:api` is the user-run command (`scripts/ff_restart_server.ps1`) — Claude must never spawn uvicorn (`.claude/rules/trading.md`). |
+| Pinned baseline storage | `app/baselines.py` | Persist a baseline snapshot to `artifacts/baseline.json` with `_KPI_KEYS` (trades, win_rate_pct, total_pips, expectancy_pips, max_dd_pct, profit_factor, sharpe, return_pct) | ⚠️ | Issue #14 — `win_rate_pct` here vs `win_rate` elsewhere in the engine / harness. Real bug, tracked. |
+| One-at-a-time job runner | `app/jobs.py` | Single-slot background runner with `threading.Lock`; rebuilds EA from recipe server-side so engine-mapping callables never round-trip JSON | ✅ | 409 on concurrent POST. Heartbeat callback updates progress. |
+| API request/response shapes | `app/models.py` | Pydantic models for `RunRequest`, `JobProgress`, `DefaultsRequest`, etc. | ✅ | Type-safe API surface. |
+| Pair / TF scanner | `app/pairs_scan.py` | Thin adapter around `ff.data.inventory` so legacy callers don't break | ✅ | Cached scan; lives outside `ff/` because it's HTTP-adjacent. |
+| HTTP endpoints | `app/routes.py` | All `/api/*` endpoints — defaults, run, jobs, baseline, instances, EA catalog, docs proxy | ⚠️ | Issue #12 — path traversal vulnerability (CodeQL × 3 + CodeRabbit major on `instance_id`). Real bug, tracked. |
+| Frontend JS | `app/static/app.js` | Vanilla JS — recipe + override builder, run launch, job progress polling, baseline compare | ✅ | No framework, no build step. |
+| Frontend HTML | `app/static/index.html` | Single-page UI scaffold | ✅ | |
+| Frontend CSS | `app/static/styles.css` | Tailwind / vanilla CSS for the local UI | ✅ | |
+| EA inspect report | `ff/inspect.py` | `inspect_dict` (structured) + `inspect_report` (human-readable) — every knob, TF choice, step size visible | ✅ | The "non-coder can read every parameter" guarantee. Powers `--inspect` CLI and the UI's EA preview. |
+| Experiment tracker | _(unbuilt)_ | History of every sweep, not just the latest one — tag, compare, archive | 🔘 | Pillar 2 — currently `history.csv` is one row per run, no rich provenance. |
+| Equity / drawdown / Sharpe charts | _(unbuilt)_ | Rolling charts on the run page | 🔘 | Pillar 4. |
+| Per-pair / per-session breakdowns | _(unbuilt)_ | Slice metrics by pair, by hour-of-day, by regime | 🔘 | Pillar 4. |
+| Knob-sensitivity heatmaps | _(unbuilt)_ | "What happens if I move stop_loss.atr.mult by ±10%?" — visualised | 🔘 | Pillar 4. |
+
+**Flows up from Stage 3** by reading `artifacts/runs/*.npz` (per-trial outputs) and `artifacts/history.csv` (one row per run); both produced by the harness.
+**Flows down to Stage 5** when the user picks a winner — config gets exported into `deploy/instances/<name>.json`.
 
 ## 5 · DEPLOY TO VPS
 _Audit table lands in Phase B. Files in this stage:_
@@ -133,14 +143,27 @@ _Audit table lands in Phase B. Files in this stage:_
 - `scripts/vps_bootstrap.ps1`
 
 ## 6 · RECONCILE LIVE ⇄ BACKTEST
-_Audit table lands in Phase B. Files in this stage:_
 
-- `ff/replay.py`
-- `scripts/build_forensic_report.py`
-- `scripts/build_trade_comparison.py`
-- `scripts/calibrate_for_parity.py`
-- `scripts/reconcile_live.py`
-- `scripts/reset_live_day.py`
+**Supposed to:** Re-run a deployed live config as a backtest over the same window, join live artifacts (plans / tickets / deals) against the replay trade log, and report match / better / worse / missing / extra per trade. Goal: 100% match → parity harness becomes a CI gate.
+
+**Stage-level verdict: ⚠️.** Individual scripts work as designed. The 100% match goal is unmet (1 of 8 trades matched in last forensic, memory `Reconciliation Accuracy Gap`). Root cause is upstream — Stage 1's three-tier data architecture is not built, so live MT5 fills can't be reconciled against the right BT data source.
+
+| Component | Path | Supposed to | Verdict | Notes |
+|---|---|---|---|---|
+| Replay engine | `ff/replay.py` | Replay a deployed live config as a single-trial backtest, per pair, over the live window derived from `plans/*.jsonl` (±1 day pad) | ✅ | Frozen-trial path through `harness.run`. Output: `artifacts/replay/<source_run_id>/<stamp>/trades.npz`. |
+| Forensic reconcile report | `scripts/build_forensic_report.py` | For each closed live trade, walk fire timing → entry → exit → narrative; explain every ms / pip of drift | ✅ | HTML report at `artifacts/live/reconcile/<stamp>_forensic.html`. Memory `forensic reconciliation report`. |
+| Trade-comparison report | `scripts/build_trade_comparison.py` | Live-vs-BT trade comparison CSV (dealfix schema) + clear-view HTML; refined with intermediate verdicts (BT data cutoff, price-path drift) | ✅ | Joins `plans` + `tickets` + `deals` against latest `*_dukascopy_live_vs_dukascopy.json` reconcile output. Memory `Trade Comparison Verdicts Refined`. |
+| Parity calibrator | `scripts/calibrate_for_parity.py` | Multi-pair high-trade-count calibration so live-vs-BT parity can be measured quickly. Optimises `trades / day` (NOT profit) subject to floor sanity. | ✅ | Output: `artifacts/calibration/{pair}_{main_tf}_parity.json` per pair. |
+| End-to-end reconcile stitcher | `scripts/reconcile_live.py` | One command: `replay_service_config` → build live DF → match → write HTML + JSON. Pure glue. | ✅ | The script works; the underlying mismatch is data-source provenance (memory `Reconciliation Mismatch Root Cause`). |
+| Live-day reset | `scripts/reset_live_day.py` | Clean-slate: stop runner, flatten MT5 positions, archive `plans/tickets/state/errors/crashes`. VPS-only. | ✅ | Archives — nothing destroyed; recoverable. Runner stays stopped (deliberate). |
+| Three-tier data architecture | _(unbuilt)_ | Tag every BT row with provenance (Dukascopy / MT5 / merged) so reconcile can pick the right source per pair | 🔘 | The blocker for 100% match. Cross-listed in Stage 1. |
+| Parity harness as CI gate | _(unbuilt)_ | A PR that drifts live⇄BT beyond threshold fails before merge | 🔘 | Pillar 5. |
+| Drift detector + alert | _(unbuilt)_ | Watch every closed live trade → if drift > threshold, alert (and optionally trigger re-sweep) | 🔘 | Pillar 5. |
+| Auto-retune trigger | _(unbuilt)_ | "When parity slips by X for Y days, kick off a fresh sweep" | 🔘 | Pillar 5. |
+
+**Flows up from Stage 5** by reading `artifacts/live/<instance>/{plans, tickets.jsonl, deals.jsonl, config.json}` — VPS-side artifacts pulled back to the laptop.
+**Flows up from Stage 1** by re-running the BT against Dukascopy and (when available) MT5 broker data over the same window.
+**Flows down to Stage 4** by emitting HTML reports under `artifacts/live/reconcile/` that the UI links to from the run page.
 
 ## Appendix A — Documentation (`docs/`)
 _Lands in Phase C._
