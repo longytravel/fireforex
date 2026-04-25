@@ -360,7 +360,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 |---|---|---|---|---|
 | `.claude/hooks/session-start.sh` | SessionStart (startup, resume, clear, compact) | Load HANDOFF + PROGRESS; show git log, branch, status, open issues | ✅ | Gracefully degrades if files missing or git unavailable; logs firings to `.claude/hooks/log.txt`. |
 | `.claude/hooks/update-paperwork.sh` | Stop (session end) | HARD BLOCK if HANDOFF stale vs HEAD or real work uncommitted; SOFT WARN if commits landed but PROGRESS untouched | ✅ | Reentry guard avoids re-trigger on same stop event. |
-| `.claude/hooks/check-architecture-map.sh` | Stop | Nag if mapped-dir files changed in session but `ARCHITECTURE_MAP.md` didn't | ✅ | Wired alongside `update-paperwork.sh` in `settings.json`. Filters changes to `app|core|ff|scripts|docs|eas|tests|.claude|.github` per documented intent. |
+| `.claude/hooks/check-architecture-map.sh` | Stop | Nag if mapped files changed in session but `ARCHITECTURE_MAP.md` didn't | ✅ | Wired alongside `update-paperwork.sh` in `settings.json`. Filters changes to mapped dirs (`deploy/`, `app/`, `core/`, `ff/`, `scripts/`, `docs/`, `eas/`, `tests/`, `.claude/`, `.github/`) plus any tracked root file. |
 
 ### Commands
 

@@ -46,6 +46,14 @@ def test_wildcard_does_not_over_match_unrelated_dirs() -> None:
     assert find_unmapped_files(tracked, map_text) == {"docs/other/file.md"}
 
 
+def test_short_path_is_not_matched_inside_longer_path() -> None:
+    """A root file `api.py` should NOT be considered referenced by `app/api.py`."""
+    tracked = {"api.py"}
+    map_text = "Web routes: `app/api.py` handles things."
+
+    assert find_unmapped_files(tracked, map_text) == {"api.py"}
+
+
 def test_self_paths_are_excluded() -> None:
     """The map and the checker itself don't have to reference themselves."""
     tracked = {
