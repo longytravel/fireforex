@@ -388,6 +388,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `scripts/pre-pr.ps1` | Pre-PR review ritual: run Codex mini as read-only reviewer on diff vs main | ✅ | Part of sanctioned workflow. Output to `artifacts/` for pasting into PR. |
 | `scripts/migrate_best_trial_fingerprint.py` | Backfill `signal_family` + `signal_params` into old `deploy/live` configs | ✅ | Idempotent one-shot migration (BUG-variant-id-not-stable-2026-04-22); safe to re-run. |
 | `scripts/check_map.py` | Architecture-map completeness checker (the load-bearing acceptance criterion) | ✅ | Walks `git ls-files`; exits non-zero if any tracked file isn't referenced in `ARCHITECTURE_MAP.md` (literal substring or backtick-wrapped glob). Tested by `tests/test_check_map.py`. |
+| `scripts/__init__.py` | Package marker so `tests/test_check_map.py` can `from scripts.check_map import …` on CI | ✅ | One-liner; tests-only requirement. |
 | `scripts/desktop/Check Fire Forex.bat` | Status check — see if live runner is alive and what it's doing | ✅ | Desktop shortcut for VPS; read-only. |
 | `scripts/desktop/Deploy Fire Forex.bat` | Deploy & kick off trading (orchestrates git pull, runner restart, trial setup) | ✅ | Primary laptop→VPS deployment button. |
 | `scripts/desktop/Diagnose Fire Forex.bat` | Full diagnostic dump (MT5 positions, task state, config shape, git HEAD, logs) | ✅ | Read-only debug tool; safe any time. |
