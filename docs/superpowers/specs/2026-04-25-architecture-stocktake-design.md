@@ -34,13 +34,13 @@ Plus one stop-hook entry that calls the checker before session end.
 
 ### Header — the 6-stage flow (Mermaid)
 
-```text
+```
 DATA → EA → SWEEP → INSPECT → DEPLOY → RECONCILE
   ↑                                         |
   └── MT5 broker data round-trip from VPS ──┘
 ```
 
-ASCII preview only; implement this as a Mermaid block in `docs/ARCHITECTURE_MAP.md` so GitHub renders it for free.
+Rendered as a Mermaid block so GitHub renders it for free.
 
 ### Sections 1–6 — one per stage
 
