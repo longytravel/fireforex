@@ -27,6 +27,11 @@ description: PR workflow and PROGRESS.md maintenance — keeps the user out of t
 - **Rule of thumb:** if multiple phases touch the same file, are all docs-only, or are all under ~300 added lines, bundle them. Split when the diff exceeds ~500 lines or crosses a clear boundary (docs ↔ code, code ↔ infra).
 - Stacked PRs (one branch on top of another) are fragile — when the base branch merges via squash, GitHub auto-closes the stacked PR. Prefer a fresh branch off `main` after each merge.
 
+## Before writing ANY new script — check `docs/ARCHITECTURE_MAP.md` first
+- The map is the single source of truth for what tooling already exists. It is built and audited deliberately. **`grep -i <topic> docs/ARCHITECTURE_MAP.md`** before creating a new file under `scripts/`. Pillars like reconcile / forensic / parity / data-fetch all already have canonical scripts (`reconcile_live.py`, `build_forensic_report.py`, `build_trade_comparison.py`, `import_mt5_report.py`, `mt5_status.py`, etc.).
+- If a script already does the job: use it and improve it if needed — don't write a parallel copy.
+- If you genuinely need a new script: add a row to the map in the same PR. `python scripts/check_map.py` enforces this on session-end.
+
 ## Three scripts that kill the mid-task stops
 - **`bash scripts/finalize_pr.sh "<commit-message>"`** — `ruff format` + `git add -A` + `git commit` + `git push`. One stop instead of three (no more "pre-commit reformatted, re-stage, re-commit" loops). Refuses to commit directly to `main`.
 - **`bash scripts/merge_pr.sh <PR#>`** — resolves every review thread via GraphQL, waits for CI green, squash-merges, deletes branch, syncs local `main`. One stop instead of four. Assumes comments are addressed; CI / branch protection is the real gate.

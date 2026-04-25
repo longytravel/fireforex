@@ -389,8 +389,6 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `scripts/finalize_pr.sh` | Format + commit + push in one atomic step (kills the format-then-recommit double-cycle) | ✅ | Refuses to commit directly to `main`. Documented in `.claude/rules/workflow.md` — "Three scripts that kill the mid-task stops". |
 | `scripts/merge_pr.sh` | Resolve unresolved review threads via GraphQL + wait for CI green + squash-merge + delete branch + sync local `main` | ✅ | Assumes comments are addressed substantively; CI / branch protection is the real gate. Documented in `.claude/rules/workflow.md`. |
 | `scripts/sync_main.sh` | Bring local `main` back in sync with `origin/main`; ff-only by default, `--force-reset` is the curated escape hatch when local has stray commits | ✅ | The deny list correctly blocks `git reset --hard` for ad-hoc use; this script is the sanctioned way. Documented in `.claude/rules/workflow.md`. |
-| `scripts/daily_parity_check.py` | Compare the latest MT5 trade history against the latest BT replay outputs (Dukascopy + MT5 data sources); classify each trade as matched / missing in BT / extra in BT | ✅ | Merges BT NPZs across all active deploy bundles (3 frozen-variant bundles run in parallel). Writes `artifacts/parity/<stamp>_parity.md`. |
-| `scripts/daily_check.sh` | One-command daily routine: pull MT5 history → BT replay against Dukascopy → BT replay against MT5 → parity comparison | ✅ | Wraps `import_mt5_report.py` + `run.py replay --data-source dukascopy/mt5` + `daily_parity_check.py`. `--skip-mt5-bt` flag if MT5 BT path is broken. |
 
 ## Appendix G — Root files
 

@@ -13,13 +13,19 @@
 - `.claude/rules/workflow.md` — new "Three scripts that kill the mid-task stops" section.
 - `CLAUDE.md` — tightened batching bullet + pointer to the scripts.
 
-### Daily parity routine (productionising Pillars 2 + 5 input)
-- `run.py replay --data-source dukascopy|mt5` — CLI flag (was hard-coded internally; now exposed so the daily routine can hit both).
-- `scripts/daily_parity_check.py` — load latest MT5 history + BT NPZs **across all 3 active deploy bundles** (3 frozen-variant bundles run in parallel — comparing only the latest NPZ globally misses two thirds of the BT trades). Match by (pair, direction, entry_ts ±30 min). Writes `artifacts/parity/<stamp>_parity.md`.
-- `scripts/daily_check.sh` — one-command routine: `import_mt5_report.py` → `run.py replay --data-source dukascopy` → `run.py replay --data-source mt5` → `daily_parity_check.py`. The productionised version of the loop the user has been having to remind Claude to run.
+### CLI / map / safeguard
+- `run.py replay --data-source dukascopy|mt5` — CLI flag (was hard-coded internally; now exposed). Useful for the canonical pipeline below.
+- `.claude/rules/workflow.md` — new "Before writing ANY new script — check `docs/ARCHITECTURE_MAP.md` first" section. Lesson learned the hard way today: I built a duplicate of `build_forensic_report.py` because I didn't grep the map.
+- All new files added to `docs/ARCHITECTURE_MAP.md` (Appendix F + G). `python scripts/check_map.py` passes.
 
-### Architecture map
-- All 6 new files added to `docs/ARCHITECTURE_MAP.md` (Appendix F + G). `python scripts/check_map.py` passes 229/229.
+## Canonical daily pipeline (already exists — USE THIS, don't duplicate)
+
+The map already documents the full forensic loop. The next session must run these in order; do **not** write a new parity comparator:
+
+1. `python scripts/import_mt5_report.py --days 14` → MT5 history JSON in `artifacts/live/incoming/`.
+2. `python scripts/reconcile_live.py` → reconciles live plans/tickets/deals against Dukascopy BT replay (writes `artifacts/live/reconcile/<stamp>.html` + `.json`).
+3. `python run.py replay <bundle> --data-source mt5` for each active bundle → MT5 BT NPZs.
+4. `python scripts/build_forensic_report.py` → the rich per-trade forensic HTML at `artifacts/live/reconcile/<stamp>_forensic.html` (also `forensic.html` and `latest.html` mirrors).
 
 ## Manual step (Claude can't grant itself permissions)
 
@@ -29,8 +35,6 @@ To suppress one-time approve prompts on first invocation of each new script, add
 "Bash(bash scripts/finalize_pr.sh*)",
 "Bash(bash scripts/merge_pr.sh*)",
 "Bash(bash scripts/sync_main.sh*)",
-"Bash(bash scripts/daily_check.sh*)",
-"Bash(bash scripts/daily_parity_check.py*)",
 ```
 
 Without them, each script triggers a one-time approve prompt the first time it runs (cost: 5 clicks, lifetime).
