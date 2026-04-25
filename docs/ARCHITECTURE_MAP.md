@@ -11,7 +11,21 @@
 
 ## End-to-end flow
 
-_Mermaid diagram lands in Phase F. Stages 1–6 below._
+```mermaid
+flowchart TD
+    D[1 · DATA INGEST<br/>Dukascopy + MT5 broker sync]
+    E[2 · EA DEFINITION<br/>schema + overrides]
+    S[3 · BACKTEST SWEEP<br/>random today; Pillar 2 adds Bayesian/CMA/walk-forward]
+    I[4 · INSPECT &amp; PICK<br/>Web UI + baseline compare]
+    DE[5 · DEPLOY TO VPS<br/>git push + scheduled task]
+    R[6 · RECONCILE LIVE ⇄ BACKTEST<br/>match/better/worse/missing/extra]
+
+    D --> E --> S --> I --> DE --> R
+    R -. drift &amp; alerts .-> I
+    DE -. MT5 data round-trip .-> D
+```
+
+Stages 1–6 below.
 
 ## 1 · DATA INGEST
 
@@ -449,7 +463,126 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `artifacts/system_audit_report_2026-04-19.md` | Full system audit snapshot: Python/Rust test counts, Codex parameter review, prioritised actions | ✅ | Frozen reference; precursor to this stocktake. |
 
 ## Section 7 — Cleanup punch list
-_Lands in Phase D._
+
+Files explicitly recommended for deletion or relocation, sourced from the audit pass (Stages 1–6 + Appendices A–I). Phase H executes these; nothing here disappears until that PR.
+
+### Delete (high confidence)
+
+| Path | Reason | Source |
+|---|---|---|
+| `docs/live/SESSION-2026-04-21-end.md` | Dated session journal, content captured in later HANDOFF | Appendix A |
+| `docs/live/SESSION-2026-04-21-evening.md` | Dated session journal, superseded | Appendix A |
+| `docs/live/SESSION-2026-04-21-night-handover.md` | Dated session journal, superseded | Appendix A |
+| `docs/live/WAKE-UP-2026-04-22.md` | Dated wake-up handover, no long-term reference value | Appendix A |
+| `docs/live/parity-plan-2026-04-24.md` | Dated parity plan; current parity work is Pillar 5 | Appendix A |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111232__20260422_111326.json` | Old trial bundle; not the active instance | Stage 5 |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111400__20260422_111414.json` | Old trial bundle; not the active instance | Stage 5 |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111436__20260422_111458.json` | Old trial bundle; not the active instance | Stage 5 |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260424_100942__20260424_101044.json` | Old trial bundle; not the active instance | Stage 5 |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142.json` | Old trial bundle; not the active instance | Stage 5 |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101204__20260424_101238.json` | Old trial bundle; not the active instance | Stage 5 |
+| `scripts/ff_start_server.ps1` | Superseded by `ff_restart_server.ps1`; CLAUDE.md forbids direct uvicorn spawn | Appendix F |
+
+### Relocate / re-route (not delete)
+
+| Path | Action | Source |
+|---|---|---|
+| `ff/__init__.py` | Move out of Appendix G (it's a package marker, not a root file) — re-bucket into Stage 2 grouping | Appendix G |
+| `ff/VERSION.py` | Same as above | Appendix G |
+
+### Trim (modify, not delete)
+
+| Path | Action | Source |
+|---|---|---|
+| `CLAUDE.md` | Currently 181 lines; the file's own discipline says ≤150. Trim to fit. | Appendix G |
+| `pyproject.toml` | Tighten ruff per-file ignores (F841 / E402 / E701 / E702 currently global) per Codex review on PR #11 | Appendix H |
+
+### Preserve (called out so future audits don't re-flag)
+
+- `docs/live/SESSION-2026-04-21.md` and `HANDOVER-2026-04-22-day.md` — dated but documents specific shipped state worth keeping as reference.
+- `docs/2026-04-19-the-*-bug.md` (5 post-mortems) — historical bug-hunt narratives; useful for pattern recognition.
+- `artifacts/baseline.json`, `artifacts/system_audit_report_2026-04-19.md`, `artifacts/demo_speed.html` — frozen reference artifacts.
 
 ## Section 8 — Roadmap (Pillars 2–6)
-_Lands in Phase E._
+
+Sketch only — each pillar gets its own brainstorm → spec → plan → build cycle when its turn comes up. Lower-level component sketches show the *future shape*, not a design.
+
+### Pillar 2 — Multi-optimiser bench
+
+**What it gives you:** Same trial budget, far better best-trial. Today the sampler is random uniform over the schema; Pillar 2 plugs in smarter samplers and adds an experiment tracker so you can see why one EA configuration beats another.
+
+**Rough size:** Medium-large (touches Stages 2 + 3 + 4).
+
+**Dependencies:** Pillar 1 (this stocktake) ✅; nothing else blocking.
+
+**Component sketch:**
+
+- `ff/optimisers/__init__.py` — sampler registry
+- `ff/optimisers/random.py` — current behaviour, refactored as a plug-in
+- `ff/optimisers/optuna.py` — Bayesian via Optuna
+- `ff/optimisers/cma.py` — CMA-ES for continuous knobs
+- `ff/walkforward.py` — rolling train/test windows
+- `app/experiments.py` — experiment tracker UI tab + JSON store
+- New tests in `tests/test_optimisers.py`, `tests/test_walkforward.py`
+
+### Pillar 3 — Safety & stability
+
+**What it gives you:** Confidence that a winning trial isn't a fluke. Monte Carlo perturbations, paper-trade gate before real money, scheduled data-integrity sweeps. Plus the two `artifacts/history.csv` concurrency fixes flagged by the 2026-04-19 audit.
+
+**Rough size:** Medium.
+
+**Dependencies:** Pillar 2 (Bayesian best-trial picker) is helpful but not blocking.
+
+**Component sketch:**
+
+- `ff/montecarlo.py` — perturbation engine (seed / spread / order timing)
+- `ff/paper_gate.py` — N-day paper-trade gate before live promotion
+- `scripts/data_health_sweep.py` — scheduled `ff.data.health` over all roots
+- Concurrency fixes: file-lock around `harness.py` history.csv append, hold `jobs.py` lock through full mutation
+- New tests in `tests/test_montecarlo.py`
+
+### Pillar 4 — Dashboards & insight
+
+**What it gives you:** The full UI story — equity curves, drawdown, sensitivity, run-vs-baseline diff visualised. Today the Web UI is functional but minimal; Pillar 4 makes it a place you'd actually look at to understand a sweep.
+
+**Rough size:** Large.
+
+**Dependencies:** Pillar 2 (experiment tracker shape) feeds the dashboard data model.
+
+**Component sketch:**
+
+- `app/dashboards/equity.py`, `drawdown.py`, `sensitivity.py` — server-side render of canvas-friendly JSON
+- `app/static/dashboards/*.js` — vanilla-JS chart components (no React; per CLAUDE.md stack choice)
+- New routes under `/api/dashboards/...`
+- Issue #14 (`win_rate` mismatch) must be resolved before this pillar — UI charts will surface the inconsistency loudly
+
+### Pillar 5 — Drift detection & feedback loops
+
+**What it gives you:** Auto live↔backtest parity loop. CI gate that fails if reconciliation match-rate drops, drift detector that alerts when live results stop tracking backtest, retune trigger when drift exceeds a threshold. Three-tier data architecture (Dukascopy / MT5 / merged) that the 2026-04-24 forensic gap requires.
+
+**Rough size:** Big project.
+
+**Dependencies:** Pillar 3 (stability checks define what "drift" means); the three-tier data work blocks 100% reconcile parity (memory `Three-Tier Data Architecture for Live-Backtest Parity`).
+
+**Component sketch:**
+
+- `ff/data/tiers.py` — explicit tier markers per row (Dukascopy / MT5 / merged) with provenance
+- `ff/parity_loop.py` — scheduled BT-vs-live diff with classification
+- `scripts/drift_alert.py` — write to artifacts/ + optional notification
+- `.github/workflows/parity.yml` — CI gate on reconciliation match-rate
+- Resolves: pre-existing 1-of-8 forensic match rate from 2026-04-24
+
+### Pillar 6 — New-EA development workflow
+
+**What it gives you:** A repeatable pipeline for adding a brand-new EA — template scaffold, mandatory `add-forex-knob` + `validate-forex-knob` skill flow, side-by-side comparison against an existing EA, golden-baseline auto-pin once shipped.
+
+**Rough size:** Medium.
+
+**Dependencies:** Pillars 2 + 3 + 4 are all helpful — the new-EA flow benefits from the smarter sampler, the safety checks, and the dashboards.
+
+**Component sketch:**
+
+- `eas/_template/` — scaffold mirroring `complex01.py`'s shape
+- `scripts/new_ea.py` — interactive: copy template, prompt for knobs, wire ENGINE_MAPPING
+- Hard wiring of the `add-forex-knob` + `validate-forex-knob` skills into the workflow
+- `app/compare_eas.py` — side-by-side diff in the UI
