@@ -19,6 +19,8 @@ PROGRESS_TEXT="_PROGRESS.md not found_"
 RECENT_COMMITS=$(git log --oneline -10 2>/dev/null || echo "_not a git repo_")
 CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || echo "_unknown_")
 STATUS=$(git status --short 2>/dev/null || echo "")
+# Open issues — surfaced so the user never has to chase them.
+OPEN_ISSUES=$(gh issue list --state open --limit 15 2>/dev/null || echo "_gh not available or not authenticated_")
 
 CONTEXT=$(cat <<SESSION_START_EOF
 # Session start -- paperwork snapshot
@@ -35,15 +37,21 @@ ${PROGRESS_TEXT}
 
 ## Recent commits (git log --oneline -10)
 
-\`\`\`
+\`\`\`\`text
 ${RECENT_COMMITS}
-\`\`\`
+\`\`\`\`
+
+## Open GitHub issues (gh issue list, max 15)
+
+\`\`\`\`text
+${OPEN_ISSUES:-_(no open issues)_}
+\`\`\`\`
 
 ## Uncommitted changes (git status --short)
 
-\`\`\`
+\`\`\`\`text
 ${STATUS:-"(clean)"}
-\`\`\`
+\`\`\`\`
 
 If HANDOFF.md says mid-stream work is in progress, **finish it before starting anything new**.
 SESSION_START_EOF

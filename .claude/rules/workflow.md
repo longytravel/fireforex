@@ -22,6 +22,12 @@ description: PR workflow and PROGRESS.md maintenance — keeps the user out of t
 - If unsure whether a change is a "milestone" — a milestone is something the user would describe out loud as "a thing we finished". Not every commit counts.
 - Never rewrite or reorder PROGRESS. Only tick boxes and append new lines.
 
+## GitHub issues — I track them, the user doesn't have to
+- The SessionStart hook injects `gh issue list --state open` so I see open issues at every session start.
+- When CodeRabbit / Gemini / Codex / CodeQL flag a real pre-existing bug on a PR, I open a GitHub issue (don't bury it in the PR thread that vanishes after merge).
+- After a PR merges, I review the issue list and tick anything the PR closed (use `Closes #N` in PR descriptions to auto-close).
+- The user never has to look at the issue list — if they ask "what bugs do we have?", I read what the hook gave me.
+
 ## HANDOFF.md — the Stop hook keeps me honest
 - HANDOFF is refreshed before session end (run `/handoff` or rewrite it directly).
 - The Stop hook blocks session end if real work is uncommitted AND HANDOFF wasn't updated. Fix the paperwork, don't bypass the hook.
