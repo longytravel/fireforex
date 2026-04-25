@@ -35,17 +35,21 @@ select = ["E", "F", "I", "W"]
 ignore = ["E741"]
 
 [tool.ruff.lint.per-file-ignores]
-# Scripts often capture subprocess results in named variables for clarity
-# even when the value isn't consumed; that's intentional in operational code.
-"scripts/*.py"   = ["F841", "E402"]
-"app/live_*.py"  = ["F841"]
+# Operational code (HTTP routes, scripts, live runner) often captures
+# subprocess results in named variables for clarity even when the value
+# isn't consumed, and may import below module-level env/path setup.
+"app/*.py"     = ["F841", "E402"]
+"scripts/*.py" = ["F841", "E402"]
+# CLI entry: argparse/env setup before importing heavy modules is standard.
+"run.py" = ["E402"]
 # Tight numeric helpers in the engine sometimes use one-line conditional /
 # semicolon-separated statements where a layout aids readability.
 "ff/encoding.py" = ["E701", "E702"]
 # HTML template strings — wrapping would break the rendered report.
-"scripts/build_forensic_report.py" = ["E501", "F841", "E402"]
-# Validation micro-scripts run at module-import to print results, so imports
-# below module-level setup are intentional.
+"scripts/build_forensic_report.py" = ["E501"]
+# Tests and validation micro-scripts: imports below sys.path manipulation
+# or test-fixture setup are intentional.
+"tests/**/*.py"           = ["E402"]
 "docs/validation/**/*.py" = ["E402"]
 
 [tool.ruff.format]
