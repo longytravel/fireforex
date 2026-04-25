@@ -128,6 +128,12 @@ def run_replay(argv: list[str]) -> int:
         default=None,
         help="path to service_config.json (default: artifacts/live/service_config.json)",
     )
+    ap.add_argument(
+        "--data-source",
+        choices=("dukascopy", "mt5"),
+        default="dukascopy",
+        help="parquet root to backtest against (default: dukascopy)",
+    )
     args = ap.parse_args(argv)
 
     import logging as _logging
@@ -140,7 +146,7 @@ def run_replay(argv: list[str]) -> int:
     from ff import replay as _replay
 
     config_path = Path(args.config) if args.config else _replay.LIVE_DIR / "service_config.json"
-    summary = _replay.replay_service_config(config_path)
+    summary = _replay.replay_service_config(config_path, data_source=args.data_source)
 
     print()
     print(f"replay complete — {summary['n_trades_total']} trades, {summary['total_pips_all']:+.1f} pips in {summary['elapsed_sec']}s")
