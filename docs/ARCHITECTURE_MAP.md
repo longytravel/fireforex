@@ -163,12 +163,9 @@ Stages 1–6 below.
 | Live config | `deploy/live_config.json` | Active deploy config (broker creds reference, scheduled-task settings) | ✅ | |
 | Live config template | `deploy/live_config.json.example` | Onboarding template with placeholder values | ✅ | |
 | Active deploy pointer | `deploy/instances/active.json` | Points at the currently-deployed config bundle | ✅ | |
-| Apr 22 deploy bundle (1) | `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111232__20260422_111326.json` | Deploy attempt snapshot | ❌ cleanup | Dated; superseded — keep only `active.json` + the latest one. Section 7 candidate. |
-| Apr 22 deploy bundle (2) | `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111400__20260422_111414.json` | Deploy attempt snapshot | ❌ cleanup | Same. |
-| Apr 22 deploy bundle (3) | `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111436__20260422_111458.json` | Deploy attempt snapshot | ❌ cleanup | Same. |
-| Apr 24 deploy bundle (1) | `deploy/instances/complexity_L10_EUR_USD_M15_20260424_100942__20260424_101044.json` | Deploy attempt snapshot | ⚠️ | Verify against `active.json` — may be the live one. |
-| Apr 24 deploy bundle (2) | `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142.json` | Deploy attempt snapshot | ❌ cleanup | Superseded by later same-day bundle. |
-| Apr 24 deploy bundle (3) | `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101204__20260424_101238.json` | Deploy attempt snapshot | ⚠️ | Verify against `active.json` — likely the live one. |
+| Apr 24 deploy bundle (1) | `deploy/instances/complexity_L10_EUR_USD_M15_20260424_100942__20260424_101044.json` | Active deploy bundle | ✅ | Listed in `active.json` — currently live. |
+| Apr 24 deploy bundle (2) | `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142.json` | Active deploy bundle | ✅ | Listed in `active.json` — currently live. |
+| Apr 24 deploy bundle (3) | `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101204__20260424_101238.json` | Active deploy bundle | ✅ | Listed in `active.json` — currently live. |
 
 ### Operations scripts
 
@@ -247,21 +244,10 @@ Stages 1–6 below.
 | `docs/live/VPS-HANDOVER.md` | VPS operator handover | ✅ | Operational reference. |
 | `docs/live/HANDOVER-parity-status.md` | Parity status summary | ✅ | Operational reference. |
 | `docs/live/SESSION-2026-04-21.md` | Session state (2026-04-21 EOD) | ⚠️ | Dated session journal; long-term value as 04-21 reference. |
-| `docs/live/SESSION-2026-04-21-end.md` | Session state (2026-04-21 evening, parity-v2) | ❌ | Superseded by later handovers. |
-| `docs/live/SESSION-2026-04-21-evening.md` | Session state (2026-04-21 evening) | ❌ | Cleanup candidate. |
-| `docs/live/SESSION-2026-04-21-night-handover.md` | Session state (2026-04-21 night) | ❌ | Cleanup candidate. |
 | `docs/live/HANDOVER-2026-04-22-day.md` | Day-watch handover (2026-04-22) | ⚠️ | Documents multi-instance shipped state. |
-| `docs/live/WAKE-UP-2026-04-22.md` | Wake-up handover (2026-04-22 morning) | ❌ | Cleanup candidate. |
 | `docs/live/BUG-variant-id-not-stable-2026-04-22.md` | Variant-id stability bug report | ⚠️ | Useful for regression tracking. |
-| `docs/live/parity-plan-2026-04-24.md` | Parity plan status (2026-04-24) | ❌ | Superseded by current Pillar 5 work. |
 
-**Cleanup candidates** (move to Section 7 in Phase D):
-
-- `docs/live/SESSION-2026-04-21-end.md` — dated session journal, content captured in later handovers
-- `docs/live/SESSION-2026-04-21-evening.md` — dated session journal
-- `docs/live/SESSION-2026-04-21-night-handover.md` — dated session journal
-- `docs/live/WAKE-UP-2026-04-22.md` — dated wake-up handover
-- `docs/live/parity-plan-2026-04-24.md` — dated plan from 2026-04-24, superseded by current work
+**Cleanup candidates from this appendix:** all 5 dated session/wake-up/parity-plan files were deleted in Phase H (PR #22).
 
 ## Appendix B — PRs & GitHub issues
 
@@ -397,7 +383,6 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `scripts/ff_restart_server.bat` | Wrapper batch entry-point to `ff_restart_server.ps1` | ✅ | Desktop shortcuts target this. |
 | `scripts/ff_kill_server.ps1` | Kill listeners on :8000/:8001 without restart | ✅ | Used interactively when server cleanup is needed alone. |
 | `scripts/ff_kill_server.bat` | Wrapper batch entry-point to `ff_kill_server.ps1` | ✅ | Desktop shortcut wrapper. |
-| `scripts/ff_start_server.ps1` | Start uvicorn directly (discouraged) | ❌ | Superseded by `ff_restart_server.ps1`; CLAUDE.md forbids direct use. Cleanup candidate. |
 | `scripts/pre-pr.ps1` | Pre-PR review ritual: run Codex mini as read-only reviewer on diff vs main | ✅ | Part of sanctioned workflow. Output to `artifacts/` for pasting into PR. |
 | `scripts/migrate_best_trial_fingerprint.py` | Backfill `signal_family` + `signal_params` into old `deploy/live` configs | ✅ | Idempotent one-shot migration (BUG-variant-id-not-stable-2026-04-22); safe to re-run. |
 | `scripts/desktop/Check Fire Forex.bat` | Status check — see if live runner is alive and what it's doing | ✅ | Desktop shortcut for VPS; read-only. |
@@ -406,9 +391,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `scripts/desktop/Reset Live Day (VPS).bat` | STOP trading, clear state, reset to origin/main, flatten positions | ✅ | Orchestrates: kill task, git reset --hard, clear plans/tickets, wipe crashes/errors JSONLs. |
 | `scripts/desktop/Restart Fire Forex (laptop).bat` | Restart web UI via PowerShell wrapper | ✅ | Convenience desktop shortcut; delegates to `ff_restart_server.ps1`. |
 
-**Cleanup candidates** (move to Section 7 in Phase D):
-
-- `scripts/ff_start_server.ps1` — superseded by `ff_restart_server.ps1`; CLAUDE.md forbids direct use.
+**Cleanup candidates from this appendix:** `scripts/ff_start_server.ps1` was deleted in Phase H (PR #22).
 
 ## Appendix G — Root files
 
@@ -464,9 +447,9 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 
 ## Section 7 — Cleanup punch list
 
-Files explicitly recommended for deletion or relocation, sourced from the audit pass (Stages 1–6 + Appendices A–I). Phase H executes these; nothing here disappears until that PR.
+Files explicitly recommended for deletion or relocation, sourced from the audit pass (Stages 1–6 + Appendices A–I).
 
-### Delete (high confidence)
+### Deleted in Phase H (PR #22) ✅
 
 | Path | Reason | Source |
 |---|---|---|
@@ -475,20 +458,20 @@ Files explicitly recommended for deletion or relocation, sourced from the audit 
 | `docs/live/SESSION-2026-04-21-night-handover.md` | Dated session journal, superseded | Appendix A |
 | `docs/live/WAKE-UP-2026-04-22.md` | Dated wake-up handover, no long-term reference value | Appendix A |
 | `docs/live/parity-plan-2026-04-24.md` | Dated parity plan; current parity work is Pillar 5 | Appendix A |
-| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111232__20260422_111326.json` | Old trial bundle (04-22); not in `deploy/instances/active.json` | Stage 5 |
-| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111400__20260422_111414.json` | Old trial bundle (04-22); not in `deploy/instances/active.json` | Stage 5 |
-| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111436__20260422_111458.json` | Old trial bundle (04-22); not in `deploy/instances/active.json` | Stage 5 |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111232__20260422_111326.json` | Old trial bundle (04-22); not in `active.json` | Stage 5 |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111400__20260422_111414.json` | Old trial bundle (04-22); not in `active.json` | Stage 5 |
+| `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111436__20260422_111458.json` | Old trial bundle (04-22); not in `active.json` | Stage 5 |
 | `scripts/ff_start_server.ps1` | Superseded by `ff_restart_server.ps1`; CLAUDE.md forbids direct uvicorn spawn | Appendix F |
 
-### DO NOT DELETE — currently active
+### Preserved — currently active (DO NOT DELETE)
 
-Verified against `deploy/instances/active.json` (2026-04-25). These three bundles are the live trading instances and must be preserved through Phase H:
+Verified against `deploy/instances/active.json` (2026-04-25). These three bundles are the live trading instances:
 
 - `deploy/instances/complexity_L10_EUR_USD_M15_20260424_100942__20260424_101044.json`
 - `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142.json`
 - `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101204__20260424_101238.json`
 
-(Earlier draft of this list flagged all six 04-22 + 04-24 bundles as cleanup; CodeRabbit caught the conflict with Stage 5's "may be active" note. `active.json` is the source of truth.)
+(Earlier draft flagged all six 04-22 + 04-24 bundles as cleanup; CodeRabbit caught the conflict with Stage 5's "may be active" note on PR #20. `active.json` is the source of truth.)
 
 ### Relocate / re-route (not delete)
 
