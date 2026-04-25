@@ -12,9 +12,20 @@ description: PR workflow and PROGRESS.md maintenance — keeps the user out of t
    - `/simplify` — housekeeping on the diff
    - `/code-review` — catch bugs on the diff
    - Codex mini review — second opinion via `codex exec -m gpt-5.4-mini --config model_reasoning_effort="high" --sandbox read-only`
-5. Paste all three review outputs into the PR body.
+   - **Skip the ritual entirely for docs-only PRs (`*.md` or `docs/*` only)** — the checklist CI auto-skips, and `/simplify` / Codex on prose adds nothing.
+5. Paste review outputs into the PR body. (Docs-only PRs: skip this section, just describe what changed.)
 6. Open PR with `gh pr create --fill`. CodeRabbit + Gemini Code Assist auto-review.
 7. Address anything flagged; squash-merge with `gh pr merge --squash --delete-branch`.
+
+## Reviewer priority — CodeRabbit primary, Gemini secondary
+- **CodeRabbit is the gating reviewer.** Its catches have already saved real money once (PR #20 caught me about to delete the live trading instances). Address every CodeRabbit thread before merge.
+- **Gemini Code Assist is the second opinion.** Useful but lower-priority — when its suggestion contradicts CodeRabbit, follow CodeRabbit unless Gemini's reasoning is materially stronger. Resolve threads with a brief reply when overruling.
+- For docs-only PRs, Gemini's nits (mermaid quoting, prose tightening) are optional.
+
+## Combine related phases into bigger PRs
+- One logical task ≠ one PR per phase. The architecture stocktake shipped in 7 PRs (#16, #18, #19, #20, #21, #22, #23) when it could have shipped in 3-4. Each PR cycle costs ~5-10 minutes of CI + review wait.
+- **Rule of thumb:** if multiple phases touch the same file, are all docs-only, or are all under ~300 added lines, bundle them. Split when the diff exceeds ~500 lines or crosses a clear boundary (docs ↔ code, code ↔ infra).
+- Stacked PRs (one branch on top of another) are fragile — when the base branch merges via squash, GitHub auto-closes the stacked PR. Prefer a fresh branch off `main` after each merge.
 
 ## PROGRESS.md — I keep it current so the user doesn't have to
 - When a PR merges to main: if the work matches an unchecked item in `PROGRESS.md`, tick it in the same session.

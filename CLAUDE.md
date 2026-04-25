@@ -70,6 +70,7 @@ Deep tour: `docs/ARCHITECTURE_MAP.md` (the audited file-by-file map — start he
 
 ## Do
 
+- Batch independent tool calls into ONE response (multiple Edit / Bash / Read in the same turn). Never serialise read-edit-read-edit when the operations don't depend on each other. For genuinely big parallel work (5+ independent investigations), dispatch subagents instead.
 - Reuse the `ff/` package — it's tested and stable.
 - Add pair-aware knobs via `ff/defaults/volatility.py::ATR_RULES` (one entry per knob, `key → (lo_mult, hi_mult)`).
 - Scale-free knobs (RR ratios, EMA periods, hour-of-day) go in the scale-free block of `derive_ranges`.

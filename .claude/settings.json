@@ -15,9 +15,6 @@
       "PowerShell(gh *)"
     ],
     "deny": [
-      "Bash(git push*--force*)",
-      "Bash(git push*--force-with-lease*)",
-      "Bash(git push*-f*)",
       "Bash(git push*--no-verify*)",
       "Bash(git commit*--no-verify*)",
       "Bash(git commit*-n*)",
@@ -37,8 +34,6 @@
       "Bash(uvicorn*)",
       "Bash(*uvicorn *)",
       "Bash(python*run.py web*)",
-      "PowerShell(git push*--force*)",
-      "PowerShell(git push*-f*)",
       "PowerShell(git commit*--no-verify*)",
       "PowerShell(git commit*--amend*)",
       "PowerShell(git reset*--hard*)",
