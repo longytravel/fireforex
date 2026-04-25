@@ -37,21 +37,21 @@ ${PROGRESS_TEXT}
 
 ## Recent commits (git log --oneline -10)
 
-\`\`\`
+\`\`\`\`text
 ${RECENT_COMMITS}
-\`\`\`
+\`\`\`\`
 
 ## Open GitHub issues (gh issue list, max 15)
 
-\`\`\`
-${OPEN_ISSUES}
-\`\`\`
+\`\`\`\`text
+${OPEN_ISSUES:-_(no open issues)_}
+\`\`\`\`
 
 ## Uncommitted changes (git status --short)
 
-\`\`\`
+\`\`\`\`text
 ${STATUS:-"(clean)"}
-\`\`\`
+\`\`\`\`
 
 If HANDOFF.md says mid-stream work is in progress, **finish it before starting anything new**.
 SESSION_START_EOF
