@@ -22,7 +22,7 @@ Living milestone register. Tick boxes as things ship. Never rewritten — only a
 
 ## Next
 
-- [ ] **Architecture stocktake** (see HANDOFF) — full codebase review, redundancy cleanup, end-to-end map
+- [x] **Architecture stocktake — Pillar 1** (shipped 2026-04-25, PRs #16, #18, #19, #20, #21, #22) — `docs/ARCHITECTURE_MAP.md` + completeness checker (`scripts/check_map.py`) + stop-hook (`.claude/hooks/check-architecture-map.sh`) + Pillars 2–6 roadmap. 9 cleanup files removed; 240 tracked files audited.
 - [ ] **Address review-flagged bugs**:
   - [ ] #12 Path-traversal validation in `app/routes.py`
   - [ ] #13 Out-of-bounds bounds check on `sig_bar_index`
