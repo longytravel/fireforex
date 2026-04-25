@@ -1,20 +1,13 @@
-"""Import MT5 closed-trade history into ``artifacts/live/incoming/``.
+"""Pull MT5 closed-trade history directly from the running terminal.
 
-Two source modes:
+Queries MT5 via the ``MetaTrader5`` Python package — no manual export needed.
+The terminal must be open and logged in. Output: normalised CSV + JSON in
+``artifacts/live/incoming/mt5_history_<stamp>.{csv,json}``.
 
-1. ``--source mt5`` (default) — query the running MT5 terminal directly via the
-   ``MetaTrader5`` Python package. The user does NOT need to export anything.
-   The terminal must be open and logged in (which it is during live trading).
-2. ``--source <path>`` — fall back to parsing an exported ``ReportHistory-*.html``
-   from the MT5 terminal (UTF-16 LE). Useful when MT5 isn't running locally.
-
-Default behaviour: try MT5 direct; if that fails, look for the newest
-``ReportHistory*.html`` on the Desktop. So the typical user runs::
+Run::
 
     .\\.venv\\Scripts\\python.exe scripts/import_mt5_report.py
-
-and gets the last ``--days`` (default 14) of closed trades, with no manual
-HTML export needed.
+    .\\.venv\\Scripts\\python.exe scripts/import_mt5_report.py --days 30
 """
 
 from __future__ import annotations
@@ -22,7 +15,6 @@ from __future__ import annotations
 import argparse
 import csv
 import json
-import re
 import sys
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
@@ -51,12 +43,6 @@ COLUMNS = [
     "swap",
     "profit",
 ]
-
-_TR_RE = re.compile(r"<tr[^>]*>(.*?)</tr>", re.IGNORECASE | re.DOTALL)
-_TD_RE = re.compile(r"<td[^>]*>(.*?)</td>", re.IGNORECASE | re.DOTALL)
-_TAG_RE = re.compile(r"<[^>]+>")
-_DATE_RE = re.compile(r"^\d{4}\.\d{2}\.\d{2}")
-
 
 # ───────────────────────────── direct MT5 path ─────────────────────────────
 
@@ -149,42 +135,7 @@ def fetch_from_mt5(days_back: int) -> list[dict[str, str]]:
         mt5.shutdown()
 
 
-# ───────────────────────────── HTML fallback path ─────────────────────────────
-
-
-def _newest_desktop_report() -> Path | None:
-    desktop = Path.home() / "Desktop"
-    candidates = sorted(
-        desktop.glob("ReportHistory*.html"),
-        key=lambda p: p.stat().st_mtime,
-        reverse=True,
-    )
-    return candidates[0] if candidates else None
-
-
-def _decode_mt5_html(path: Path) -> str:
-    raw = path.read_bytes()
-    if raw.startswith(b"\xff\xfe"):
-        return raw.decode("utf-16-le").lstrip("﻿")
-    if raw.startswith(b"\xfe\xff"):
-        return raw.decode("utf-16-be").lstrip("﻿")
-    return raw.decode("utf-8-sig", errors="replace")
-
-
-def _strip(cell: str) -> str:
-    return _TAG_RE.sub("", cell).replace("&nbsp;", " ").strip()
-
-
-def parse_positions_from_html(html: str) -> list[dict[str, str]]:
-    rows: list[dict[str, str]] = []
-    for tr in _TR_RE.finditer(html):
-        cells = [_strip(td.group(1)) for td in _TD_RE.finditer(tr.group(1))]
-        if len(cells) == 14 and _DATE_RE.match(cells[0]) and _DATE_RE.match(cells[9]):
-            rows.append(dict(zip(COLUMNS, cells)))
-    return rows
-
-
-# ───────────────────────────── shared write + summary ─────────────────────────────
+# ───────────────────────────── write + summary ─────────────────────────────
 
 
 def _summarise(positions: list[dict[str, str]]) -> str:
@@ -234,56 +185,25 @@ def _write(positions: list[dict[str, str]], out_dir: Path) -> tuple[Path, Path]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--source",
-        default="auto",
-        help="'mt5' (direct), 'auto' (mt5 then html fallback, default), or a path to a ReportHistory-*.html.",
-    )
-    parser.add_argument(
-        "--days",
-        type=int,
-        default=14,
-        help="MT5 mode: how many days back to fetch (default 14).",
-    )
-    parser.add_argument(
-        "--out-dir",
-        type=Path,
-        default=DEFAULT_OUT,
-        help=f"Output directory (default: {DEFAULT_OUT}).",
-    )
+    parser.add_argument("--days", type=int, default=14, help="How many days back to fetch (default 14).")
+    parser.add_argument("--out-dir", type=Path, default=DEFAULT_OUT, help=f"Output directory (default: {DEFAULT_OUT}).")
     parser.add_argument("--quiet", action="store_true", help="Suppress summary output.")
     args = parser.parse_args(argv)
 
-    positions: list[dict[str, str]] = []
-    used_source = ""
-
-    if args.source == "mt5" or args.source == "auto":
-        try:
-            positions = fetch_from_mt5(args.days)
-            used_source = f"MT5 terminal (last {args.days} days)"
-        except RuntimeError as e:
-            if args.source == "mt5":
-                print(f"ERROR: {e}", file=sys.stderr)
-                return 2
-            print(f"MT5 direct unavailable: {e}", file=sys.stderr)
-            print("Falling back to newest ReportHistory*.html on Desktop...", file=sys.stderr)
-
-    if not positions and args.source != "mt5":
-        path = Path(args.source) if args.source not in ("auto", "html") else _newest_desktop_report()
-        if not path or not path.exists():
-            print("No HTML source found (looked for newest ReportHistory*.html on Desktop).", file=sys.stderr)
-            return 2
-        positions = parse_positions_from_html(_decode_mt5_html(path))
-        used_source = str(path)
+    try:
+        positions = fetch_from_mt5(args.days)
+    except RuntimeError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        return 2
 
     if not positions:
-        print("No closed positions found in chosen source.", file=sys.stderr)
+        print(f"No closed positions found in the last {args.days} days.", file=sys.stderr)
         return 1
 
     csv_path, json_path = _write(positions, args.out_dir)
 
     if not args.quiet:
-        print(f"Source: {used_source}")
+        print(f"Source: MT5 terminal (last {args.days} days)")
         print(f"Wrote:  {csv_path}")
         print(f"Wrote:  {json_path}")
         print()

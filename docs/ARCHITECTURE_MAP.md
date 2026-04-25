@@ -384,7 +384,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `scripts/desktop/Restart Fire Forex (laptop).bat` | Restart web UI via PowerShell wrapper | ✅ | Convenience desktop shortcut; delegates to `ff_restart_server.ps1`. |
 | `scripts/desktop/Import MT5 Report.bat` | Pick up newest `ReportHistory*.html` from Desktop and run the importer | ✅ | One-click ingest of MT5 trade history; delegates to `scripts/import_mt5_report.py`. |
 | `scripts/desktop/Show MT5 Status.bat` | Live MT5 status — open positions, pending orders, account balance | ✅ | One-click snapshot of the running terminal; delegates to `scripts/mt5_status.py --save`. |
-| `scripts/import_mt5_report.py` | Pull closed-trade history into `artifacts/live/incoming/` | ✅ | **Default mode = direct MT5** (`MetaTrader5` Python pkg); falls back to parsing newest `ReportHistory*.html` on Desktop if MT5 unavailable. Prints per-symbol summary; flags parity gaps at a glance. User does not need to export HTML manually. |
+| `scripts/import_mt5_report.py` | Pull closed-trade history directly from running MT5 terminal into `artifacts/live/incoming/` | ✅ | Uses `MetaTrader5` Python package — no manual HTML export. Broker→UTC offset applied. SL/TP enriched via `history_orders_get`. Prints per-symbol summary. |
 | `scripts/mt5_status.py` | Live MT5 status dump — account info + open positions + pending orders + spreads | ✅ | Hits the running terminal directly. Optional `--save` writes JSON snapshot to `artifacts/live/incoming/`. |
 
 ## Appendix G — Root files

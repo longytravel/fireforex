@@ -1,6 +1,6 @@
 @echo off
 setlocal
-set REPO=%~dp0..\..
+set "REPO=%~dp0..\.."
 cd /d "%REPO%"
 echo ============================================================
 echo  Importing newest MT5 ReportHistory-*.html from your Desktop

@@ -1,6 +1,6 @@
 @echo off
 setlocal
-set REPO=%~dp0..\..
+set "REPO=%~dp0..\.."
 cd /d "%REPO%"
 echo ============================================================
 echo  Live MT5 status — open positions, pending orders, account
