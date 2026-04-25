@@ -941,8 +941,8 @@ def load_map_text(map_path: Path = MAP_PATH) -> str:
 
 
 def find_unmapped_files(tracked: set[str], map_text: str) -> set[str]:
-    """Files that don't appear (wrapped in backticks) anywhere in the map."""
-    return {p for p in tracked if p not in SELF_PATHS and f"`{p}`" not in map_text}
+    """Files whose path does not appear (anywhere — backticks or prose) in the map."""
+    return {p for p in tracked if p not in SELF_PATHS and p not in map_text}
 
 
 def main() -> int:
@@ -1008,8 +1008,12 @@ set -euo pipefail
 
 cd "$(git rev-parse --show-toplevel)" 2>/dev/null || exit 0
 
-# Files modified or untracked (relative to last commit on current branch)
-changed=$(git status --porcelain 2>/dev/null | awk '{print $2}' || true)
+# Files modified or untracked in mapped directories (relative to last commit on current branch)
+mapped_dirs="app|core|ff|scripts|docs|eas|tests|\\.claude|\\.github"
+changed=$(git status --porcelain 2>/dev/null \
+  | awk '{print $2}' \
+  | grep -E "^($mapped_dirs)/" \
+  || true)
 
 if [ -z "$changed" ]; then
   exit 0

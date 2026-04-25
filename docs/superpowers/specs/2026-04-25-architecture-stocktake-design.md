@@ -40,7 +40,7 @@ DATA → EA → SWEEP → INSPECT → DEPLOY → RECONCILE
   └── MT5 broker data round-trip from VPS ──┘
 ```
 
-Rendered as a Mermaid block so GitHub renders it for free.
+ASCII preview only; implement this as a Mermaid block in `docs/ARCHITECTURE_MAP.md` so GitHub renders it for free.
 
 ### Sections 1–6 — one per stage
 
