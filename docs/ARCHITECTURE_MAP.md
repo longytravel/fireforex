@@ -215,16 +215,10 @@ Stages 1–6 below.
 
 | File | What it covers | Verdict | Notes |
 |---|---|---|---|
-| `docs/ARCHITECTURE.md` | Deep system tour | ✅ | Canonical entry point per CLAUDE.md. |
-| `docs/ROADMAP.md` | Feature roadmap | ✅ | Canonical reference. |
-| `docs/CHANGES.md` | 2026-04-19 changelog | ✅ | Versioned log of removals/additions; current snapshot. |
-| `docs/REVIEW.md` | Code review summary (2026-04-19) | ✅ | Canonical review artifact; pinned to build date. |
+| `docs/ARCHITECTURE.md` | Deep system tour (data flow + threading model) | ✅ | Canonical entry point per CLAUDE.md. Distinct from `ARCHITECTURE_MAP.md` (this file): `ARCHITECTURE.md` explains how the system *works*; the MAP audits each file. |
 | `docs/metrics.md` | 25-column metric catalogue | ✅ | Reference for trial/sweep outputs; stable. |
-| `docs/knob-explanations.md` | UI control ranges & semantics | ✅ | Canonical knob reference for operators. |
-| `docs/bug-hunting-research-brief.md` | Bug-hunting toolchain brief | ✅ | Useful research context. |
+| `docs/knob-explanations.md` | UI control ranges & semantics | ✅ | Canonical knob reference; consumed by `app/routes.py` `_EXPLAIN_CACHE`. |
 | `docs/next-session-handover.md` | Handover template for new Claude sessions | ✅ | Reusable handover scaffold. |
-| `docs/exec-full-fix-plan.md` | Plan to remove EXEC_BASIC/EXEC_FULL modes | ✅ | Approved 2026-04-19; current. |
-| `docs/rust-wishlist.md` | `ff_core` engine wishlist | ✅ | Long-term planning artifact. |
 | `docs/superpowers/plans/2026-04-25-architecture-stocktake.md` | This stocktake's plan | ✅ | Active. |
 | `docs/superpowers/specs/2026-04-25-architecture-stocktake-design.md` | This stocktake's spec | ✅ | Approved. |
 | `docs/2026-04-19-adding-the-chandelier-knob.md` | Chandelier stop knob narrative | ✅ | Feature implementation narrative for 2026-04-19 build. |
@@ -243,9 +237,6 @@ Stages 1–6 below.
 | `docs/live/SESSION-RESUME.md` | Session state scaffolding | ✅ | Reusable handover template. |
 | `docs/live/VPS-HANDOVER.md` | VPS operator handover | ✅ | Operational reference. |
 | `docs/live/HANDOVER-parity-status.md` | Parity status summary | ✅ | Operational reference. |
-| `docs/live/SESSION-2026-04-21.md` | Session state (2026-04-21 EOD) | ⚠️ | Dated session journal; long-term value as 04-21 reference. |
-| `docs/live/HANDOVER-2026-04-22-day.md` | Day-watch handover (2026-04-22) | ⚠️ | Documents multi-instance shipped state. |
-| `docs/live/BUG-variant-id-not-stable-2026-04-22.md` | Variant-id stability bug report | ⚠️ | Useful for regression tracking. |
 
 ## Appendix B — PRs & GitHub issues
 
@@ -406,7 +397,6 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `pyproject.toml` | Python deps + ruff config (config aspect in Appendix H) | ✅ | Cross-referenced. |
 | `demo_speed.py` | Multi-timeframe speed demo (H1 entries, M1 fills) | ✅ | 20-year EUR/USD backtest demo; reference. |
 | `launch_fire_forex.bat` | FastAPI server launcher + browser opener (Windows) | ✅ | Convenience entry-point; delegates to `scripts/ff_restart_server.ps1` indirectly. |
-| `snapshot-home.md` | Home page DOM snapshot (accessibility tree) | ⚠️ | Stores UI structure for testing/reference; consider whether still load-bearing. |
 | `ff/__init__.py` | Python package marker for `ff/` | ✅ | Re-route to Stage 2/3 grouping in Phase D (not a root file). |
 | `ff/VERSION.py` | `ff` package version constant | ✅ | Re-route to Stage 2/3 grouping in Phase D (not a root file). |
 | `.gitignore` | git ignore rules (also Appendix H aspect) | ✅ | Standard; expanded recently for laptop-side VPS staging. |
@@ -448,6 +438,21 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 
 Files explicitly recommended for deletion or relocation, sourced from the audit pass (Stages 1–6 + Appendices A–I).
 
+### Deleted in cleanup pass 2 (Phase H continuation) ✅
+
+| Path | Reason | Source |
+|---|---|---|
+| `docs/rust-wishlist.md` | Wishlist for parent project (CBT); content captured in MAP Section 8 | Appendix A |
+| `docs/CHANGES.md` | One-day "tidier log" referencing teammate workflow that doesn't exist | Appendix A |
+| `docs/REVIEW.md` | Frozen 2026-04-19 code review snapshot; bugs now in issues #12/#13/#14 | Appendix A |
+| `docs/exec-full-fix-plan.md` | Plan was executed (modes deleted 2026-04-19); doc is fossil | Appendix A |
+| `docs/bug-hunting-research-brief.md` | One-time brief for research team that doesn't exist | Appendix A |
+| `docs/ROADMAP.md` | Stale + contradictory (says "live trading out of scope" while live runner exists); superseded by MAP Section 8 | Appendix A |
+| `docs/live/SESSION-2026-04-21.md` | Dated session journal, same pattern as the 04-21-end / -evening / -night siblings already removed | Appendix A |
+| `docs/live/HANDOVER-2026-04-22-day.md` | Dated day-watch handover; HANDOFF.md is the live source of truth | Appendix A |
+| `docs/live/BUG-variant-id-not-stable-2026-04-22.md` | Bug fixed; captured in memory `Signal Library Now Keeps Zero-Signal Variants for Stable Variant IDs` | Appendix A |
+| `snapshot-home.md` | Random Playwright DOM dump at root; not load-bearing | Appendix G |
+
 ### Deleted in Phase H ✅
 
 | Path | Reason | Source |
@@ -487,7 +492,6 @@ Verified against `deploy/instances/active.json` (2026-04-25). These three bundle
 
 ### Preserve (called out so future audits don't re-flag)
 
-- `docs/live/SESSION-2026-04-21.md` and `HANDOVER-2026-04-22-day.md` — dated but documents specific shipped state worth keeping as reference.
 - `docs/2026-04-19-the-*-bug.md` (5 post-mortems) — historical bug-hunt narratives; useful for pattern recognition.
 - `artifacts/baseline.json`, `artifacts/system_audit_report_2026-04-19.md`, `artifacts/demo_speed.html` — frozen reference artifacts.
 
