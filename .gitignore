@@ -40,6 +40,7 @@ artifacts/server.log
 artifacts/server.err
 artifacts/_pre_pr_diff.patch
 artifacts/review-*.md
+artifacts/_pr_*.md
 
 # Live-parity runner — VPS-only creds + ephemeral runtime state.
 # Never commit these: they contain MT5 credentials and ticket/plan logs.

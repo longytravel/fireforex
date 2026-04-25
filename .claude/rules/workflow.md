@@ -27,6 +27,13 @@ description: PR workflow and PROGRESS.md maintenance — keeps the user out of t
 - **Rule of thumb:** if multiple phases touch the same file, are all docs-only, or are all under ~300 added lines, bundle them. Split when the diff exceeds ~500 lines or crosses a clear boundary (docs ↔ code, code ↔ infra).
 - Stacked PRs (one branch on top of another) are fragile — when the base branch merges via squash, GitHub auto-closes the stacked PR. Prefer a fresh branch off `main` after each merge.
 
+## MT5 — direct-query conventions (no manual export)
+- **Trade history:** `scripts/import_mt5_report.py` (or `scripts/desktop/Import MT5 Report.bat`) hits the running MT5 terminal via the `MetaTrader5` Python package and pulls the last `--days` (default 14) of closed trades. No HTML export, no Desktop dropping.
+- **Live state:** `scripts/mt5_status.py` (or `scripts/desktop/Show MT5 Status.bat`) — account balance / equity / floating P&L, every open position with unrealised P&L + SL + TP, every pending order, live spread + swap per symbol. `--save` writes a JSON snapshot.
+- **Output location:** `artifacts/live/incoming/mt5_history_<stamp>.{csv,json}` and `mt5_status_<stamp>.json`. Gitignored — runtime artifacts, not committed.
+- **Timezone:** MT5 timestamps are broker-local (IC Markets ~ GMT+2/+3). Both scripts compute the broker→UTC offset on connect (probe a live EURUSD tick vs wall-clock UTC, same pattern as `ff/live/broker_mt5.py`) and convert before formatting. **Never trust raw MT5 `time` fields as UTC.**
+- After import, the next step is reconcile against backtest replay (Pillar 5 work). The summary print catches obvious parity gaps at a glance.
+
 ## PROGRESS.md — I keep it current so the user doesn't have to
 - When a PR merges to main: if the work matches an unchecked item in `PROGRESS.md`, tick it in the same session.
 - When a new milestone emerges worth tracking, add a line and tick it once shipped.
