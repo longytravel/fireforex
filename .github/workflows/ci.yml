@@ -48,8 +48,12 @@ jobs:
         run: ruff format --check .
 
       - name: Unit + integration tests
-        # MT5-touching tests skip on Linux (MetaTrader5 is Windows-only).
-        run: pytest tests/ -v --ignore=tests/test_live_runner_synthetic.py
+        # MT5-touching tests skip on Linux (MetaTrader5 is Windows-only,
+        # and these tests transitively import it).
+        run: |
+          pytest tests/ -v \
+            --ignore=tests/test_live_runner_synthetic.py \
+            --ignore=tests/test_broker_mt5_submit.py
 
   rust:
     name: rust
