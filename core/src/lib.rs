@@ -1,3 +1,23 @@
+// These lints are allowed crate-wide because they conflict with the engine's
+// intentional design choices (not because the warnings are wrong):
+//   - too_many_arguments: simulate_trade_full takes ~30 plain scalars/slices
+//     by design, to keep the pyo3 boundary thin and let Rust monomorphise
+//     hot loops without a builder pattern.
+//   - needless_range_loop: indexed access (`for i in 0..buf.len()`) is
+//     load-bearing in numeric kernels where the loop body uses i for offset
+//     arithmetic; rewriting as iterators obscures intent.
+//   - collapsible_if / empty_line_after_doc_comments: style preference.
+//   - dead_code: SL_FIXED_PIPS / TP_RR_RATIO / TRAIL_ATR_CHANDELIER / M_DSR
+//     and `tp_pips` are constants/fields reserved for upcoming SL/TP and
+//     metric variants. To be reviewed in the architecture stocktake.
+#![allow(
+    dead_code,
+    clippy::too_many_arguments,
+    clippy::needless_range_loop,
+    clippy::collapsible_if,
+    clippy::empty_line_after_doc_comments
+)]
+
 mod constants;
 mod filter;
 mod metrics;
@@ -108,7 +128,9 @@ fn batch_evaluate<'py>(
 
     // --- Input validation (catch errors before entering unsafe/parallel code) ---
     if max_trades_usize == 0 {
-        return Err(pyo3::exceptions::PyValueError::new_err("max_trades must be > 0"));
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "max_trades must be > 0",
+        ));
     }
 
     // Signal arrays must all have the same length
@@ -122,35 +144,39 @@ fn batch_evaluate<'py>(
         || sig_variant_s.len() != n_signals
     {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "Signal arrays must all have the same length"
+            "Signal arrays must all have the same length",
         ));
     }
 
     // Generic signal filter array must be (NUM_SIGNAL_PARAMS, n_signals)
     if n_filter_rows != NUM_SIGNAL_PARAMS {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            format!("sig_filters rows ({}) != NUM_SIGNAL_PARAMS ({})", n_filter_rows, NUM_SIGNAL_PARAMS)
-        ));
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "sig_filters rows ({}) != NUM_SIGNAL_PARAMS ({})",
+            n_filter_rows, NUM_SIGNAL_PARAMS
+        )));
     }
     if n_filter_cols != n_signals {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            format!("sig_filters cols ({}) != n_signals ({})", n_filter_cols, n_signals)
-        ));
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "sig_filters cols ({}) != n_signals ({})",
+            n_filter_cols, n_signals
+        )));
     }
 
     // H1-to-sub mapping must match price array length
     if h1_to_sub_start_s.len() != n_bars || h1_to_sub_end_s.len() != n_bars {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            format!("h1_to_sub mapping length ({},{}) != n_bars ({})",
-                h1_to_sub_start_s.len(), h1_to_sub_end_s.len(), n_bars)
-        ));
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "h1_to_sub mapping length ({},{}) != n_bars ({})",
+            h1_to_sub_start_s.len(),
+            h1_to_sub_end_s.len(),
+            n_bars
+        )));
     }
 
     // Sub-bar arrays must all have the same length
     let sub_len = sub_high_s.len();
     if sub_low_s.len() != sub_len || sub_close_s.len() != sub_len || sub_spread_s.len() != sub_len {
         return Err(pyo3::exceptions::PyValueError::new_err(
-            "Sub-bar arrays must all have the same length"
+            "Sub-bar arrays must all have the same length",
         ));
     }
 
@@ -160,10 +186,10 @@ fn batch_evaluate<'py>(
             let start = h1_to_sub_start_s[i];
             let end = h1_to_sub_end_s[i];
             if start < 0 || end < 0 || (end as usize) > sub_len || start > end {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    format!("h1_to_sub[{}] invalid: start={}, end={}, sub_len={}",
-                        i, start, end, sub_len)
-                ));
+                return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                    "h1_to_sub[{}] invalid: start={}, end={}, sub_len={}",
+                    i, start, end, sub_len
+                )));
             }
         }
     }
@@ -172,9 +198,10 @@ fn batch_evaluate<'py>(
     for i in 0..param_layout_s.len() {
         let col = param_layout_s[i];
         if col >= 0 && col as usize >= n_params {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                format!("param_layout[{}]={} exceeds n_params {}", i, col, n_params)
-            ));
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "param_layout[{}]={} exceeds n_params {}",
+                i, col, n_params
+            )));
         }
     }
 
@@ -182,11 +209,10 @@ fn batch_evaluate<'py>(
     let trade_records_shape = trade_records.shape();
     let expected_cols = max_trades_usize * NUM_TRADE_FIELDS;
     if trade_records_shape[0] != n_trials || trade_records_shape[1] != expected_cols {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            format!("trade_records shape must be ({}, {}), got ({}, {})",
-                n_trials, expected_cols,
-                trade_records_shape[0], trade_records_shape[1])
-        ));
+        return Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "trade_records shape must be ({}, {}), got ({}, {})",
+            n_trials, expected_cols, trade_records_shape[0], trade_records_shape[1]
+        )));
     }
 
     // Get mutable access to output arrays
@@ -200,12 +226,8 @@ fn batch_evaluate<'py>(
     // Release the GIL and run in parallel
     py.allow_threads(|| {
         // Split output into per-trial chunks for non-overlapping writes
-        let metrics_chunks: Vec<&mut [f64]> = metrics_out_ptr
-            .chunks_mut(NUM_METRICS)
-            .collect();
-        let pnl_chunks: Vec<&mut [f64]> = pnl_buffers_ptr
-            .chunks_mut(max_trades_usize)
-            .collect();
+        let metrics_chunks: Vec<&mut [f64]> = metrics_out_ptr.chunks_mut(NUM_METRICS).collect();
+        let pnl_chunks: Vec<&mut [f64]> = pnl_buffers_ptr.chunks_mut(max_trades_usize).collect();
         let trade_record_chunks: Vec<&mut [f64]> = trade_records_ptr
             .chunks_mut(max_trades_usize * NUM_TRADE_FIELDS)
             .collect();
@@ -224,239 +246,243 @@ fn batch_evaluate<'py>(
                 let n_metrics = metrics_row.len();
 
                 let result = catch_unwind(AssertUnwindSafe(|| {
-                // Get params for this trial (row-major indexing)
-                let params_offset = trial * n_params;
-                let params = &param_matrix_s[params_offset..params_offset + n_params];
+                    // Get params for this trial (row-major indexing)
+                    let params_offset = trial * n_params;
+                    let params = &param_matrix_s[params_offset..params_offset + n_params];
 
-                // Extract standard params via layout
-                let sl_mode = params[param_layout_s[PL_SL_MODE] as usize] as i64;
-                let sl_fixed_pips = params[param_layout_s[PL_SL_FIXED_PIPS] as usize];
-                let sl_atr_mult = params[param_layout_s[PL_SL_ATR_MULT] as usize];
-                let tp_mode = params[param_layout_s[PL_TP_MODE] as usize] as i64;
-                let tp_rr_ratio = params[param_layout_s[PL_TP_RR_RATIO] as usize];
-                let tp_atr_mult = params[param_layout_s[PL_TP_ATR_MULT] as usize];
-                let tp_fixed_pips_val = params[param_layout_s[PL_TP_FIXED_PIPS] as usize];
-                let hours_start = params[param_layout_s[PL_HOURS_START] as usize] as i64;
-                let hours_end = params[param_layout_s[PL_HOURS_END] as usize] as i64;
-                let days_bitmask = params[param_layout_s[PL_DAYS_BITMASK] as usize] as i64;
+                    // Extract standard params via layout
+                    let sl_mode = params[param_layout_s[PL_SL_MODE] as usize] as i64;
+                    let sl_fixed_pips = params[param_layout_s[PL_SL_FIXED_PIPS] as usize];
+                    let sl_atr_mult = params[param_layout_s[PL_SL_ATR_MULT] as usize];
+                    let tp_mode = params[param_layout_s[PL_TP_MODE] as usize] as i64;
+                    let tp_rr_ratio = params[param_layout_s[PL_TP_RR_RATIO] as usize];
+                    let tp_atr_mult = params[param_layout_s[PL_TP_ATR_MULT] as usize];
+                    let tp_fixed_pips_val = params[param_layout_s[PL_TP_FIXED_PIPS] as usize];
+                    let hours_start = params[param_layout_s[PL_HOURS_START] as usize] as i64;
+                    let hours_end = params[param_layout_s[PL_HOURS_END] as usize] as i64;
+                    let days_bitmask = params[param_layout_s[PL_DAYS_BITMASK] as usize] as i64;
 
-                // Management params
-                let trailing_mode = params[param_layout_s[PL_TRAILING_MODE] as usize] as i64;
-                let trail_activate = params[param_layout_s[PL_TRAIL_ACTIVATE] as usize];
-                let trail_distance = params[param_layout_s[PL_TRAIL_DISTANCE] as usize];
-                let trail_atr_m = params[param_layout_s[PL_TRAIL_ATR_MULT] as usize];
-                let be_enabled = params[param_layout_s[PL_BREAKEVEN_ENABLED] as usize] as i64;
-                let be_trigger = params[param_layout_s[PL_BREAKEVEN_TRIGGER] as usize];
-                let be_offset = params[param_layout_s[PL_BREAKEVEN_OFFSET] as usize];
-                let partial_en = params[param_layout_s[PL_PARTIAL_ENABLED] as usize] as i64;
-                let partial_pct = params[param_layout_s[PL_PARTIAL_PCT] as usize];
-                let partial_trig = params[param_layout_s[PL_PARTIAL_TRIGGER] as usize];
-                let max_bars_val = params[param_layout_s[PL_MAX_BARS] as usize] as i64;
-                let stale_en = params[param_layout_s[PL_STALE_ENABLED] as usize] as i64;
-                let stale_bars_val = params[param_layout_s[PL_STALE_BARS] as usize] as i64;
-                let stale_atr = params[param_layout_s[PL_STALE_ATR_THRESH] as usize];
-                let chandelier_en = params[param_layout_s[PL_CHANDELIER_ENABLED] as usize] as i64;
-                let chandelier_activate = params[param_layout_s[PL_CHANDELIER_ACTIVATE] as usize];
-                let chandelier_atr_m = params[param_layout_s[PL_CHANDELIER_ATR_MULT] as usize];
+                    // Management params
+                    let trailing_mode = params[param_layout_s[PL_TRAILING_MODE] as usize] as i64;
+                    let trail_activate = params[param_layout_s[PL_TRAIL_ACTIVATE] as usize];
+                    let trail_distance = params[param_layout_s[PL_TRAIL_DISTANCE] as usize];
+                    let trail_atr_m = params[param_layout_s[PL_TRAIL_ATR_MULT] as usize];
+                    let be_enabled = params[param_layout_s[PL_BREAKEVEN_ENABLED] as usize] as i64;
+                    let be_trigger = params[param_layout_s[PL_BREAKEVEN_TRIGGER] as usize];
+                    let be_offset = params[param_layout_s[PL_BREAKEVEN_OFFSET] as usize];
+                    let partial_en = params[param_layout_s[PL_PARTIAL_ENABLED] as usize] as i64;
+                    let partial_pct = params[param_layout_s[PL_PARTIAL_PCT] as usize];
+                    let partial_trig = params[param_layout_s[PL_PARTIAL_TRIGGER] as usize];
+                    let max_bars_val = params[param_layout_s[PL_MAX_BARS] as usize] as i64;
+                    let stale_en = params[param_layout_s[PL_STALE_ENABLED] as usize] as i64;
+                    let stale_bars_val = params[param_layout_s[PL_STALE_BARS] as usize] as i64;
+                    let stale_atr = params[param_layout_s[PL_STALE_ATR_THRESH] as usize];
+                    let chandelier_en =
+                        params[param_layout_s[PL_CHANDELIER_ENABLED] as usize] as i64;
+                    let chandelier_activate =
+                        params[param_layout_s[PL_CHANDELIER_ACTIVATE] as usize];
+                    let chandelier_atr_m = params[param_layout_s[PL_CHANDELIER_ATR_MULT] as usize];
 
-                // Strategy-specific signal filter params
-                let variant_col = param_layout_s[PL_SIGNAL_VARIANT];
-                let trial_variant = if variant_col >= 0 {
-                    params[variant_col as usize] as i64
-                } else {
-                    -1
-                };
-                let bfm_col = param_layout_s[PL_BUY_FILTER_MAX];
-                let buy_filter_max = if bfm_col >= 0 {
-                    params[bfm_col as usize]
-                } else {
-                    -1.0
-                };
-                let sfm_col = param_layout_s[PL_SELL_FILTER_MIN];
-                let sell_filter_min = if sfm_col >= 0 {
-                    params[sfm_col as usize]
-                } else {
-                    -1.0
-                };
+                    // Strategy-specific signal filter params
+                    let variant_col = param_layout_s[PL_SIGNAL_VARIANT];
+                    let trial_variant = if variant_col >= 0 {
+                        params[variant_col as usize] as i64
+                    } else {
+                        -1
+                    };
+                    let bfm_col = param_layout_s[PL_BUY_FILTER_MAX];
+                    let buy_filter_max = if bfm_col >= 0 {
+                        params[bfm_col as usize]
+                    } else {
+                        -1.0
+                    };
+                    let sfm_col = param_layout_s[PL_SELL_FILTER_MIN];
+                    let sell_filter_min = if sfm_col >= 0 {
+                        params[sfm_col as usize]
+                    } else {
+                        -1.0
+                    };
 
-                // Extract generic signal filter trial values (PL_SIGNAL_P0..P9).
-                // `.round()` not `as i64` truncation, so a sampler drawing 2.9
-                // rounds to 3 (intuitive) rather than truncating to 2.
-                let mut trial_sig_filters: [i64; NUM_SIGNAL_PARAMS] = [-1; NUM_SIGNAL_PARAMS];
-                for f in 0..NUM_SIGNAL_PARAMS {
-                    let col = param_layout_s[PL_SIGNAL_P0 + f];
-                    if col >= 0 {
-                        trial_sig_filters[f] = params[col as usize].round() as i64;
-                    }
-                }
-
-                let mut trade_count = 0usize;
-                let mut total_sl_pips = 0.0_f64;
-
-                'signal_loop: for si in 0..n_signals {
-                    // Signal variant filter
-                    if trial_variant >= 0 && sig_variant_s[si] >= 0 {
-                        if sig_variant_s[si] != trial_variant {
-                            continue;
-                        }
-                    }
-
-                    // Strategy-specific value filter. Uses tolerance-compare
-                    // to absorb f64 arithmetic drift, and honours signal-side
-                    // -1 as an opt-out (matching the Pk family's bilateral
-                    // sentinel semantics).
-                    let direction = sig_direction_s[si];
-                    if buy_filter_max >= 0.0
-                        && direction == DIR_BUY
-                        && sig_filter_value_s[si] >= 0.0
-                    {
-                        if (sig_filter_value_s[si] - buy_filter_max).abs() >= 1e-9 {
-                            continue;
-                        }
-                    }
-                    if sell_filter_min >= 0.0
-                        && direction == DIR_SELL
-                        && sig_filter_value_s[si] >= 0.0
-                    {
-                        if (sig_filter_value_s[si] - sell_filter_min).abs() >= 1e-9 {
-                            continue;
-                        }
-                    }
-
-                    // Generic signal param filters (PL_SIGNAL_P0..P9)
+                    // Extract generic signal filter trial values (PL_SIGNAL_P0..P9).
+                    // `.round()` not `as i64` truncation, so a sampler drawing 2.9
+                    // rounds to 3 (intuitive) rather than truncating to 2.
+                    let mut trial_sig_filters: [i64; NUM_SIGNAL_PARAMS] = [-1; NUM_SIGNAL_PARAMS];
                     for f in 0..NUM_SIGNAL_PARAMS {
-                        if trial_sig_filters[f] >= 0 {
-                            let sig_val = sig_filters_s[f * n_filter_cols + si];
-                            if sig_val >= 0 && sig_val != trial_sig_filters[f] {
-                                continue 'signal_loop;
+                        let col = param_layout_s[PL_SIGNAL_P0 + f];
+                        if col >= 0 {
+                            trial_sig_filters[f] = params[col as usize].round() as i64;
+                        }
+                    }
+
+                    let mut trade_count = 0usize;
+                    let mut total_sl_pips = 0.0_f64;
+
+                    'signal_loop: for si in 0..n_signals {
+                        // Signal variant filter
+                        if trial_variant >= 0 && sig_variant_s[si] >= 0 {
+                            if sig_variant_s[si] != trial_variant {
+                                continue;
                             }
                         }
-                    }
 
-                    // Time filter
-                    if !signal_passes_time_filter(
-                        sig_hour_s[si],
-                        sig_day_s[si],
-                        hours_start,
-                        hours_end,
-                        days_bitmask,
-                    ) {
-                        continue;
-                    }
+                        // Strategy-specific value filter. Uses tolerance-compare
+                        // to absorb f64 arithmetic drift, and honours signal-side
+                        // -1 as an opt-out (matching the Pk family's bilateral
+                        // sentinel semantics).
+                        let direction = sig_direction_s[si];
+                        if buy_filter_max >= 0.0
+                            && direction == DIR_BUY
+                            && sig_filter_value_s[si] >= 0.0
+                        {
+                            if (sig_filter_value_s[si] - buy_filter_max).abs() >= 1e-9 {
+                                continue;
+                            }
+                        }
+                        if sell_filter_min >= 0.0
+                            && direction == DIR_SELL
+                            && sig_filter_value_s[si] >= 0.0
+                        {
+                            if (sig_filter_value_s[si] - sell_filter_min).abs() >= 1e-9 {
+                                continue;
+                            }
+                        }
 
-                    let bar_idx = sig_bar_index_s[si] as usize;
-                    let entry_p = sig_entry_price_s[si];
-                    let atr_p = sig_atr_pips_s[si];
-                    let swing_sl = sig_swing_sl_s[si];
+                        // Generic signal param filters (PL_SIGNAL_P0..P9)
+                        for f in 0..NUM_SIGNAL_PARAMS {
+                            if trial_sig_filters[f] >= 0 {
+                                let sig_val = sig_filters_s[f * n_filter_cols + si];
+                                if sig_val >= 0 && sig_val != trial_sig_filters[f] {
+                                    continue 'signal_loop;
+                                }
+                            }
+                        }
 
-                    // Max spread filter
-                    if max_spread_pips > 0.0 {
-                        let spread_at_signal = spread_s[bar_idx] / pip_value;
-                        if spread_at_signal.is_nan() || spread_at_signal > max_spread_pips {
+                        // Time filter
+                        if !signal_passes_time_filter(
+                            sig_hour_s[si],
+                            sig_day_s[si],
+                            hours_start,
+                            hours_end,
+                            days_bitmask,
+                        ) {
                             continue;
+                        }
+
+                        let bar_idx = sig_bar_index_s[si] as usize;
+                        let entry_p = sig_entry_price_s[si];
+                        let atr_p = sig_atr_pips_s[si];
+                        let swing_sl = sig_swing_sl_s[si];
+
+                        // Max spread filter
+                        if max_spread_pips > 0.0 {
+                            let spread_at_signal = spread_s[bar_idx] / pip_value;
+                            if spread_at_signal.is_nan() || spread_at_signal > max_spread_pips {
+                                continue;
+                            }
+                        }
+
+                        let sl_tp = compute_sl_tp(
+                            direction,
+                            entry_p,
+                            atr_p,
+                            pip_value,
+                            sl_mode,
+                            sl_fixed_pips,
+                            sl_atr_mult,
+                            swing_sl,
+                            tp_mode,
+                            tp_rr_ratio,
+                            tp_atr_mult,
+                            tp_fixed_pips_val,
+                        );
+
+                        total_sl_pips += sl_tp.sl_pips;
+
+                        // Simulate trade. Fire Forex uses one trade loop — the
+                        // full-featured one. When all management knobs are off
+                        // (trailing_mode=0, be_enabled=0, partial_en=0,
+                        // stale_en=0, max_bars_val<=0) it degenerates to a pure
+                        // SL/TP fill, matching the old EXEC_BASIC behaviour
+                        // bit-for-bit (verified 2026-04-19 with baseline.py).
+                        let result = simulate_trade_full(
+                            direction,
+                            bar_idx,
+                            entry_p,
+                            sl_tp.sl_price,
+                            sl_tp.tp_price,
+                            atr_p,
+                            high_s,
+                            low_s,
+                            close_s,
+                            spread_s,
+                            pip_value,
+                            slippage_pips,
+                            n_bars,
+                            trailing_mode,
+                            trail_activate,
+                            trail_distance,
+                            trail_atr_m,
+                            be_enabled,
+                            be_trigger,
+                            be_offset,
+                            partial_en,
+                            partial_pct,
+                            partial_trig,
+                            max_bars_val,
+                            stale_en,
+                            stale_bars_val,
+                            stale_atr,
+                            chandelier_en,
+                            chandelier_activate,
+                            chandelier_atr_m,
+                            commission_pips,
+                            sub_high_s,
+                            sub_low_s,
+                            sub_close_s,
+                            sub_spread_s,
+                            h1_to_sub_start_s,
+                            h1_to_sub_end_s,
+                        );
+
+                        if trade_count < max_trades_usize {
+                            pnl_buffer[trade_count] = result.pnl_pips;
+                            let rec_off = trade_count * NUM_TRADE_FIELDS;
+                            trade_record_buf[rec_off] = result.pnl_pips;
+                            trade_record_buf[rec_off + 1] = result.exit_reason as f64;
+                            trade_record_buf[rec_off + 2] = result.direction as f64;
+                            trade_record_buf[rec_off + 3] = result.entry_bar_index as f64;
+                            trade_record_buf[rec_off + 4] = result.entry_sub_bar_index as f64;
+                            trade_record_buf[rec_off + 5] = result.entry_price;
+                            trade_record_buf[rec_off + 6] = result.exit_bar_index as f64;
+                            trade_record_buf[rec_off + 7] = result.exit_sub_bar_index as f64;
+                            trade_record_buf[rec_off + 8] = result.exit_price;
+                            trade_count += 1;
                         }
                     }
 
-                    let sl_tp = compute_sl_tp(
-                        direction,
-                        entry_p,
-                        atr_p,
-                        pip_value,
-                        sl_mode,
-                        sl_fixed_pips,
-                        sl_atr_mult,
-                        swing_sl,
-                        tp_mode,
-                        tp_rr_ratio,
-                        tp_atr_mult,
-                        tp_fixed_pips_val,
-                    );
-
-                    total_sl_pips += sl_tp.sl_pips;
-
-                    // Simulate trade. Fire Forex uses one trade loop — the
-                    // full-featured one. When all management knobs are off
-                    // (trailing_mode=0, be_enabled=0, partial_en=0,
-                    // stale_en=0, max_bars_val<=0) it degenerates to a pure
-                    // SL/TP fill, matching the old EXEC_BASIC behaviour
-                    // bit-for-bit (verified 2026-04-19 with baseline.py).
-                    let result = simulate_trade_full(
-                        direction,
-                        bar_idx,
-                        entry_p,
-                        sl_tp.sl_price,
-                        sl_tp.tp_price,
-                        atr_p,
-                        high_s,
-                        low_s,
-                        close_s,
-                        spread_s,
-                        pip_value,
-                        slippage_pips,
+                    // Compute metrics
+                    let avg_sl = if trade_count > 0 {
+                        total_sl_pips / trade_count as f64
+                    } else {
+                        30.0
+                    };
+                    compute_metrics_inline(
+                        pnl_buffer,
+                        trade_count,
+                        avg_sl,
                         n_bars,
-                        trailing_mode,
-                        trail_activate,
-                        trail_distance,
-                        trail_atr_m,
-                        be_enabled,
-                        be_trigger,
-                        be_offset,
-                        partial_en,
-                        partial_pct,
-                        partial_trig,
-                        max_bars_val,
-                        stale_en,
-                        stale_bars_val,
-                        stale_atr,
-                        chandelier_en,
-                        chandelier_activate,
-                        chandelier_atr_m,
-                        commission_pips,
-                        sub_high_s,
-                        sub_low_s,
-                        sub_close_s,
-                        sub_spread_s,
-                        h1_to_sub_start_s,
-                        h1_to_sub_end_s,
+                        bars_per_year,
+                        metrics_row,
                     );
-
-                    if trade_count < max_trades_usize {
-                        pnl_buffer[trade_count] = result.pnl_pips;
-                        let rec_off = trade_count * NUM_TRADE_FIELDS;
-                        trade_record_buf[rec_off]     = result.pnl_pips;
-                        trade_record_buf[rec_off + 1] = result.exit_reason as f64;
-                        trade_record_buf[rec_off + 2] = result.direction as f64;
-                        trade_record_buf[rec_off + 3] = result.entry_bar_index as f64;
-                        trade_record_buf[rec_off + 4] = result.entry_sub_bar_index as f64;
-                        trade_record_buf[rec_off + 5] = result.entry_price;
-                        trade_record_buf[rec_off + 6] = result.exit_bar_index as f64;
-                        trade_record_buf[rec_off + 7] = result.exit_sub_bar_index as f64;
-                        trade_record_buf[rec_off + 8] = result.exit_price;
-                        trade_count += 1;
-                    }
-                }
-
-                // Compute metrics
-                let avg_sl = if trade_count > 0 {
-                    total_sl_pips / trade_count as f64
-                } else {
-                    30.0
-                };
-                compute_metrics_inline(
-                    pnl_buffer,
-                    trade_count,
-                    avg_sl,
-                    n_bars,
-                    bars_per_year,
-                    metrics_row,
-                );
                 })); // end catch_unwind
 
                 if result.is_err() {
                     // Trial panicked — zero out metrics (optimizer treats as bad trial)
                     // SAFETY: metrics_ptr points to this trial's non-overlapping slice,
                     // allocated by Python and valid for the duration of this function.
-                    unsafe { std::ptr::write_bytes(metrics_ptr, 0, n_metrics); }
+                    unsafe {
+                        std::ptr::write_bytes(metrics_ptr, 0, n_metrics);
+                    }
                 }
             });
     });

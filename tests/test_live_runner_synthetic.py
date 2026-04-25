@@ -13,12 +13,13 @@ submission are stubbed via ``monkeypatch`` so this test exercises the data
 plumbing only; signal-content correctness is already covered by the full
 backtest golden test.
 """
+
 from __future__ import annotations
 
 import json
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 import pytest
 
 from ff.live import runner as live_runner
@@ -35,24 +36,38 @@ class _MockBroker:
     def submit_market_order(self, plan):  # pragma: no cover — not exercised here
         self.submitted.append(plan)
         from ff.live.broker_mt5 import Ticket
-        return Ticket(plan["plan_id"], 42, "2026-04-20T00:00Z", None, plan["entry_ref_price"], plan["size_lots"], 10009, "mock")
+
+        return Ticket(
+            plan["plan_id"],
+            42,
+            "2026-04-20T00:00Z",
+            None,
+            plan["entry_ref_price"],
+            plan["size_lots"],
+            10009,
+            "mock",
+        )
 
 
 def _synth_m1(start: str, minutes: int, base_price: float = 1.1000) -> pd.DataFrame:
     idx = pd.date_range(start, periods=minutes, freq="1min", tz="UTC")
-    return pd.DataFrame({
-        "open": np.full(minutes, base_price),
-        "high": np.full(minutes, base_price + 0.0002),
-        "low": np.full(minutes, base_price - 0.0002),
-        "close": np.full(minutes, base_price + 0.00005),
-        "spread": np.full(minutes, 1.0),
-        "tick_volume": np.ones(minutes),
-    }, index=idx)
+    return pd.DataFrame(
+        {
+            "open": np.full(minutes, base_price),
+            "high": np.full(minutes, base_price + 0.0002),
+            "low": np.full(minutes, base_price - 0.0002),
+            "close": np.full(minutes, base_price + 0.00005),
+            "spread": np.full(minutes, 1.0),
+            "tick_volume": np.ones(minutes),
+        },
+        index=idx,
+    )
 
 
 @pytest.fixture
 def cfg():
-    from ff.live.runner import LiveConfig, BrokerCfg
+    from ff.live.runner import BrokerCfg, LiveConfig
+
     return LiveConfig(
         instance_id="test_instance",
         recipe={"pair": "EUR_USD", "main_tf": "H1", "sub_tf": "M1", "level": 1},
@@ -84,7 +99,8 @@ def test_poll_merges_m1_buf_and_rolls_up_to_h1(monkeypatch, cfg, pair_state):
 
     # Stub signal eval so we don't need real indicators.
     monkeypatch.setattr(
-        live_runner, "_evaluate_and_fire",
+        live_runner,
+        "_evaluate_and_fire",
         lambda *a, **k: None,
     )
 
@@ -98,7 +114,8 @@ def test_poll_merges_m1_buf_and_rolls_up_to_h1(monkeypatch, cfg, pair_state):
 def test_poll_deduplicates_overlapping_m1(monkeypatch, cfg, pair_state):
     broker = _MockBroker()
     monkeypatch.setattr(
-        live_runner, "_evaluate_and_fire",
+        live_runner,
+        "_evaluate_and_fire",
         lambda *a, **k: None,
     )
 
@@ -120,7 +137,8 @@ def test_last_main_ts_only_advances_on_new_closed_bar(monkeypatch, cfg, pair_sta
     broker = _MockBroker()
     fired = []
     monkeypatch.setattr(
-        live_runner, "_evaluate_and_fire",
+        live_runner,
+        "_evaluate_and_fire",
         lambda cfg, state, broker, ts, pair_states: fired.append(ts),
     )
 
@@ -148,24 +166,29 @@ def test_load_state_restores_open_positions(monkeypatch, tmp_path, cfg, pair_sta
     state_dir = tmp_path / cfg.instance_id
     state_dir.mkdir(parents=True)
     plan_id = "test_instance_EUR_USD_2026-04-20T10:00:00+00:00_+1"
-    (state_dir / "state.json").write_text(json.dumps({
-        "EUR_USD": {
-            plan_id: {
-                "plan_id": plan_id,
-                "ticket": 12345,
-                "pair": "EUR_USD",
-                "direction": 1,
-                "entry_price": 1.1002,
-                "sl_price": 1.0900,
-                "tp_price": 1.1200,
-                "opened_at": "2026-04-20T10:00:00+00:00",
-                "size_lots": 0.01,
-                "atr_pips_at_entry": 10.0,
-                "last_known_sl": 1.0900,
-                "partial_done": False,
+    (state_dir / "state.json").write_text(
+        json.dumps(
+            {
+                "EUR_USD": {
+                    plan_id: {
+                        "plan_id": plan_id,
+                        "ticket": 12345,
+                        "pair": "EUR_USD",
+                        "direction": 1,
+                        "entry_price": 1.1002,
+                        "sl_price": 1.0900,
+                        "tp_price": 1.1200,
+                        "opened_at": "2026-04-20T10:00:00+00:00",
+                        "size_lots": 0.01,
+                        "atr_pips_at_entry": 10.0,
+                        "last_known_sl": 1.0900,
+                        "partial_done": False,
+                    }
+                }
             }
-        }
-    }), encoding="utf-8")
+        ),
+        encoding="utf-8",
+    )
 
     loaded = live_runner._load_state(cfg, {"EUR_USD": pair_state})
 
@@ -179,6 +202,7 @@ class _StubLibrary:
     Exposes the attributes ``_evaluate_and_fire`` reads: bar_index, variant,
     direction, entry_price, atr_pips, swing_sl, variant_map, n_signals.
     """
+
     def __init__(self, latest_bar_idx: int) -> None:
         self.bar_index = np.array([latest_bar_idx], dtype=np.int64)
         self.variant = np.array([7], dtype=np.int64)
@@ -207,8 +231,10 @@ def test_plan_carries_parity_fields(monkeypatch, cfg, pair_state):
 
     # Stub signal_lib to fire on the latest bar.
     from ff import signal_lib as sl
+
     monkeypatch.setattr(
-        sl, "build_signal_library",
+        sl,
+        "build_signal_library",
         lambda *a, **k: _StubLibrary(latest_bar_idx=len(pair_state.main_buf) - 1),
     )
     monkeypatch.setattr(live_runner, "_sl", sl)
@@ -255,8 +281,10 @@ def test_max_open_per_pair_blocks_stacking(monkeypatch, cfg, pair_state):
     )
 
     from ff import signal_lib as sl
+
     monkeypatch.setattr(
-        sl, "build_signal_library",
+        sl,
+        "build_signal_library",
         lambda *a, **k: _StubLibrary(latest_bar_idx=len(pair_state.main_buf) - 1),
     )
     monkeypatch.setattr(live_runner, "_sl", sl)
@@ -265,7 +293,8 @@ def test_max_open_per_pair_blocks_stacking(monkeypatch, cfg, pair_state):
 
     cap_errors: list[dict] = []
     monkeypatch.setattr(
-        live_runner, "_log_error",
+        live_runner,
+        "_log_error",
         lambda _c, row: cap_errors.append(row) if row.get("stage") == "cap" else None,
     )
     # Ensure we can detect that submit_market_order was not invoked.
@@ -285,6 +314,7 @@ def test_max_open_per_pair_blocks_stacking(monkeypatch, cfg, pair_state):
 
 # ── Multi-instance ─────────────────────────────────────────────────────
 
+
 def test_plan_id_includes_instance_id_so_same_pair_bar_does_not_collide():
     """Two instances firing the same pair on the same bar must produce
     distinct plan_ids. Without the instance_id prefix, dedup would
@@ -300,14 +330,19 @@ def test_plan_id_includes_instance_id_so_same_pair_bar_does_not_collide():
 def test_run_rejects_duplicate_instance_ids():
     """Startup must fail loudly on duplicate instance_id — silent
     pair_states overwrite is hard to diagnose later."""
-    from ff.live.runner import LiveConfig, BrokerCfg, run
+    from ff.live.runner import BrokerCfg, LiveConfig, run
+
     a = LiveConfig(
-        instance_id="dup", recipe={"main_tf": "H1"}, overrides={},
+        instance_id="dup",
+        recipe={"main_tf": "H1"},
+        overrides={},
         pairs=["EUR_USD"],
         broker=BrokerCfg(login=0, password="x", server="x", magic_number=100),
     )
     b = LiveConfig(
-        instance_id="dup", recipe={"main_tf": "H1"}, overrides={},
+        instance_id="dup",
+        recipe={"main_tf": "H1"},
+        overrides={},
         pairs=["GBP_USD"],
         broker=BrokerCfg(login=0, password="x", server="x", magic_number=101),
     )
@@ -317,14 +352,19 @@ def test_run_rejects_duplicate_instance_ids():
 
 def test_run_rejects_duplicate_magic_numbers():
     """Duplicate magic across instances breaks MT5-side attribution."""
-    from ff.live.runner import LiveConfig, BrokerCfg, run
+    from ff.live.runner import BrokerCfg, LiveConfig, run
+
     a = LiveConfig(
-        instance_id="a", recipe={"main_tf": "H1"}, overrides={},
+        instance_id="a",
+        recipe={"main_tf": "H1"},
+        overrides={},
         pairs=["EUR_USD"],
         broker=BrokerCfg(login=0, password="x", server="x", magic_number=200),
     )
     b = LiveConfig(
-        instance_id="b", recipe={"main_tf": "H1"}, overrides={},
+        instance_id="b",
+        recipe={"main_tf": "H1"},
+        overrides={},
         pairs=["GBP_USD"],
         broker=BrokerCfg(login=0, password="x", server="x", magic_number=200),
     )
@@ -335,9 +375,12 @@ def test_run_rejects_duplicate_magic_numbers():
 def test_dedup_scans_plans_file_not_just_tickets(tmp_path, monkeypatch):
     """A crash between _emit_plan and _append_jsonl(tickets) must not
     cause a refire on restart. Dedup checks plans too."""
-    from ff.live.runner import LiveConfig, BrokerCfg, _is_duplicate_plan, _emit_plan
+    from ff.live.runner import BrokerCfg, LiveConfig, _emit_plan, _is_duplicate_plan
+
     cfg = LiveConfig(
-        instance_id="t", recipe={"main_tf": "H1"}, overrides={},
+        instance_id="t",
+        recipe={"main_tf": "H1"},
+        overrides={},
         pairs=["EUR_USD"],
         broker=BrokerCfg(login=0, password="x", server="x"),
     )
@@ -359,32 +402,45 @@ def test_refresh_deals_filters_by_instance_magic(tmp_path, monkeypatch):
     """Per-instance deals.jsonl must not absorb another strategy's MT5
     fills just because every order comment starts with fireforex."""
     import json
-    from ff.live.runner import LiveConfig, BrokerCfg, _refresh_deals
+
+    from ff.live.runner import BrokerCfg, LiveConfig, _refresh_deals
 
     monkeypatch.setattr(live_runner, "LIVE_DIR", tmp_path)
     cfg = LiveConfig(
-        instance_id="inst_a", recipe={"main_tf": "H1"}, overrides={},
+        instance_id="inst_a",
+        recipe={"main_tf": "H1"},
+        overrides={},
         pairs=["EUR_USD"],
         broker=BrokerCfg(
-            login=0, password="x", server="x", magic_number=20260420,
+            login=0,
+            password="x",
+            server="x",
+            magic_number=20260420,
         ),
     )
 
     class _DealBroker:
         def fetch_recent_deals(self, _since):
             return [
-                {"ticket": 1, "position_id": 1, "magic": 20260420,
-                 "comment": "fireforex", "price": 1.1},
-                {"ticket": 2, "position_id": 2, "magic": 20260421,
-                 "comment": "fireforex", "price": 1.2},
+                {
+                    "ticket": 1,
+                    "position_id": 1,
+                    "magic": 20260420,
+                    "comment": "fireforex",
+                    "price": 1.1,
+                },
+                {
+                    "ticket": 2,
+                    "position_id": 2,
+                    "magic": 20260421,
+                    "comment": "fireforex",
+                    "price": 1.2,
+                },
             ]
 
     broker = _DealBroker()
     broker.cfg = cfg.broker
     _refresh_deals(cfg, broker)
 
-    rows = [
-        json.loads(line)
-        for line in cfg.deals_file.read_text(encoding="utf-8").splitlines()
-    ]
+    rows = [json.loads(line) for line in cfg.deals_file.read_text(encoding="utf-8").splitlines()]
     assert [r["ticket"] for r in rows] == [1]

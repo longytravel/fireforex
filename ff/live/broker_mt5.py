@@ -27,6 +27,7 @@ Failure-mode taxonomy (per the plan):
 
 No silent retries. Every outcome is logged.
 """
+
 from __future__ import annotations
 
 import logging
@@ -38,7 +39,6 @@ from typing import Any
 
 import pandas as pd
 
-
 LOG = logging.getLogger(__name__)
 
 
@@ -46,13 +46,13 @@ LOG = logging.getLogger(__name__)
 # Sourced from the MetaTrader5 pip package: DEAL_REASON_* enum values 0..9.
 # Kept local so tests and the reconciler don't need the native package.
 DEAL_REASON_NAMES: dict[int, str] = {
-    0: "CLIENT",     # terminal by user
+    0: "CLIENT",  # terminal by user
     1: "MOBILE",
     2: "WEB",
-    3: "EXPERT",     # EA / our own close_position → our trailing/breakeven/etc.
+    3: "EXPERT",  # EA / our own close_position → our trailing/breakeven/etc.
     4: "SL",
     5: "TP",
-    6: "SO",         # stop out (margin)
+    6: "SO",  # stop out (margin)
     7: "ROLLOVER",
     8: "VMARGIN",
     9: "SPLIT",
@@ -88,10 +88,7 @@ def _require_mt5() -> Any:
         try:
             import MetaTrader5 as mt5  # type: ignore
         except ImportError as exc:
-            raise RuntimeError(
-                "MetaTrader5 pip package not installed — "
-                "this is a Windows-only VPS dependency"
-            ) from exc
+            raise RuntimeError("MetaTrader5 pip package not installed — this is a Windows-only VPS dependency") from exc
         _mt5 = mt5
     return _mt5
 
@@ -143,6 +140,7 @@ class MT5Broker:
         # Compute broker↔UTC offset by comparing a live tick's broker-stamped
         # time against wall-clock UTC. IC Markets = GMT+2 / GMT+3 typically.
         import time as _time
+
         probe_symbol = self.cfg.symbol_map.get("EUR_USD", "EURUSD")
         tick = mt5.symbol_info_tick(probe_symbol)
         if tick is not None and tick.time:
@@ -179,11 +177,10 @@ class MT5Broker:
         # signal eval + reconciler all speak true UTC.
         df["timestamp"] = pd.to_datetime(
             df["time"].astype("int64") + int(self._broker_to_utc_sec),
-            unit="s", utc=True,
+            unit="s",
+            utc=True,
         )
-        df = df.set_index("timestamp").rename(
-            columns={"real_volume": "volume", "tick_volume": "tick_volume"}
-        )
+        df = df.set_index("timestamp").rename(columns={"real_volume": "volume", "tick_volume": "tick_volume"})
         df["spread"] = df["spread"].astype("float64")
         return df[["open", "high", "low", "close", "tick_volume", "spread"]]
 
@@ -237,13 +234,13 @@ class MT5Broker:
                 retry["price"] = tick.ask if plan["direction"] > 0 else tick.bid
             LOG.warning(
                 "[mt5] requote on %s plan=%s; retrying deviation=%s points",
-                symbol, plan.get("plan_id"), retry["deviation"],
+                symbol,
+                plan.get("plan_id"),
+                retry["deviation"],
             )
             result = mt5.order_send(retry)
             if result is None:
-                raise RuntimeError(
-                    f"order_send retry returned None: {mt5.last_error()}"
-                )
+                raise RuntimeError(f"order_send retry returned None: {mt5.last_error()}")
 
         if int(result.retcode) != done_code:
             raise RuntimeError(
@@ -265,9 +262,7 @@ class MT5Broker:
             comment=str(getattr(result, "comment", "")),
         )
         if ticket.ticket <= 0:
-            raise RuntimeError(
-                f"order_send filled but returned no ticket: {result!r}"
-            )
+            raise RuntimeError(f"order_send filled but returned no ticket: {result!r}")
         return ticket
 
     def modify_sl(self, ticket: int, new_sl: float) -> int:
@@ -301,9 +296,7 @@ class MT5Broker:
             return -1
         pos = positions[0]
         tick = mt5.symbol_info_tick(pos.symbol)
-        opposite_type = (
-            mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
-        )
+        opposite_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
         price = tick.bid if opposite_type == mt5.ORDER_TYPE_SELL else tick.ask
         sym_info = mt5.symbol_info(pos.symbol)
         volume_step = float(getattr(sym_info, "volume_step", 0.01)) if sym_info else 0.01
@@ -338,9 +331,7 @@ class MT5Broker:
             return -1
         pos = positions[0]
         tick = mt5.symbol_info_tick(pos.symbol)
-        opposite_type = (
-            mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
-        )
+        opposite_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
         price = tick.bid if opposite_type == mt5.ORDER_TYPE_SELL else tick.ask
         request = {
             "action": mt5.TRADE_ACTION_DEAL,
@@ -373,30 +364,32 @@ class MT5Broker:
         for d in deals:
             reason_code = int(getattr(d, "reason", -1))
             broker_time = int(d.time)
-            out.append({
-                "ticket": int(d.ticket),
-                "position_id": int(getattr(d, "position_id", 0)),
-                "magic": int(getattr(d, "magic", 0)),
-                "symbol": str(d.symbol),
-                "type": int(d.type),
-                "volume": float(d.volume),
-                "price": float(d.price),
-                "profit": float(d.profit),
-                "commission": float(getattr(d, "commission", 0.0)),
-                "swap": float(getattr(d, "swap", 0.0)),
-                "fee": float(getattr(d, "fee", 0.0)),
-                "reason_code": reason_code,
-                "reason": DEAL_REASON_NAMES.get(reason_code, "UNKNOWN"),
-                "time": datetime.fromtimestamp(
-                    broker_time + int(self._broker_to_utc_sec),
-                    tz=timezone.utc,
-                ).isoformat(),
-                "broker_time": datetime.fromtimestamp(
-                    broker_time,
-                    tz=timezone.utc,
-                ).isoformat(),
-                "comment": str(getattr(d, "comment", "")),
-            })
+            out.append(
+                {
+                    "ticket": int(d.ticket),
+                    "position_id": int(getattr(d, "position_id", 0)),
+                    "magic": int(getattr(d, "magic", 0)),
+                    "symbol": str(d.symbol),
+                    "type": int(d.type),
+                    "volume": float(d.volume),
+                    "price": float(d.price),
+                    "profit": float(d.profit),
+                    "commission": float(getattr(d, "commission", 0.0)),
+                    "swap": float(getattr(d, "swap", 0.0)),
+                    "fee": float(getattr(d, "fee", 0.0)),
+                    "reason_code": reason_code,
+                    "reason": DEAL_REASON_NAMES.get(reason_code, "UNKNOWN"),
+                    "time": datetime.fromtimestamp(
+                        broker_time + int(self._broker_to_utc_sec),
+                        tz=timezone.utc,
+                    ).isoformat(),
+                    "broker_time": datetime.fromtimestamp(
+                        broker_time,
+                        tz=timezone.utc,
+                    ).isoformat(),
+                    "comment": str(getattr(d, "comment", "")),
+                }
+            )
         return out
 
     def positions_snapshot(self) -> list[dict[str, Any]]:
@@ -406,22 +399,25 @@ class MT5Broker:
             return []
         out = []
         for p in positions:
-            out.append({
-                "ticket": int(p.ticket),
-                "symbol": str(p.symbol),
-                "type": int(p.type),
-                "volume": float(p.volume),
-                "price_open": float(p.price_open),
-                "sl": float(p.sl),
-                "tp": float(p.tp),
-                "time": int(p.time),
-                "magic": int(p.magic),
-                "comment": str(p.comment),
-            })
+            out.append(
+                {
+                    "ticket": int(p.ticket),
+                    "symbol": str(p.symbol),
+                    "type": int(p.type),
+                    "volume": float(p.volume),
+                    "price_open": float(p.price_open),
+                    "sl": float(p.sl),
+                    "tp": float(p.tp),
+                    "time": int(p.time),
+                    "magic": int(p.magic),
+                    "comment": str(p.comment),
+                }
+            )
         return out
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
+
 
 def _now_iso() -> str:
     return pd.Timestamp.utcnow().isoformat()

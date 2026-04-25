@@ -14,14 +14,15 @@ This module exposes two entry points:
   :func:`inspect_dict` plus a few extra text-only sections (data-file
   sizes, sensitivity tables, etc.).
 """
+
 from __future__ import annotations
 
+from . import harness as hn
 from . import schema as sc
 from . import signal_lib as sl
-from . import harness as hn
-
 
 # ── Helpers ────────────────────────────────────────────────────────────
+
 
 def _fmt_values(values: list) -> str:
     if len(values) <= 8:
@@ -70,6 +71,7 @@ def _describe_node(node, indent: int = 2) -> list[str]:
 
 def _sensitivity(param_spec: dict, family_name: str, current_combos: int) -> list[str]:
     """Show what happens to combo count if steps are halved or doubled."""
+
     def count_with_factor(factor: float) -> int:
         spec2: dict = {}
         for k, leaf in param_spec.items():
@@ -77,8 +79,7 @@ def _sensitivity(param_spec: dict, family_name: str, current_combos: int) -> lis
                 new_step = max(1, int(round(leaf.step * factor)))
                 spec2[k] = sc.IntRange(leaf.min, leaf.max, step=new_step)
             elif isinstance(leaf, sc.FloatRange) and leaf.step is not None:
-                spec2[k] = sc.FloatRange(leaf.min, leaf.max, scale=leaf.scale,
-                                         step=leaf.step * factor)
+                spec2[k] = sc.FloatRange(leaf.min, leaf.max, scale=leaf.scale, step=leaf.step * factor)
             else:
                 spec2[k] = leaf
         est = sl.estimate_library_size({family_name: spec2})
@@ -94,6 +95,7 @@ def _sensitivity(param_spec: dict, family_name: str, current_combos: int) -> lis
 
 
 # ── Structured (JSON-friendly) tree ────────────────────────────────────
+
 
 def _leaf_to_dict(leaf) -> dict:
     """Serialise a single leaf node to a JSON-friendly dict.
@@ -141,31 +143,37 @@ def _schema_tree_to_list(subtree: dict) -> list[dict]:
             entry = {"name": key, **_leaf_to_dict(node)}
             out.append(entry)
         elif isinstance(node, sc.Group):
-            out.append({
-                "name": key,
-                "kind": "group",
-                "test_values": list(node.test.values),
-                "on_value": node.on_value,
-                "when_on": _schema_tree_to_list(node.when_on),
-            })
+            out.append(
+                {
+                    "name": key,
+                    "kind": "group",
+                    "test_values": list(node.test.values),
+                    "on_value": node.on_value,
+                    "when_on": _schema_tree_to_list(node.when_on),
+                }
+            )
         elif isinstance(node, sc.Branch):
             arms: dict[str, list[dict]] = {}
             for arm_name, arm_subtree in node.arms.items():
                 arms[arm_name] = _schema_tree_to_list(arm_subtree or {})
-            out.append({
-                "name": key,
-                "kind": "branch",
-                "selector_values": list(node.selector.values),
-                "arms": arms,
-            })
+            out.append(
+                {
+                    "name": key,
+                    "kind": "branch",
+                    "selector_values": list(node.selector.values),
+                    "arms": arms,
+                }
+            )
         elif isinstance(node, dict):
             # Nested dict (rare — a plain sub-namespace). Treat as an anonymous
             # group-like container so the UI can render it.
-            out.append({
-                "name": key,
-                "kind": "namespace",
-                "children": _schema_tree_to_list(node),
-            })
+            out.append(
+                {
+                    "name": key,
+                    "kind": "namespace",
+                    "children": _schema_tree_to_list(node),
+                }
+            )
         # Anything else (shouldn't happen) is silently dropped.
     return out
 
@@ -231,6 +239,7 @@ def inspect_dict(ea: dict) -> dict:
 
 # ── Main report (text formatter built on top of inspect_dict) ──────────
 
+
 def inspect_report(ea: dict, ea_path: str | None = None) -> str:
     """Return a plain-English, line-by-line inspection of an EA.
 
@@ -271,7 +280,7 @@ def inspect_report(ea: dict, ea_path: str | None = None) -> str:
         except Exception as exc:
             lines.append(f"    (failed to read: {exc})")
     else:
-        lines.append(f"    (file not found — check the pair / timeframe name)")
+        lines.append("    (file not found — check the pair / timeframe name)")
     # Other timeframes available for this pair:
     lines.append("")
     lines.append(f"  Other timeframes available for {pair}:")
@@ -336,13 +345,13 @@ def inspect_report(ea: dict, ea_path: str | None = None) -> str:
     lines.append("─" * W)
     if ea_path:
         lines.append(f"  To change anything, edit: {ea_path}")
-    lines.append( "  After editing, run:")
+    lines.append("  After editing, run:")
     if ea_path:
         lines.append(f"    python run.py {ea_path} --trials 2000")
     else:
-        lines.append(f"    python run.py eas/<this_ea>.py --trials 2000")
+        lines.append("    python run.py eas/<this_ea>.py --trials 2000")
     lines.append("")
-    lines.append( "  Halving a signal-library step generally multiplies the library size and the")
-    lines.append( "  runtime — use --inspect again after any edit to see the new estimate.")
+    lines.append("  Halving a signal-library step generally multiplies the library size and the")
+    lines.append("  runtime — use --inspect again after any edit to see the new estimate.")
     lines.append("─" * W)
     return "\n".join(lines)

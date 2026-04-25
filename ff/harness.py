@@ -18,6 +18,7 @@ Takes an EA config (dict) + run settings and does everything in one place:
 Nothing about pair / timeframe / pip_value / commission is hardcoded. Every
 such setting comes from the EA config.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,16 +29,14 @@ import webbrowser
 from pathlib import Path
 from typing import Any, Callable
 
+import ff_core as bc
 import numpy as np
 import pandas as pd
 
-import ff_core as bc
-
-from . import signal_lib as sl
-from . import sampler as spl
 from . import encoding as enc
+from . import sampler as spl
+from . import signal_lib as sl
 from .exit_codes import exit_reason_name
-
 
 # ── Timeframe / pair tables (constants of the market, not assumptions) ──
 
@@ -45,27 +44,38 @@ from .exit_codes import exit_reason_name
 # 252 trading days/year × bars/day. Weekend trading is rare for forex, so this is
 # the standard convention.
 BARS_PER_YEAR: dict[str, int] = {
-    "M1":  60 * 24 * 252,
-    "M5":  12 * 24 * 252,
+    "M1": 60 * 24 * 252,
+    "M5": 12 * 24 * 252,
     "M15": 4 * 24 * 252,
     "M30": 2 * 24 * 252,
-    "H1":  24 * 252,
-    "H4":  6 * 252,
-    "D":   252,
-    "W":   52,
+    "H1": 24 * 252,
+    "H4": 6 * 252,
+    "D": 252,
+    "W": 52,
 }
 
 # Bar duration in minutes — used to build the main→sub bar mapping.
 TF_MINUTES: dict[str, int] = {
-    "M1": 1, "M5": 5, "M15": 15, "M30": 30,
-    "H1": 60, "H4": 240, "D": 1440, "W": 10080,
+    "M1": 1,
+    "M5": 5,
+    "M15": 15,
+    "M30": 30,
+    "H1": 60,
+    "H4": 240,
+    "D": 1440,
+    "W": 10080,
 }
 
 # Pip value per pair. Override by passing ``pip_value`` explicitly in
 # ``EA.execution``. JPY quote pairs use 0.01; other majors use 0.0001.
 _JPY_QUOTE_PAIRS = {
-    "USD_JPY", "EUR_JPY", "GBP_JPY", "AUD_JPY",
-    "CHF_JPY", "CAD_JPY", "NZD_JPY",
+    "USD_JPY",
+    "EUR_JPY",
+    "GBP_JPY",
+    "AUD_JPY",
+    "CHF_JPY",
+    "CAD_JPY",
+    "NZD_JPY",
 }
 
 
@@ -81,35 +91,34 @@ DATA_ROOT = Path(os.environ.get("FF_DATA_ROOT", r"G:\My Drive\BackTestData"))
 # Single source of truth for the API + frontend. (key, label, group).
 # Order MUST match M_* indices in constants.rs.
 METRIC_COLUMNS: list[tuple[str, str, str]] = [
-    ("trades",            "Trades",                     "Activity"),
-    ("win_rate",          "Win rate",                   "Activity"),
-    ("profit_factor",     "Profit factor",              "Return"),
-    ("sharpe",            "Sharpe",                     "Risk-Adjusted"),
-    ("sortino",           "Sortino",                    "Risk-Adjusted"),
-    ("max_dd_pct",        "Max DD %",                   "Risk"),
-    ("return_pct",        "Return %",                   "Return"),
-    ("r_squared",         "R² (equity linearity)",      "Risk-Adjusted"),
-    ("ulcer",             "Ulcer Index",                "Risk"),
-    ("quality",           "Quality",                    "Composite"),
+    ("trades", "Trades", "Activity"),
+    ("win_rate", "Win rate", "Activity"),
+    ("profit_factor", "Profit factor", "Return"),
+    ("sharpe", "Sharpe", "Risk-Adjusted"),
+    ("sortino", "Sortino", "Risk-Adjusted"),
+    ("max_dd_pct", "Max DD %", "Risk"),
+    ("return_pct", "Return %", "Return"),
+    ("r_squared", "R² (equity linearity)", "Risk-Adjusted"),
+    ("ulcer", "Ulcer Index", "Risk"),
+    ("quality", "Quality", "Composite"),
     # New columns — Rust indices 10..24
-    ("expectancy_r",      "Expectancy (R)",             "Return"),
-    ("expectancy_pips",   "Expectancy (pips)",          "Return"),
-    ("sqn",               "SQN (Van Tharp)",            "Risk-Adjusted"),
-    ("calmar",            "Calmar",                     "Risk-Adjusted"),
-    ("recovery",          "Recovery Factor",            "Risk-Adjusted"),
-    ("upi",               "UPI / Martin Ratio",         "Risk-Adjusted"),
-    ("k_ratio",           "K-Ratio (Kestner)",          "Risk-Adjusted"),
-    ("tail_ratio",        "Tail Ratio (P95/|P5|)",      "Risk"),
-    ("omega",             "Omega (τ=0)",                "Return"),
-    ("max_consec_loss",   "Max Consecutive Losses",     "Risk"),
-    ("psr",               "Probabilistic Sharpe (PSR)", "Overfit-Aware"),
-    ("dsr",               "Deflated Sharpe (DSR)",      "Overfit-Aware"),
-    ("quality_v2",        "Quality (alias)",            "_hidden"),
-    ("avg_hold_bars",     "Avg Hold Bars",              "Forex"),
-    ("trades_per_day",    "Trades Per Day",             "Forex"),
+    ("expectancy_r", "Expectancy (R)", "Return"),
+    ("expectancy_pips", "Expectancy (pips)", "Return"),
+    ("sqn", "SQN (Van Tharp)", "Risk-Adjusted"),
+    ("calmar", "Calmar", "Risk-Adjusted"),
+    ("recovery", "Recovery Factor", "Risk-Adjusted"),
+    ("upi", "UPI / Martin Ratio", "Risk-Adjusted"),
+    ("k_ratio", "K-Ratio (Kestner)", "Risk-Adjusted"),
+    ("tail_ratio", "Tail Ratio (P95/|P5|)", "Risk"),
+    ("omega", "Omega (τ=0)", "Return"),
+    ("max_consec_loss", "Max Consecutive Losses", "Risk"),
+    ("psr", "Probabilistic Sharpe (PSR)", "Overfit-Aware"),
+    ("dsr", "Deflated Sharpe (DSR)", "Overfit-Aware"),
+    ("quality_v2", "Quality (alias)", "_hidden"),
+    ("avg_hold_bars", "Avg Hold Bars", "Forex"),
+    ("trades_per_day", "Trades Per Day", "Forex"),
 ]
-assert len(METRIC_COLUMNS) == bc.NUM_METRICS, \
-    f"METRIC_COLUMNS ({len(METRIC_COLUMNS)}) out of sync with bc.NUM_METRICS ({bc.NUM_METRICS})"
+assert len(METRIC_COLUMNS) == bc.NUM_METRICS, f"METRIC_COLUMNS ({len(METRIC_COLUMNS)}) out of sync with bc.NUM_METRICS ({bc.NUM_METRICS})"
 
 METRIC_INDEX: dict[str, int] = {k: i for i, (k, _, _) in enumerate(METRIC_COLUMNS)}
 
@@ -123,17 +132,30 @@ def _norm_ppf(p: np.ndarray | float) -> np.ndarray | float:
     Max absolute error ~1e-9 over p ∈ (1e-12, 1-1e-12). Vectorised over
     numpy arrays. Self-contained to avoid a scipy dependency for DSR.
     """
-    a = [-3.969683028665376e+01, 2.209460984245205e+02,
-         -2.759285104469687e+02, 1.383577518672690e+02,
-         -3.066479806614716e+01, 2.506628277459239e+00]
-    b = [-5.447609879822406e+01, 1.615858368580409e+02,
-         -1.556989798598866e+02, 6.680131188771972e+01,
-         -1.328068155288572e+01]
-    c = [-7.784894002430293e-03, -3.223964580411365e-01,
-         -2.400758277161838e+00, -2.549732539343734e+00,
-         4.374664141464968e+00, 2.938163982698783e+00]
-    d = [7.784695709041462e-03, 3.224671290700398e-01,
-         2.445134137142996e+00, 3.754408661907416e+00]
+    a = [
+        -3.969683028665376e01,
+        2.209460984245205e02,
+        -2.759285104469687e02,
+        1.383577518672690e02,
+        -3.066479806614716e01,
+        2.506628277459239e00,
+    ]
+    b = [
+        -5.447609879822406e01,
+        1.615858368580409e02,
+        -1.556989798598866e02,
+        6.680131188771972e01,
+        -1.328068155288572e01,
+    ]
+    c = [
+        -7.784894002430293e-03,
+        -3.223964580411365e-01,
+        -2.400758277161838e00,
+        -2.549732539343734e00,
+        4.374664141464968e00,
+        2.938163982698783e00,
+    ]
+    d = [7.784695709041462e-03, 3.224671290700398e-01, 2.445134137142996e00, 3.754408661907416e00]
     p_low, p_high = 0.02425, 1.0 - 0.02425
     p_arr = np.asarray(p, dtype=np.float64)
     out = np.zeros_like(p_arr, dtype=np.float64)
@@ -141,31 +163,36 @@ def _norm_ppf(p: np.ndarray | float) -> np.ndarray | float:
     lo = p_arr < p_low
     if lo.any():
         q = np.sqrt(-2.0 * np.log(p_arr[lo]))
-        out[lo] = (((((c[0]*q + c[1])*q + c[2])*q + c[3])*q + c[4])*q + c[5]) / \
-                  ((((d[0]*q + d[1])*q + d[2])*q + d[3])*q + 1.0)
+        out[lo] = (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / (
+            (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0
+        )
     # Upper tail
     hi = p_arr > p_high
     if hi.any():
         q = np.sqrt(-2.0 * np.log(1.0 - p_arr[hi]))
-        out[hi] = -(((((c[0]*q + c[1])*q + c[2])*q + c[3])*q + c[4])*q + c[5]) / \
-                   ((((d[0]*q + d[1])*q + d[2])*q + d[3])*q + 1.0)
+        out[hi] = -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / (
+            (((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1.0
+        )
     # Central region
     mid = ~(lo | hi)
     if mid.any():
         q = p_arr[mid] - 0.5
         r = q * q
-        out[mid] = (((((a[0]*r + a[1])*r + a[2])*r + a[3])*r + a[4])*r + a[5]) * q / \
-                   (((((b[0]*r + b[1])*r + b[2])*r + b[3])*r + b[4])*r + 1.0)
+        out[mid] = (
+            (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5])
+            * q
+            / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1.0)
+        )
     return out if p_arr.ndim else float(out)
 
 
 def _norm_cdf_vec(x: np.ndarray) -> np.ndarray:
     """Standard-normal CDF via numpy — vectorised wrapper for ``math.erf``."""
     from math import erf, sqrt
+
     inv_sqrt2 = 1.0 / sqrt(2.0)
     flat = np.asarray(x, dtype=np.float64).ravel()
-    out = np.fromiter((0.5 * (1.0 + erf(v * inv_sqrt2)) for v in flat),
-                      dtype=np.float64, count=flat.size)
+    out = np.fromiter((0.5 * (1.0 + erf(v * inv_sqrt2)) for v in flat), dtype=np.float64, count=flat.size)
     return out.reshape(np.asarray(x).shape)
 
 
@@ -188,8 +215,7 @@ def _finalise_dsr(metrics_out: np.ndarray, n_trials: int) -> None:
 
     euler_mascheroni = 0.5772156649015329
     n = float(n_trials)
-    e_max = (1.0 - euler_mascheroni) * _norm_ppf(1.0 - 1.0 / n) \
-            + euler_mascheroni * _norm_ppf(1.0 - 1.0 / (n * np.e))
+    e_max = (1.0 - euler_mascheroni) * _norm_ppf(1.0 - 1.0 / n) + euler_mascheroni * _norm_ppf(1.0 - 1.0 / (n * np.e))
 
     psr_col = metrics_out[:, psr_idx]
     p_clamped = np.clip(psr_col, 1e-12, 1.0 - 1e-12)
@@ -303,9 +329,9 @@ def load_parquet(path: Path) -> pd.DataFrame:
     return df
 
 
-def build_main_to_sub_mapping(main_index: pd.DatetimeIndex,
-                              sub_index: pd.DatetimeIndex,
-                              main_tf_minutes: int) -> tuple[np.ndarray, np.ndarray]:
+def build_main_to_sub_mapping(
+    main_index: pd.DatetimeIndex, sub_index: pd.DatetimeIndex, main_tf_minutes: int
+) -> tuple[np.ndarray, np.ndarray]:
     """For each main-TF bar, find the sub-TF bar index range it covers.
 
     Generalisation of the H1→M1 mapping — works for any (main, sub) pair where
@@ -347,6 +373,7 @@ def _resolve_execution(ea: dict) -> dict:
 
 def _summarise_trial(trial: dict) -> str:
     """Flatten a trial dict into a one-line human-readable string."""
+
     def flatten(node, prefix=""):
         out = []
         if isinstance(node, dict):
@@ -357,6 +384,7 @@ def _summarise_trial(trial: dict) -> str:
             pretty = f"{node:.3f}" if isinstance(node, float) else str(node)
             out.append(f"{prefix}={pretty}")
         return out
+
     parts = flatten(trial)
     return " · ".join(parts)
 
@@ -474,8 +502,7 @@ def _build_best_trade_log(
 _progress_logger = logging.getLogger(__name__ + ".progress")
 
 
-def _safe_progress(cb: Callable[[float, str], None] | None,
-                   fraction: float, message: str) -> None:
+def _safe_progress(cb: Callable[[float, str], None] | None, fraction: float, message: str) -> None:
     """Call ``cb(fraction, message)`` swallowing any exception.
 
     Progress hooks from callers (e.g. a FastAPI job runner) are strictly
@@ -494,12 +521,19 @@ def _safe_progress(cb: Callable[[float, str], None] | None,
             pass
 
 
-def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
-        n_trials: int = 2000, open_browser: bool = True,
-        progress_cb: Callable[[float, str], None] | None = None,
-        frozen_trial: dict | None = None,
-        save_artifacts: bool = True,
-        data_source: str = "dukascopy") -> dict:
+def run(
+    ea: dict,
+    *,
+    layer_name: str,
+    optimizer: str = "random",
+    seed: int = 42,
+    n_trials: int = 2000,
+    open_browser: bool = True,
+    progress_cb: Callable[[float, str], None] | None = None,
+    frozen_trial: dict | None = None,
+    save_artifacts: bool = True,
+    data_source: str = "dukascopy",
+) -> dict:
     """Execute an EA end-to-end.
 
     Returns a dict with the key numbers — useful for programmatic parity checks.
@@ -532,10 +566,7 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     main_tf = data_cfg["main_tf"]
     sub_tf = data_cfg["sub_tf"]
     if main_tf not in BARS_PER_YEAR or sub_tf not in BARS_PER_YEAR:
-        raise ValueError(
-            f"Unknown timeframe: main={main_tf!r} sub={sub_tf!r}. "
-            f"Known: {sorted(BARS_PER_YEAR)}"
-        )
+        raise ValueError(f"Unknown timeframe: main={main_tf!r} sub={sub_tf!r}. Known: {sorted(BARS_PER_YEAR)}")
     if TF_MINUTES[sub_tf] >= TF_MINUTES[main_tf]:
         raise ValueError(f"sub_tf must be finer than main_tf, got main={main_tf} sub={sub_tf}")
 
@@ -549,71 +580,67 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
         root = DATA_ROOT
     elif data_source == "mt5":
         from .data.mt5_m1_downloader import MT5_DATA_ROOT as _mt5_root
+
         root = _mt5_root
     else:
-        raise ValueError(
-            f"unknown data_source={data_source!r} (expected 'dukascopy' or 'mt5')"
-        )
+        raise ValueError(f"unknown data_source={data_source!r} (expected 'dukascopy' or 'mt5')")
     path_main = root / f"{pair}_{main_tf}.parquet"
     path_sub = root / f"{pair}_{sub_tf}.parquet"
     _safe_progress(progress_cb, 0.02, f"loading data ({pair} {main_tf}/{sub_tf})")
     print(f"[load] main TF: {path_main.name}")
     t = time.perf_counter()
     main_df = load_parquet(path_main)
-    print(f"       {len(main_df):,} bars  {main_df.index.min()} → {main_df.index.max()}"
-          f"  in {time.perf_counter()-t:.2f}s")
+    print(f"       {len(main_df):,} bars  {main_df.index.min()} → {main_df.index.max()}  in {time.perf_counter() - t:.2f}s")
     print(f"[load] sub TF:  {path_sub.name}")
     t = time.perf_counter()
     sub_df = load_parquet(path_sub)
-    print(f"       {len(sub_df):,} bars  {sub_df.index.min()} → {sub_df.index.max()}"
-          f"  in {time.perf_counter()-t:.2f}s")
+    print(f"       {len(sub_df):,} bars  {sub_df.index.min()} → {sub_df.index.max()}  in {time.perf_counter() - t:.2f}s")
 
     # 1b. Optional user date window (Data tab / Parameters tab).
     from .data.date_slice import clip as _clip
+
     user_start = data_cfg.get("start_date")
     user_end = data_cfg.get("end_date")
     if user_start or user_end:
         main_df = _clip(main_df, user_start, user_end)
         sub_df = _clip(sub_df, user_start, user_end)
-        print(f"[window] user-requested {user_start or '…'} → {user_end or '…'}  "
-              f"main={len(main_df):,} · sub={len(sub_df):,}")
+        print(f"[window] user-requested {user_start or '…'} → {user_end or '…'}  main={len(main_df):,} · sub={len(sub_df):,}")
         if len(main_df) == 0 or len(sub_df) == 0:
-            raise ValueError(
-                f"user date window {user_start}..{user_end} yielded zero bars "
-                f"for {pair} {main_tf}/{sub_tf}"
-            )
+            raise ValueError(f"user date window {user_start}..{user_end} yielded zero bars for {pair} {main_tf}/{sub_tf}")
 
     # 2. Align windows.
     start = max(main_df.index.min(), sub_df.index.min())
     stop = min(main_df.index.max(), sub_df.index.max())
     main_df = main_df.loc[start:stop]
     sub_df = sub_df.loc[start:stop]
-    print(f"[align] shared window {start} → {stop}  "
-          f"main={len(main_df):,} · sub={len(sub_df):,}")
+    print(f"[align] shared window {start} → {stop}  main={len(main_df):,} · sub={len(sub_df):,}")
 
     # 3. Main → sub mapping.
     t = time.perf_counter()
-    map_start, map_end = build_main_to_sub_mapping(main_df.index, sub_df.index,
-                                                   TF_MINUTES[main_tf])
-    print(f"[map]  main→sub built in {time.perf_counter()-t:.2f}s")
+    map_start, map_end = build_main_to_sub_mapping(main_df.index, sub_df.index, TF_MINUTES[main_tf])
+    print(f"[map]  main→sub built in {time.perf_counter() - t:.2f}s")
 
     # 4. OHLCS arrays.
     h_h = main_df["high"].to_numpy(dtype=np.float64, copy=True)
     h_l = main_df["low"].to_numpy(dtype=np.float64, copy=True)
     h_c = main_df["close"].to_numpy(dtype=np.float64, copy=True)
-    h_s = (main_df["spread"].to_numpy(dtype=np.float64, copy=True)
-           if "spread" in main_df.columns
-           else np.full(len(main_df), exe_cfg["pip_value"], dtype=np.float64))
+    h_s = (
+        main_df["spread"].to_numpy(dtype=np.float64, copy=True)
+        if "spread" in main_df.columns
+        else np.full(len(main_df), exe_cfg["pip_value"], dtype=np.float64)
+    )
     m_h = sub_df["high"].to_numpy(dtype=np.float64, copy=True)
     m_l = sub_df["low"].to_numpy(dtype=np.float64, copy=True)
     m_c = sub_df["close"].to_numpy(dtype=np.float64, copy=True)
-    m_s = (sub_df["spread"].to_numpy(dtype=np.float64, copy=True)
-           if "spread" in sub_df.columns
-           else np.full(len(sub_df), exe_cfg["pip_value"], dtype=np.float64))
+    m_s = (
+        sub_df["spread"].to_numpy(dtype=np.float64, copy=True)
+        if "spread" in sub_df.columns
+        else np.full(len(sub_df), exe_cfg["pip_value"], dtype=np.float64)
+    )
 
     # 5. Signal library.
     _safe_progress(progress_cb, 0.10, "building signal library")
-    print(f"[signals] building library")
+    print("[signals] building library")
     t = time.perf_counter()
 
     def _lib_cb(sub_frac: float, msg: str) -> None:
@@ -621,17 +648,19 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
         _safe_progress(progress_cb, 0.10 + 0.20 * sub_frac, msg)
 
     lib = sl.build_signal_library(
-        ea["signals"], main_df,
+        ea["signals"],
+        main_df,
         pip_value=exe_cfg["pip_value"],
         atr_period=exe_cfg["atr_period"],
         progress_cb=_lib_cb if progress_cb is not None else None,
         data_path=path_main,
     )
-    print(f"          {lib.n_variants} variants · {lib.n_signals:,} pooled signals "
-          f"in {time.perf_counter()-t:.2f}s")
-    _safe_progress(progress_cb, 0.30,
-                   f"signal library ready ({lib.n_variants} variants, "
-                   f"{lib.n_signals:,} signals)")
+    print(f"          {lib.n_variants} variants · {lib.n_signals:,} pooled signals in {time.perf_counter() - t:.2f}s")
+    _safe_progress(
+        progress_cb,
+        0.30,
+        f"signal library ready ({lib.n_variants} variants, {lib.n_signals:,} signals)",
+    )
 
     # 6. Sample trials (or replay a single frozen trial).
     if frozen_trial is not None:
@@ -646,8 +675,7 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
         fam = ft.get("signal_family")
         params = ft.get("signal_params")
         if fam:
-            resolved = [i for i, v in enumerate(lib.variant_map)
-                        if v.get("family") == fam and v.get("params") == params]
+            resolved = [i for i, v in enumerate(lib.variant_map) if v.get("family") == fam and v.get("params") == params]
             if not resolved:
                 raise RuntimeError(
                     f"frozen_trial signal {fam}{params} not found in rebuilt "
@@ -656,7 +684,7 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
                 )
             ft["signal_variant"] = int(resolved[0])
         trials = [ft]
-        print(f"[sample] 1 frozen trial (replay mode)")
+        print("[sample] 1 frozen trial (replay mode)")
         _safe_progress(progress_cb, 0.35, "replay: frozen trial")
     else:
         if optimizer != "random":
@@ -681,8 +709,7 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     # Column order per trade: pnl_pips, exit_reason, direction,
     # entry_bar_index, entry_sub_bar_index, entry_price,
     # exit_bar_index, exit_sub_bar_index, exit_price.
-    trade_records = np.empty((n_trials, max_trades * bc.NUM_TRADE_FIELDS),
-                             dtype=np.float64)
+    trade_records = np.empty((n_trials, max_trades * bc.NUM_TRADE_FIELDS), dtype=np.float64)
 
     # Per-signal filter matrix, shape (NUM_SIGNAL_PARAMS, n_signals).
     # -1 means "no filter" — we don't use this feature yet.
@@ -690,17 +717,35 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
 
     # Warm-up call (pays any one-time cost for a fair sweep timing).
     bc.batch_evaluate(
-        h_h, h_l, h_c, h_s,
-        exe_cfg["pip_value"], exe_cfg["slippage_pips"],
-        lib.bar_index[:1], lib.direction[:1], lib.entry_price[:1],
-        lib.hour[:1], lib.day[:1], lib.atr_pips[:1],
-        lib.swing_sl[:1], lib.filter_value[:1], lib.variant[:1],
+        h_h,
+        h_l,
+        h_c,
+        h_s,
+        exe_cfg["pip_value"],
+        exe_cfg["slippage_pips"],
+        lib.bar_index[:1],
+        lib.direction[:1],
+        lib.entry_price[:1],
+        lib.hour[:1],
+        lib.day[:1],
+        lib.atr_pips[:1],
+        lib.swing_sl[:1],
+        lib.filter_value[:1],
+        lib.variant[:1],
         np.ascontiguousarray(sig_filters[:, :1]),
-        param_matrix[:1], param_layout,
+        param_matrix[:1],
+        param_layout,
         np.zeros((1, bc.NUM_METRICS), dtype=np.float64),
-        1, BARS_PER_YEAR[main_tf], exe_cfg["commission_pips"], exe_cfg["max_spread_pips"],
-        m_h, m_l, m_c, m_s,
-        map_start, map_end,
+        1,
+        BARS_PER_YEAR[main_tf],
+        exe_cfg["commission_pips"],
+        exe_cfg["max_spread_pips"],
+        m_h,
+        m_l,
+        m_c,
+        m_s,
+        map_start,
+        map_end,
         np.empty((1, 1), dtype=np.float64),
         np.empty((1, 1 * bc.NUM_TRADE_FIELDS), dtype=np.float64),
     )
@@ -710,6 +755,7 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     # 0.45 → 0.84 based on expected wall time (tuned from recent runs) so the
     # UI doesn't look frozen. Stops the moment the call returns.
     import threading as _threading
+
     est_sweep_s = max(5.0, (n_trials * lib.n_signals) / 60_000_000.0)
     _stop_heartbeat = _threading.Event()
 
@@ -720,29 +766,48 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
             # Cap at 98% of the sweep band so we never claim it's done.
             frac = min(0.98, hb_elapsed / est_sweep_s)
             interp = 0.45 + (0.85 - 0.45) * frac
-            _safe_progress(progress_cb, interp,
-                           f"running {n_trials:,} backtests · {hb_elapsed:.0f}s elapsed"
-                           f" (est {est_sweep_s:.0f}s)")
+            _safe_progress(
+                progress_cb,
+                interp,
+                f"running {n_trials:,} backtests · {hb_elapsed:.0f}s elapsed (est {est_sweep_s:.0f}s)",
+            )
 
-    _safe_progress(progress_cb, 0.45,
-                   f"running backtest ({n_trials} trials × {lib.n_signals:,} signals)")
+    _safe_progress(progress_cb, 0.45, f"running backtest ({n_trials} trials × {lib.n_signals:,} signals)")
     print(f"[sweep] calling batch_evaluate({n_trials} × {lib.n_signals:,} signals)…")
     _hb_thread = _threading.Thread(target=_heartbeat_loop, daemon=True)
     _hb_thread.start()
     t = time.perf_counter()
     try:
         bc.batch_evaluate(
-            h_h, h_l, h_c, h_s,
-            exe_cfg["pip_value"], exe_cfg["slippage_pips"],
-            lib.bar_index, lib.direction, lib.entry_price,
-            lib.hour, lib.day, lib.atr_pips,
-            lib.swing_sl, lib.filter_value, lib.variant,
+            h_h,
+            h_l,
+            h_c,
+            h_s,
+            exe_cfg["pip_value"],
+            exe_cfg["slippage_pips"],
+            lib.bar_index,
+            lib.direction,
+            lib.entry_price,
+            lib.hour,
+            lib.day,
+            lib.atr_pips,
+            lib.swing_sl,
+            lib.filter_value,
+            lib.variant,
             sig_filters,
-            param_matrix, param_layout,
+            param_matrix,
+            param_layout,
             metrics_out,
-            max_trades, BARS_PER_YEAR[main_tf], exe_cfg["commission_pips"], exe_cfg["max_spread_pips"],
-            m_h, m_l, m_c, m_s,
-            map_start, map_end,
+            max_trades,
+            BARS_PER_YEAR[main_tf],
+            exe_cfg["commission_pips"],
+            exe_cfg["max_spread_pips"],
+            m_h,
+            m_l,
+            m_c,
+            m_s,
+            map_start,
+            map_end,
             pnl_buffers,
             trade_records,
         )
@@ -771,13 +836,12 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     # into a structured array with named columns + resolved timestamps.
     best_trial_for_log = trials[best]
     variant_id_for_log = int(best_trial_for_log["signal_variant"])
-    variant_info_for_log = (
-        lib.variant_map[variant_id_for_log]
-        if variant_id_for_log < len(lib.variant_map) else {}
-    )
+    variant_info_for_log = lib.variant_map[variant_id_for_log] if variant_id_for_log < len(lib.variant_map) else {}
     trades_best = _build_best_trade_log(
-        trade_records[best], n_trades_best,
-        main_df.index, sub_df.index,
+        trade_records[best],
+        n_trades_best,
+        main_df.index,
+        sub_df.index,
         pair=pair,
         signal_variant_id=variant_id_for_log,
         signal_family=str(variant_info_for_log.get("family", "")),
@@ -789,10 +853,7 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     # pnl_buffer and trade_records writes if the engine is refactored.
     trades_pnl_sum = float(trades_best["pnl_pips"].sum()) if n_trades_best else 0.0
     if abs(trades_pnl_sum - total_pips) > 1e-9:
-        raise RuntimeError(
-            f"trade-log parity broken: trades.pnl_pips.sum()={trades_pnl_sum!r} "
-            f"vs aggregate total_pips={total_pips!r}"
-        )
+        raise RuntimeError(f"trade-log parity broken: trades.pnl_pips.sum()={trades_pnl_sum!r} vs aggregate total_pips={total_pips!r}")
     expectancy_pips = total_pips / n_trades_best if n_trades_best else 0.0
     equity_curve = np.cumsum(pnl_best)
     total_runtime = time.perf_counter() - t_total
@@ -810,24 +871,23 @@ def run(ea: dict, *, layer_name: str, optimizer: str = "random", seed: int = 42,
     wr = metrics_out[best, 1]
     win_rate_pct = wr * 100 if wr <= 1 else wr
     print(f"\n┌── {ea['name']} · {layer_name} · {optimizer} · N={n_trials} ─────")
-    print( "│ SPEED")
+    print("│ SPEED")
     print(f"│   backtests/sec  : {rate:>12,.0f}")
     print(f"│   total runtime  : {total_runtime:>12.2f} s")
-    print( "│ ACTIVITY")
+    print("│ ACTIVITY")
     print(f"│   trades (best)  : {n_trades_best:>12,}")
     print(f"│   win rate       : {win_rate_pct:>12.2f} %")
-    print( "│ MONEY")
+    print("│ MONEY")
     print(f"│   total pips     : {total_pips:>+12,.0f}")
     print(f"│   expectancy     : {expectancy_pips:>+12.2f} pips/trade")
-    print( "│ RISK")
+    print("│ RISK")
     print(f"│   max drawdown   : {metrics_out[best, 5]:>12.2f} %")
     print(f"│   profit factor  : {metrics_out[best, 2]:>12.3f}")
-    print( "│ best variant")
-    print(f"│   id={variant_id}  family={variant_info.get('family','?')}  "
-          f"params={variant_info.get('params',{})}")
-    print( "│ best trial (engine)")
+    print("│ best variant")
+    print(f"│   id={variant_id}  family={variant_info.get('family', '?')}  params={variant_info.get('params', {})}")
+    print("│ best trial (engine)")
     print(f"│   {_summarise_trial(best_trial['engine'])}")
-    print( "└──────────────────────────────────────────────────────────\n")
+    print("└──────────────────────────────────────────────────────────\n")
 
     # 10. Save npz (skipped in replay mode — we return the trade log in-memory).
     if not save_artifacts:
@@ -962,6 +1022,7 @@ def _json_default(o: Any) -> Any:
 
 # ── Comparison renderer (migrated + generalised from demo_speed.py) ────
 
+
 def build_comparison_html(hist: pd.DataFrame) -> None:
     import plotly.graph_objects as go
     from plotly.subplots import make_subplots
@@ -972,11 +1033,11 @@ def build_comparison_html(hist: pd.DataFrame) -> None:
         p = RUNS_DIR / r["run_file"]
         if p.exists():
             with np.load(p, allow_pickle=False) as z:
-                runs[r["layer"]] = {k: z[k].copy() for k in z.files
-                                    if z[k].dtype != object and k != "param_matrix"}
+                runs[r["layer"]] = {k: z[k].copy() for k in z.files if z[k].dtype != object and k != "param_matrix"}
 
     fig = make_subplots(
-        rows=4, cols=1,
+        rows=4,
+        cols=1,
         row_heights=[0.30, 0.24, 0.24, 0.22],
         subplot_titles=(
             "All runs — layered comparison",
@@ -984,42 +1045,91 @@ def build_comparison_html(hist: pd.DataFrame) -> None:
             "Equity curve of each layer's best variant (cumulative pips)",
             "Speed — backtests per second",
         ),
-        specs=[[{"type": "table"}], [{"type": "scatter"}],
-               [{"type": "scatter"}], [{"type": "bar"}]],
+        specs=[
+            [{"type": "table"}],
+            [{"type": "scatter"}],
+            [{"type": "scatter"}],
+            [{"type": "bar"}],
+        ],
         vertical_spacing=0.07,
     )
 
-    table_cols = [c for c in ["strategy", "layer", "optimizer", "pair", "main_tf",
-                              "bt_per_sec", "runtime_s", "trades", "win_rate_pct",
-                              "total_pips", "expectancy_pips", "max_dd_pct",
-                              "profit_factor", "best_variant_family"]
-                  if c in hist.columns]
-    fig.add_trace(go.Table(
-        header=dict(values=table_cols, fill_color="#222", font=dict(color="white")),
-        cells=dict(values=[hist[c].tolist() for c in table_cols], align="right")
-    ), row=1, col=1)
+    table_cols = [
+        c
+        for c in [
+            "strategy",
+            "layer",
+            "optimizer",
+            "pair",
+            "main_tf",
+            "bt_per_sec",
+            "runtime_s",
+            "trades",
+            "win_rate_pct",
+            "total_pips",
+            "expectancy_pips",
+            "max_dd_pct",
+            "profit_factor",
+            "best_variant_family",
+        ]
+        if c in hist.columns
+    ]
+    fig.add_trace(
+        go.Table(
+            header=dict(values=table_cols, fill_color="#222", font=dict(color="white")),
+            cells=dict(values=[hist[c].tolist() for c in table_cols], align="right"),
+        ),
+        row=1,
+        col=1,
+    )
 
-    palette = ["#e63946", "#2a9d8f", "#e9c46a", "#264653", "#f4a261",
-               "#9b5de5", "#06a77d", "#d62828", "#457b9d", "#6d597a"]
+    palette = [
+        "#e63946",
+        "#2a9d8f",
+        "#e9c46a",
+        "#264653",
+        "#f4a261",
+        "#9b5de5",
+        "#06a77d",
+        "#d62828",
+        "#457b9d",
+        "#6d597a",
+    ]
     for i, (layer, data) in enumerate(runs.items()):
         color = palette[i % len(palette)]
         if "running_best" in data:
-            fig.add_trace(go.Scatter(
-                x=np.arange(len(data["running_best"])),
-                y=data["running_best"], mode="lines", name=layer,
-                legendgroup=layer, line=dict(color=color, width=2)
-            ), row=2, col=1)
+            fig.add_trace(
+                go.Scatter(
+                    x=np.arange(len(data["running_best"])),
+                    y=data["running_best"],
+                    mode="lines",
+                    name=layer,
+                    legendgroup=layer,
+                    line=dict(color=color, width=2),
+                ),
+                row=2,
+                col=1,
+            )
         if "equity" in data:
-            fig.add_trace(go.Scatter(
-                x=np.arange(len(data["equity"])),
-                y=data["equity"], mode="lines", name=layer,
-                legendgroup=layer, showlegend=False,
-                line=dict(color=color, width=1.5)
-            ), row=3, col=1)
+            fig.add_trace(
+                go.Scatter(
+                    x=np.arange(len(data["equity"])),
+                    y=data["equity"],
+                    mode="lines",
+                    name=layer,
+                    legendgroup=layer,
+                    showlegend=False,
+                    line=dict(color=color, width=1.5),
+                ),
+                row=3,
+                col=1,
+            )
 
-    fig.add_trace(go.Bar(x=hist["layer"], y=hist["bt_per_sec"],
-                         marker_color="#2a9d8f", showlegend=False),
-                  row=4, col=1)
+    fig.add_trace(
+        go.Bar(x=hist["layer"], y=hist["bt_per_sec"], marker_color="#2a9d8f", showlegend=False),
+        row=4,
+        col=1,
+    )
 
     fig.update_xaxes(title_text="trial #", row=2, col=1)
     fig.update_yaxes(title_text="best quality so far", row=2, col=1)

@@ -16,20 +16,18 @@ Each test keeps spread and slippage at zero so the Rust short-side
 spread adjustment (``exit_price += sell_spread``) is a no-op — otherwise
 the naive price comparison would need to subtract the spread back out.
 """
+
 from __future__ import annotations
 
-import numpy as np
-import pytest
-
 import ff_core as bc
+import numpy as np
 
 from ff.live.exit_manager import (
+    TRAIL_FIXED_PIP,
     Action,
     MgmtParams,
-    TRAIL_FIXED_PIP,
     compute_action,
 )
-
 
 # ── Engine-side param layout constants (mirror core/src/constants.rs) ─
 _SL_FIXED = 0
@@ -66,10 +64,22 @@ def _build_price_series(
     map_start = (np.arange(n_h) * sub_per_h).astype(np.int64)
     map_end = ((np.arange(n_h) + 1) * sub_per_h).astype(np.int64)
 
-    return dict(h_h=h_h, h_l=h_l, h_c=h_c, h_s=h_s,
-                m_h=m_h, m_l=m_l, m_c=m_c, m_s=m_s,
-                map_start=map_start, map_end=map_end,
-                n_h=n_h, n_m=n_m, pv=pv, sub_per_h=sub_per_h)
+    return dict(
+        h_h=h_h,
+        h_l=h_l,
+        h_c=h_c,
+        h_s=h_s,
+        m_h=m_h,
+        m_l=m_l,
+        m_c=m_c,
+        m_s=m_s,
+        map_start=map_start,
+        map_end=map_end,
+        n_h=n_h,
+        n_m=n_m,
+        pv=pv,
+        sub_per_h=sub_per_h,
+    )
 
 
 def _baseline_row() -> np.ndarray:
@@ -88,8 +98,7 @@ def _baseline_row() -> np.ndarray:
     return row
 
 
-def _run_engine(data: dict, param_row: np.ndarray,
-                entry_bar: int, direction: int, atr_pips: float):
+def _run_engine(data: dict, param_row: np.ndarray, entry_bar: int, direction: int, atr_pips: float):
     """Drive ``ff_core.batch_evaluate`` on one synthetic signal and
     return ``(exit_reason, exit_price)`` from the emitted trade
     record. Returns ``(None, None)`` when the engine emits no trade
@@ -114,19 +123,37 @@ def _run_engine(data: dict, param_row: np.ndarray,
     trades = np.zeros((1, 1 * bc.NUM_TRADE_FIELDS), dtype=np.float64)
 
     bc.batch_evaluate(
-        data["h_h"], data["h_l"], data["h_c"], data["h_s"],
-        data["pv"], 0.0,
-        sig_bar_index, sig_direction, sig_entry_price,
-        sig_hour, sig_day, sig_atr_pips,
-        sig_swing_sl, sig_filter_value, sig_variant,
+        data["h_h"],
+        data["h_l"],
+        data["h_c"],
+        data["h_s"],
+        data["pv"],
+        0.0,
+        sig_bar_index,
+        sig_direction,
+        sig_entry_price,
+        sig_hour,
+        sig_day,
+        sig_atr_pips,
+        sig_swing_sl,
+        sig_filter_value,
+        sig_variant,
         sig_filters,
-        param_matrix, param_layout,
+        param_matrix,
+        param_layout,
         metrics,
-        1, 365.0 * 24.0,
-        0.0, 999.0,
-        data["m_h"], data["m_l"], data["m_c"], data["m_s"],
-        data["map_start"], data["map_end"],
-        pnl, trades,
+        1,
+        365.0 * 24.0,
+        0.0,
+        999.0,
+        data["m_h"],
+        data["m_l"],
+        data["m_c"],
+        data["m_s"],
+        data["map_start"],
+        data["map_end"],
+        pnl,
+        trades,
     )
 
     if int(metrics[0, 0]) == 0:
@@ -134,21 +161,24 @@ def _run_engine(data: dict, param_row: np.ndarray,
     # trade row layout: [pnl, exit_reason, direction, entry_bar,
     #                    entry_sub, entry_price, exit_bar, exit_sub,
     #                    exit_price]
-    tr = trades[0, :bc.NUM_TRADE_FIELDS]
+    tr = trades[0, : bc.NUM_TRADE_FIELDS]
     return int(tr[1]), float(tr[8]), int(tr[4])
 
 
-def _run_python(data: dict, params: MgmtParams,
-                entry_bar: int) -> Action:
+def _run_python(data: dict, params: MgmtParams, entry_bar: int) -> Action:
     """Replay M1 bars from the first sub-bar after entry_bar through
     ``compute_action``. Mirrors what the live runner does on each
     poll but with the full bar history available at once."""
     start = (entry_bar + 1) * data["sub_per_h"]
     end = data["n_m"]
-    m1_bars = list(zip(
-        data["m_h"][start:end], data["m_l"][start:end],
-        data["m_c"][start:end], data["m_s"][start:end],
-    ))
+    m1_bars = list(
+        zip(
+            data["m_h"][start:end],
+            data["m_l"][start:end],
+            data["m_c"][start:end],
+            data["m_s"][start:end],
+        )
+    )
     action, _state = compute_action(
         params,
         last_known_sl=params.initial_sl,
@@ -159,6 +189,7 @@ def _run_python(data: dict, params: MgmtParams,
 
 
 # ── Tests ──────────────────────────────────────────────────────────────
+
 
 def test_trailing_fixed_pip_buy_parity():
     """BUY + fixed-pip trailing. The uptrend arms the trail; when price
@@ -187,13 +218,16 @@ def test_trailing_fixed_pip_buy_parity():
     assert rust_reason is not None, "engine emitted no trade"
 
     params = MgmtParams(
-        direction=1, actual_entry=entry_price,
+        direction=1,
+        actual_entry=entry_price,
         initial_sl=entry_price - 50.0 * data["pv"],
         tp_price=entry_price + 500.0 * data["pv"],
-        atr_pips=atr_pips, pip_value=data["pv"],
+        atr_pips=atr_pips,
+        pip_value=data["pv"],
         slippage_pips=0.0,
         trailing_mode=TRAIL_FIXED_PIP,
-        trail_activate_pips=5.0, trail_distance_pips=8.0,
+        trail_activate_pips=5.0,
+        trail_distance_pips=8.0,
     )
     action = _run_python(data, params, entry_bar)
 
@@ -228,12 +262,15 @@ def test_breakeven_buy_parity():
     assert rust_reason is not None, "engine emitted no trade"
 
     params = MgmtParams(
-        direction=1, actual_entry=entry_price,
+        direction=1,
+        actual_entry=entry_price,
         initial_sl=entry_price - 50.0 * data["pv"],
         tp_price=entry_price + 500.0 * data["pv"],
-        atr_pips=atr_pips, pip_value=data["pv"],
+        atr_pips=atr_pips,
+        pip_value=data["pv"],
         breakeven_enabled=1,
-        breakeven_trigger_pips=5.0, breakeven_offset_pips=1.0,
+        breakeven_trigger_pips=5.0,
+        breakeven_offset_pips=1.0,
     )
     action = _run_python(data, params, entry_bar)
 
@@ -268,10 +305,12 @@ def test_chandelier_buy_parity():
     assert rust_reason is not None, "engine emitted no trade"
 
     params = MgmtParams(
-        direction=1, actual_entry=entry_price,
+        direction=1,
+        actual_entry=entry_price,
         initial_sl=entry_price - 50.0 * data["pv"],
         tp_price=entry_price + 500.0 * data["pv"],
-        atr_pips=atr_pips, pip_value=data["pv"],
+        atr_pips=atr_pips,
+        pip_value=data["pv"],
         chandelier_enabled=1,
         chandelier_activate_pips=1.0,
         chandelier_atr_mult=1.5,
@@ -290,7 +329,7 @@ def test_params_from_trial_reads_real_schema_keys():
     names (``trigger_pips``, ``activate_pips``), silently zeroing every
     management knob live-side. This test pins the real key shapes
     taken from a deployed trial (see 2026-04-21 deploy audit)."""
-    from ff.live.exit_manager import params_from_trial, TRAIL_FIXED_PIP, TRAIL_ATR_CHANDELIER
+    from ff.live.exit_manager import TRAIL_ATR_CHANDELIER, TRAIL_FIXED_PIP, params_from_trial
 
     trial = {
         "engine": {
@@ -321,9 +360,13 @@ def test_params_from_trial_reads_real_schema_keys():
     }
 
     p = params_from_trial(
-        trial, direction=1, actual_entry=1.10,
-        initial_sl=1.095, tp_price=1.11,
-        atr_pips=10.0, pip_value=0.0001,
+        trial,
+        direction=1,
+        actual_entry=1.10,
+        initial_sl=1.095,
+        tp_price=1.11,
+        atr_pips=10.0,
+        pip_value=0.0001,
     )
     assert p.trailing_mode == TRAIL_ATR_CHANDELIER
     assert p.trail_activate_pips == 8.0
@@ -340,13 +383,18 @@ def test_params_from_trial_reads_real_schema_keys():
 
     # Fixed-pip trailing takes the ``mode.fixed.distance`` path.
     trial["engine"]["trailing"]["when_on"]["mode"] = {
-        "selector": "fixed", "fixed": {"distance": 9.25},
+        "selector": "fixed",
+        "fixed": {"distance": 9.25},
         "atr": {"mult": 0.0},
     }
     p = params_from_trial(
-        trial, direction=1, actual_entry=1.10,
-        initial_sl=1.095, tp_price=1.11,
-        atr_pips=10.0, pip_value=0.0001,
+        trial,
+        direction=1,
+        actual_entry=1.10,
+        initial_sl=1.095,
+        tp_price=1.11,
+        atr_pips=10.0,
+        pip_value=0.0001,
     )
     assert p.trailing_mode == TRAIL_FIXED_PIP
     assert p.trail_distance_pips == 9.25
@@ -354,9 +402,13 @@ def test_params_from_trial_reads_real_schema_keys():
     # When a group's ``test`` is False, all its knobs zero out.
     trial_off = {"engine": {"trailing": {"test": False, "when_on": {"activate": 99.0}}}}
     p = params_from_trial(
-        trial_off, direction=1, actual_entry=1.10,
-        initial_sl=1.095, tp_price=1.11,
-        atr_pips=10.0, pip_value=0.0001,
+        trial_off,
+        direction=1,
+        actual_entry=1.10,
+        initial_sl=1.095,
+        tp_price=1.11,
+        atr_pips=10.0,
+        pip_value=0.0001,
     )
     assert p.trailing_mode == 0
     assert p.trail_activate_pips == 0.0
@@ -390,11 +442,15 @@ def test_partial_then_sl_buy_parity():
     assert rust_reason is not None, "engine emitted no trade"
 
     params = MgmtParams(
-        direction=1, actual_entry=entry_price,
+        direction=1,
+        actual_entry=entry_price,
         initial_sl=entry_price - 50.0 * data["pv"],
         tp_price=entry_price + 500.0 * data["pv"],
-        atr_pips=atr_pips, pip_value=data["pv"],
-        partial_enabled=1, partial_pct=50.0, partial_trigger_pips=5.0,
+        atr_pips=atr_pips,
+        pip_value=data["pv"],
+        partial_enabled=1,
+        partial_pct=50.0,
+        partial_trigger_pips=5.0,
     )
     action = _run_python(data, params, entry_bar)
 

@@ -6,6 +6,28 @@ build-backend = "maturin"
 name = "fire_forex"
 version = "0.1.0"
 requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110",
+    "pydantic>=2.5",
+    "uvicorn>=0.27",
+    "httpx>=0.27",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pyarrow>=15.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.15",
+    "maturin>=1.0",
+    "pre-commit>=4.0",
+]
+# Live-trading runner: only installable on Windows (MetaTrader5 is win-only).
+live = [
+    "MetaTrader5>=5.0; platform_system == 'Windows'",
+]
 
 [tool.maturin]
 manifest-path = "core/Cargo.toml"
@@ -15,3 +37,44 @@ module-name = "ff_core"
 markers = [
     "slow: long-running end-to-end tests (~1s+); skip with -m 'not slow'",
 ]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 140
+extend-exclude = [
+    "artifacts",
+    "core/target",
+    ".venv",
+    "_tmp_*.py",
+    "pytest-of-*",
+    "pytest-tmp",
+]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W"]
+# E741 is the only codebase-wide ignore: `o,h,l,c` (open/high/low/close) is
+# domain-standard in forex code and renaming would obscure intent.
+ignore = ["E741"]
+
+[tool.ruff.lint.per-file-ignores]
+# Operational code (HTTP routes, scripts, live runner) often captures
+# subprocess results in named variables for clarity even when the value
+# isn't consumed, and may import below module-level env/path setup.
+"app/*.py"     = ["F841", "E402"]
+"scripts/*.py" = ["F841", "E402"]
+# CLI entry: argparse/env setup before importing heavy modules is standard.
+"run.py" = ["E402"]
+# Tight numeric helpers in the engine sometimes use one-line conditional /
+# semicolon-separated statements where a layout aids readability.
+"ff/encoding.py" = ["E701", "E702"]
+# HTML template strings — wrapping would break the rendered report.
+"scripts/build_forensic_report.py" = ["E501"]
+# Tests and validation micro-scripts: imports below sys.path manipulation
+# or test-fixture setup are intentional.
+"tests/**/*.py"           = ["E402"]
+"docs/validation/**/*.py" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"

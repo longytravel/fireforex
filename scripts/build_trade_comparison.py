@@ -15,6 +15,7 @@ Output:
 Run:
     .\\.venv\\Scripts\\python.exe scripts\\build_trade_comparison.py
 """
+
 from __future__ import annotations
 
 import argparse
@@ -59,8 +60,7 @@ def _load_instance(inst: Path) -> dict:
     plans: list[dict] = []
     for pf in sorted((inst / "plans").glob("*.jsonl")):
         plans.extend(_read_jsonl(pf))
-    return {"name": inst.name, "dir": inst, "tickets": tickets,
-            "deals": deals, "plans": plans}
+    return {"name": inst.name, "dir": inst, "tickets": tickets, "deals": deals, "plans": plans}
 
 
 def _latest_reconcile(inst_dir: Path, tag: str) -> dict | None:
@@ -146,8 +146,7 @@ def _ticket_row(ticket: dict, plan: dict, open_deal: dict, close_deal: dict) -> 
         "close_price": close_px,
         "report_pnl_pips": round(pnl_pips, 2),
         "profit_gbp": round(float(close_deal.get("profit", 0.0)), 2),
-        "commission_gbp": round(float(open_deal.get("commission", 0.0))
-                                + float(close_deal.get("commission", 0.0)), 2),
+        "commission_gbp": round(float(open_deal.get("commission", 0.0)) + float(close_deal.get("commission", 0.0)), 2),
         "sl_price": plan.get("sl_price"),
         "tp_price": plan.get("tp_price"),
         "close_reason": close_deal.get("comment", ""),
@@ -204,12 +203,19 @@ def _attach_replay(row: dict, bt_df, source: str) -> None:
     import pandas as pd
 
     prefix = source
-    fields = (f"{prefix}_match_status", f"{prefix}_bt_entry",
-              f"{prefix}_bt_exit", f"{prefix}_bt_pnl_pips",
-              f"{prefix}_bt_exit_ts", f"{prefix}_bt_close_reason",
-              f"{prefix}_entry_delta_pips", f"{prefix}_exit_delta_pips",
-              f"{prefix}_pnl_delta_pips", f"{prefix}_exit_delta_min",
-              f"{prefix}_bt_spread_pips")
+    fields = (
+        f"{prefix}_match_status",
+        f"{prefix}_bt_entry",
+        f"{prefix}_bt_exit",
+        f"{prefix}_bt_pnl_pips",
+        f"{prefix}_bt_exit_ts",
+        f"{prefix}_bt_close_reason",
+        f"{prefix}_entry_delta_pips",
+        f"{prefix}_exit_delta_pips",
+        f"{prefix}_pnl_delta_pips",
+        f"{prefix}_exit_delta_min",
+        f"{prefix}_bt_spread_pips",
+    )
     for f in fields:
         row.setdefault(f, "")
 
@@ -247,12 +253,9 @@ def _attach_replay(row: dict, bt_df, source: str) -> None:
 
     live_px_in = row["open_price"]
     live_px_out = row["close_price"]
-    row[f"{prefix}_entry_delta_pips"] = round(
-        (live_px_in - float(match["entry_price"])) / pip * direction, 2)
-    row[f"{prefix}_exit_delta_pips"] = round(
-        (live_px_out - float(match["exit_price"])) / pip * direction, 2)
-    row[f"{prefix}_pnl_delta_pips"] = round(
-        row["report_pnl_pips"] - float(match["pnl_pips"]), 2)
+    row[f"{prefix}_entry_delta_pips"] = round((live_px_in - float(match["entry_price"])) / pip * direction, 2)
+    row[f"{prefix}_exit_delta_pips"] = round((live_px_out - float(match["exit_price"])) / pip * direction, 2)
+    row[f"{prefix}_pnl_delta_pips"] = round(row["report_pnl_pips"] - float(match["pnl_pips"]), 2)
 
     try:
         bt_dt = match["exit_ts"]
@@ -334,8 +337,7 @@ def _verdict(row: dict) -> tuple[str, str]:
     # Same exit reason + small pnl diff = broker price-path divergence, not bug
     live_reason = str(row.get("close_reason", ""))
     bt_reason = str(row.get("duka_bt_close_reason", ""))
-    if (abs(pnl_f) <= 5 and "sl" in live_reason.lower()
-            and bt_reason.upper() == "SL"):
+    if abs(pnl_f) <= 5 and "sl" in live_reason.lower() and bt_reason.upper() == "SL":
         return ("Broker price-path drift", "warn")
     return ("Material difference", "bad")
 
@@ -417,10 +419,8 @@ def _fmt_price_impact(delta, kind: str) -> str:
 def _write_html(rows: list[dict], out: Path, stamp: str) -> None:
     closed = len(rows)
     complete = sum(1 for r in rows if r.get("profit_gbp") not in ("", None))
-    duka_matches = sum(1 for r in rows
-                       if r.get("duka_match_status") == "exact_signal_bar")
-    mt5_matches = sum(1 for r in rows
-                      if r.get("mt5_match_status") == "exact_signal_bar")
+    duka_matches = sum(1 for r in rows if r.get("duka_match_status") == "exact_signal_bar")
+    mt5_matches = sum(1 for r in rows if r.get("mt5_match_status") == "exact_signal_bar")
     good = warn = bad = 0
     for r in rows:
         _, cls = _verdict(r)
@@ -435,19 +435,19 @@ def _write_html(rows: list[dict], out: Path, stamp: str) -> None:
         ("Closed trades checked", str(closed), "good"),
         ("Ticket + plan + deals found", f"{complete}/{closed}", "good"),
         ("Dukascopy reproduced signal bar", f"{duka_matches}/{closed}", "good"),
-        ("MT5 replay reproduced signal bar", f"{mt5_matches}/{closed}",
-         "good" if mt5_matches else "warn"),
-        ("Good / review / material", f"{good} / {warn} / {bad}",
-         "warn" if bad else "good"),
+        (
+            "MT5 replay reproduced signal bar",
+            f"{mt5_matches}/{closed}",
+            "good" if mt5_matches else "warn",
+        ),
+        ("Good / review / material", f"{good} / {warn} / {bad}", "warn" if bad else "good"),
     ]
 
     def esc(x):
         return html.escape(str(x)) if x is not None else ""
 
     card_html = "".join(
-        f'<div class="card {cls}"><div>{esc(label)}</div>'
-        f"<strong>{esc(value)}</strong></div>"
-        for label, value, cls in cards
+        f'<div class="card {cls}"><div>{esc(label)}</div><strong>{esc(value)}</strong></div>' for label, value, cls in cards
     )
 
     rows_html = []
@@ -463,8 +463,7 @@ def _write_html(rows: list[dict], out: Path, stamp: str) -> None:
                 live_vs = f"{abs(v):.1f} pips {'better' if v > 0 else 'worse'}"
         except (TypeError, ValueError):
             live_vs = ""
-        mt5_match = ("yes" if r.get("mt5_match_status") == "exact_signal_bar"
-                     else "no")
+        mt5_match = "yes" if r.get("mt5_match_status") == "exact_signal_bar" else "no"
         why_bits = []
         bt_reason_u = str(r.get("duka_bt_close_reason", "")).upper()
         fire_off = _fire_offset_seconds(r)
@@ -474,8 +473,7 @@ def _write_html(rows: list[dict], out: Path, stamp: str) -> None:
             why_bits.append(f"backtest exited via {bt_reason_u}")
         if mt5_match == "no" and fire_off is not None and fire_off < -30:
             why_bits.append(
-                f"pre-forming-fix trade — fired {-fire_off}s BEFORE M15 bar "
-                f"closed, so MT5 replay (closed-bar only) cannot reproduce it"
+                f"pre-forming-fix trade — fired {-fire_off}s BEFORE M15 bar closed, so MT5 replay (closed-bar only) cannot reproduce it"
             )
         elif mt5_match == "no":
             why_bits.append("MT5 replay did not reproduce this signal")
@@ -494,22 +492,22 @@ def _write_html(rows: list[dict], out: Path, stamp: str) -> None:
 
         rows_html.append(f"""
         <tr class="{cls}">
-          <td>{esc(r['position_id'])}</td>
-          <td>{esc(r['signal'])}</td>
-          <td>{esc(r['pair'])}</td>
-          <td>{esc(r['direction'])}</td>
-          <td>{esc(str(r['open_time_utc']).replace('T', ' ')[5:19])}</td>
-          <td>{esc(str(r['close_time_utc']).replace('T', ' ')[5:19])}</td>
+          <td>{esc(r["position_id"])}</td>
+          <td>{esc(r["signal"])}</td>
+          <td>{esc(r["pair"])}</td>
+          <td>{esc(r["direction"])}</td>
+          <td>{esc(str(r["open_time_utc"]).replace("T", " ")[5:19])}</td>
+          <td>{esc(str(r["close_time_utc"]).replace("T", " ")[5:19])}</td>
           <td>{live_p}</td>
           <td>{bt_p}</td>
           <td><b>{esc(live_vs)}</b></td>
-          <td>{esc(_fmt_price_impact(r.get('duka_entry_delta_pips'), 'entry'))}</td>
-          <td>{esc(_fmt_price_impact(r.get('duka_exit_delta_pips'), 'exit'))}</td>
-          <td>{esc(_fmt_time_delta(r.get('duka_exit_delta_min')))}</td>
-          <td>{esc('yes' if r.get('duka_match_status') == 'exact_signal_bar' else 'no')}</td>
+          <td>{esc(_fmt_price_impact(r.get("duka_entry_delta_pips"), "entry"))}</td>
+          <td>{esc(_fmt_price_impact(r.get("duka_exit_delta_pips"), "exit"))}</td>
+          <td>{esc(_fmt_time_delta(r.get("duka_exit_delta_min")))}</td>
+          <td>{esc("yes" if r.get("duka_match_status") == "exact_signal_bar" else "no")}</td>
           <td>{esc(mt5_match)}</td>
           <td><span class="pill {cls}">{esc(verdict)}</span>
-              <br><small>{esc('; '.join(why_bits))}</small></td>
+              <br><small>{esc("; ".join(why_bits))}</small></td>
         </tr>""")
 
     html_text = f"""<!doctype html>
@@ -566,7 +564,7 @@ small {{ color:var(--muted); display:block; margin-top:4px; line-height:1.35; }}
     <th>entry price</th><th>exit price</th><th>exit time</th>
     <th>Dukascopy signal?</th><th>MT5 signal?</th><th>reading</th>
   </tr></thead><tbody>
-{''.join(rows_html)}
+{"".join(rows_html)}
   </tbody></table>
 </body></html>
 """
@@ -575,8 +573,7 @@ small {{ color:var(--muted); display:block; margin-top:4px; line-height:1.35; }}
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("--stamp", default=None,
-                    help="Timestamp tag for the output files. Defaults to now.")
+    ap.add_argument("--stamp", default=None, help="Timestamp tag for the output files. Defaults to now.")
     ap.add_argument("--live-dir", type=Path, default=LIVE)
     ap.add_argument("--out-dir", type=Path, default=RECONCILE)
     args = ap.parse_args(argv)
@@ -585,8 +582,7 @@ def main(argv: list[str] | None = None) -> int:
     args.out_dir.mkdir(parents=True, exist_ok=True)
 
     rows: list[dict] = []
-    for inst in sorted(p for p in args.live_dir.glob("complexity_*")
-                       if p.is_dir()):
+    for inst in sorted(p for p in args.live_dir.glob("complexity_*") if p.is_dir()):
         data = _load_instance(inst)
         duka_df = _load_replay_df(inst, "dukascopy")
         mt5_df = _load_replay_df(inst, "mt5")
@@ -600,17 +596,14 @@ def main(argv: list[str] | None = None) -> int:
     html_path = args.out_dir / f"{stamp}_trade_comparison.html"
     _write_csv(rows, csv_path)
     _write_html(rows, html_path, stamp)
-    (args.out_dir / "latest.html").write_text(
-        html_path.read_text(encoding="utf-8"), encoding="utf-8")
+    (args.out_dir / "latest.html").write_text(html_path.read_text(encoding="utf-8"), encoding="utf-8")
 
     good = sum(1 for r in rows if _verdict(r)[1] == "good")
     warn = sum(1 for r in rows if _verdict(r)[1] == "warn")
     bad = sum(1 for r in rows if _verdict(r)[1] == "bad")
     duka_m = sum(1 for r in rows if r.get("duka_match_status") == "exact_signal_bar")
     mt5_m = sum(1 for r in rows if r.get("mt5_match_status") == "exact_signal_bar")
-    print(f"[build_trade_comparison] closed={len(rows)} "
-          f"duka_match={duka_m} mt5_match={mt5_m} "
-          f"good={good} review={warn} material={bad}")
+    print(f"[build_trade_comparison] closed={len(rows)} duka_match={duka_m} mt5_match={mt5_m} good={good} review={warn} material={bad}")
     print(f"[build_trade_comparison] csv:  {csv_path}")
     print(f"[build_trade_comparison] html: {html_path}")
     return 0

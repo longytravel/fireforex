@@ -10,10 +10,8 @@ backtest exits on a stale-range check.
 The deploy endpoint calls :func:`un_portable_knobs` and returns
 ``400`` with the offending groups so the user can repick or tune.
 """
+
 from __future__ import annotations
-
-from typing import Iterable
-
 
 UN_PORTABLE_GROUPS: tuple[str, ...] = ("stale", "session", "max_bars")
 
@@ -31,7 +29,7 @@ def un_portable_knobs(best_trial: dict | None) -> list[str]:
     """
     if not best_trial:
         return []
-    eng = (best_trial.get("engine") or {})
+    eng = best_trial.get("engine") or {}
     flagged: list[str] = []
     for name in UN_PORTABLE_GROUPS:
         group = eng.get(name) or {}
@@ -47,7 +45,4 @@ def assert_portable(best_trial: dict | None) -> None:
     """
     bad = un_portable_knobs(best_trial)
     if bad:
-        raise ValueError(
-            "Trial uses management groups the live runner does not "
-            "yet honour: " + ", ".join(bad)
-        )
+        raise ValueError("Trial uses management groups the live runner does not yet honour: " + ", ".join(bad))

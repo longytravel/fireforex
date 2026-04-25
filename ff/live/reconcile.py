@@ -17,6 +17,7 @@ then sweep unmatched BT rows against unmatched live rows within
 This module has no MT5 dependency — it takes pre-fetched deal data as
 input so unit tests can mock both sides.
 """
+
 from __future__ import annotations
 
 import json
@@ -28,8 +29,8 @@ from typing import Any, Iterable
 import numpy as np
 import pandas as pd
 
-
 # ── Tolerances ─────────────────────────────────────────────────────────
+
 
 @dataclass
 class Tolerances:
@@ -51,13 +52,22 @@ class Tolerances:
 # ``{SL, TP, OTHER}`` so the category only flags genuine divergence.
 _CANONICAL_CLOSE_REASON = {
     # Backtest side (ff.exit_codes).
-    "SL": "SL", "TP": "TP",
-    "TRAILING": "OTHER", "BREAKEVEN": "OTHER", "CHANDELIER": "OTHER",
-    "MAX_BARS": "OTHER", "STALE": "OTHER", "NONE": "OTHER",
+    "SL": "SL",
+    "TP": "TP",
+    "TRAILING": "OTHER",
+    "BREAKEVEN": "OTHER",
+    "CHANDELIER": "OTHER",
+    "MAX_BARS": "OTHER",
+    "STALE": "OTHER",
+    "NONE": "OTHER",
     # Live side (MT5 DEAL_REASON_*).
-    "EXPERT": "OTHER", "CLIENT": "OTHER", "MOBILE": "OTHER",
-    "WEB": "OTHER", "SO": "OTHER",
-    "": "OTHER", "UNKNOWN": "OTHER",
+    "EXPERT": "OTHER",
+    "CLIENT": "OTHER",
+    "MOBILE": "OTHER",
+    "WEB": "OTHER",
+    "SO": "OTHER",
+    "": "OTHER",
+    "UNKNOWN": "OTHER",
 }
 
 
@@ -66,6 +76,7 @@ def _canonical_close_reason(name: str | None) -> str:
 
 
 # ── Report types ───────────────────────────────────────────────────────
+
 
 @dataclass
 class MatchedRow:
@@ -183,6 +194,7 @@ class ReconcileReport:
 
 # ── Input shaping ──────────────────────────────────────────────────────
 
+
 def load_backtest_trades(csv_path: Path) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
     df["entry_ts"] = pd.to_datetime(df["entry_ts"], utc=True)
@@ -207,11 +219,21 @@ def build_live_df(
     deals_df = pd.DataFrame(list(deals))
 
     base_cols = [
-        "plan_id", "pair", "direction", "signal_bar_ts",
-        "entry_price", "exit_price", "pnl_pips",
+        "plan_id",
+        "pair",
+        "direction",
+        "signal_bar_ts",
+        "entry_price",
+        "exit_price",
+        "pnl_pips",
         # Parity-v2 columns — always present, NaN/empty if missing upstream.
-        "signal_variant", "signal_family", "spread_pips",
-        "commission_ccy", "swap_ccy", "close_reason", "slippage_pips",
+        "signal_variant",
+        "signal_family",
+        "spread_pips",
+        "commission_ccy",
+        "swap_ccy",
+        "close_reason",
+        "slippage_pips",
     ]
     if plans_df.empty:
         return pd.DataFrame(columns=base_cols)
@@ -220,8 +242,11 @@ def build_live_df(
 
     # Backfill parity cols so downstream select never KeyErrors on legacy
     # plans produced before C₀ landed.
-    for col, default in (("signal_variant", -1), ("signal_family", ""),
-                         ("spread_at_fire_pips", np.nan)):
+    for col, default in (
+        ("signal_variant", -1),
+        ("signal_family", ""),
+        ("spread_at_fire_pips", np.nan),
+    ):
         if col not in plans_df.columns:
             plans_df[col] = default
 
@@ -253,32 +278,20 @@ def build_live_df(
         # Commission + swap: sum across both legs of the position (MT5 charges
         # each deal separately). Close reason comes from the closing deal.
         if "commission" in deals_df.columns:
-            commission = (
-                deals_df.groupby("position_id")["commission"].sum()
-                .rename("_commission_ccy")
-            )
-            merged = merged.merge(commission, left_on="ticket_id",
-                                  right_index=True, how="left")
+            commission = deals_df.groupby("position_id")["commission"].sum().rename("_commission_ccy")
+            merged = merged.merge(commission, left_on="ticket_id", right_index=True, how="left")
             merged["commission_ccy"] = merged["_commission_ccy"]
         else:
             merged["commission_ccy"] = np.nan
         if "swap" in deals_df.columns:
-            swap = (
-                deals_df.groupby("position_id")["swap"].sum()
-                .rename("_swap_ccy")
-            )
-            merged = merged.merge(swap, left_on="ticket_id",
-                                  right_index=True, how="left")
+            swap = deals_df.groupby("position_id")["swap"].sum().rename("_swap_ccy")
+            merged = merged.merge(swap, left_on="ticket_id", right_index=True, how="left")
             merged["swap_ccy"] = merged["_swap_ccy"]
         else:
             merged["swap_ccy"] = np.nan
         if "reason" in deals_df.columns:
-            reason = (
-                closes.set_index("position_id")["reason"]
-                .rename("_close_reason")
-            )
-            merged = merged.merge(reason, left_on="ticket_id",
-                                  right_index=True, how="left")
+            reason = closes.set_index("position_id")["reason"].rename("_close_reason")
+            merged = merged.merge(reason, left_on="ticket_id", right_index=True, how="left")
             merged["close_reason"] = merged["_close_reason"].fillna("")
         else:
             merged["close_reason"] = ""
@@ -293,20 +306,19 @@ def build_live_df(
             (merged["_open_px"] - merged["_close_px"]) / pip_map,
         )
 
-    merged = merged.rename(columns={
-        "entry_ref_price": "entry_price",
-        "spread_at_fire_pips": "spread_pips",
-    })
+    merged = merged.rename(
+        columns={
+            "entry_ref_price": "entry_price",
+            "spread_at_fire_pips": "spread_pips",
+        }
+    )
 
     # Slippage in pips: signed distance between plan.entry_ref_price (what
     # the engine saw) and the broker's fill. Positive = against us.
     pip_map = merged["pair"].map(_pair_pip_value).fillna(0.0001)
     if "fill_price" in merged.columns:
         direction_sign = merged["direction"].astype(float)
-        merged["slippage_pips"] = (
-            (merged["fill_price"] - merged["entry_price"])
-            / pip_map * direction_sign
-        )
+        merged["slippage_pips"] = (merged["fill_price"] - merged["entry_price"]) / pip_map * direction_sign
     else:
         merged["slippage_pips"] = np.nan
 
@@ -314,6 +326,7 @@ def build_live_df(
 
 
 # ── Matching ──────────────────────────────────────────────────────────
+
 
 def _pair_pip_value(pair: str) -> float:
     """Minimal pip-unit table. Matches ``ff.pair_util`` defaults."""
@@ -337,9 +350,13 @@ def reconcile(
 
     # Empty-input guards — nothing to match, return a pristine report.
     if bt.empty and live.empty:
-        return ReconcileReport(matched=[], missing_in_live=[], extra_in_live=[],
-                               tolerances=tol,
-                               generated_at=pd.Timestamp.now("UTC").isoformat())
+        return ReconcileReport(
+            matched=[],
+            missing_in_live=[],
+            extra_in_live=[],
+            tolerances=tol,
+            generated_at=pd.Timestamp.now("UTC").isoformat(),
+        )
 
     # Normalise signal_bar_ts on the backtest side: derive from entry_ts
     # rounded down to the main-TF boundary if the caller didn't supply it.
@@ -380,7 +397,8 @@ def reconcile(
             bt_row = bt.iloc[bt_i]
             bt_ts = pd.Timestamp(bt_row["signal_bar_ts"])
             candidates = [
-                i for i in set(range(len(live))) - live_used
+                i
+                for i in set(range(len(live))) - live_used
                 if live.iloc[i]["pair"] == bt_row["pair"]
                 and int(live.iloc[i]["direction"]) == int(bt_row["direction"])
                 and abs(pd.Timestamp(live.iloc[i]["signal_bar_ts"]) - bt_ts) <= window
@@ -493,6 +511,7 @@ def _classify(bt_row: pd.Series, live_row: pd.Series, tol: Tolerances) -> Matche
 
 # ── Rendering ──────────────────────────────────────────────────────────
 
+
 def render_report_json(report: ReconcileReport) -> str:
     payload = {
         "generated_at": report.generated_at,
@@ -511,6 +530,7 @@ def render_report_html(report: ReconcileReport) -> str:
     Layout: per-pair summary at the top, then per-trade table with every
     parity field (signal, spread, slippage, close reason) side-by-side.
     """
+
     def _fmt(v, fmt: str = ".2f") -> str:
         if v is None:
             return "—"
@@ -562,14 +582,8 @@ def render_report_html(report: ReconcileReport) -> str:
             f"</tr>"
         )
 
-    rows_missing = "\n".join(
-        f"<tr class='missing'><td colspan='20'>missing: {r}</td></tr>"
-        for r in report.missing_in_live
-    )
-    rows_extra = "\n".join(
-        f"<tr class='extra'><td colspan='20'>extra: {r}</td></tr>"
-        for r in report.extra_in_live
-    )
+    rows_missing = "\n".join(f"<tr class='missing'><td colspan='20'>missing: {r}</td></tr>" for r in report.missing_in_live)
+    rows_extra = "\n".join(f"<tr class='extra'><td colspan='20'>extra: {r}</td></tr>" for r in report.extra_in_live)
     counts = report.counts
 
     return f"""<!doctype html>

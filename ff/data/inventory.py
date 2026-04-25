@@ -5,6 +5,7 @@ surfaces rows / date-range / file-size / mtime plus a coarse OK / WARN / FAIL
 status. Results are cached to ``artifacts/data_inventory.json`` with a 1-hour
 TTL; hitting ``scan(force=True)`` or the Rescan button rebuilds it.
 """
+
 from __future__ import annotations
 
 import json
@@ -48,11 +49,16 @@ def _read_metadata(path: Path) -> dict[str, Any]:
     endpoints. Never loads the full file. Any IO error is swallowed and
     reported as ``status="error"``.
     """
-    import pyarrow.parquet as pq
     import pandas as pd
+    import pyarrow.parquet as pq
 
-    info: dict[str, Any] = {"bars": 0, "start_ts": None, "end_ts": None,
-                            "has_spread": False, "has_volume": False}
+    info: dict[str, Any] = {
+        "bars": 0,
+        "start_ts": None,
+        "end_ts": None,
+        "has_spread": False,
+        "has_volume": False,
+    }
     pf = pq.ParquetFile(path)
     meta = pf.metadata
     info["bars"] = int(meta.num_rows)
@@ -125,9 +131,16 @@ def scan(force: bool = False, roots: Iterable[Path] | None = None) -> list[dict[
         try:
             record.update(_read_metadata(p))
         except Exception as exc:  # pragma: no cover — rare; surfaces in UI
-            record.update({"bars": 0, "start_ts": None, "end_ts": None,
-                           "has_spread": False, "has_volume": False,
-                           "error": f"{type(exc).__name__}: {exc}"})
+            record.update(
+                {
+                    "bars": 0,
+                    "start_ts": None,
+                    "end_ts": None,
+                    "has_spread": False,
+                    "has_volume": False,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+            )
         record["status"] = _status_for(record)
         rows.append(record)
 
@@ -146,10 +159,7 @@ def inventory_by_pair(force: bool = False) -> dict[str, list[str]]:
     out: dict[str, set[str]] = defaultdict(set)
     for r in rows:
         out[r["pair"]].add(r["tf"])
-    return {
-        pair: sorted(tfs, key=lambda t: _TF_ORDER.get(t, 99))
-        for pair, tfs in sorted(out.items())
-    }
+    return {pair: sorted(tfs, key=lambda t: _TF_ORDER.get(t, 99)) for pair, tfs in sorted(out.items())}
 
 
 def date_range_for(pair: str, tf: str) -> tuple[str | None, str | None]:
@@ -170,6 +180,7 @@ def invalidate() -> None:
 
 
 # ── Cache I/O ─────────────────────────────────────────────────────────────
+
 
 def _load_cache() -> list[dict[str, Any]] | None:
     try:

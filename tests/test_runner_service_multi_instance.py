@@ -15,6 +15,7 @@ live runner loop:
 These tests patch the module's ``_LIVE_DIR`` / ``_ROOT`` / related
 paths so the filesystem stays under tmp.
 """
+
 from __future__ import annotations
 
 import json
@@ -75,8 +76,7 @@ def test_distribute_honours_active_manifest(tmp_root):
     rs._distribute_deploy_configs()
 
     assert (rs._LIVE_DIR / "alpha" / "config.json").exists()
-    assert not (rs._LIVE_DIR / "beta" / "config.json").exists(), \
-        "beta is not in active.json and must not be imported"
+    assert not (rs._LIVE_DIR / "beta" / "config.json").exists(), "beta is not in active.json and must not be imported"
 
 
 def test_active_removal_deactivates_existing_instance(tmp_root):
@@ -87,12 +87,15 @@ def test_active_removal_deactivates_existing_instance(tmp_root):
     # from active.json. Its artifacts dir already exists.
     (rs._LIVE_DIR / "gamma").mkdir()
     _write_json(rs._LIVE_DIR / "gamma" / "config.json", _svc("gamma"))
-    _write_json(rs._LIVE_DIR / "instances.json", {
-        "magic_counter": 20260421,
-        "instances": {
-            "gamma": {"active": True, "magic": 20260420, "pairs": ["EUR_USD"]},
+    _write_json(
+        rs._LIVE_DIR / "instances.json",
+        {
+            "magic_counter": 20260421,
+            "instances": {
+                "gamma": {"active": True, "magic": 20260420, "pairs": ["EUR_USD"]},
+            },
         },
-    })
+    )
     # Now active.json drops gamma and promotes delta.
     _write_json(deploy_dir / "gamma.json", _svc("gamma"))
     _write_json(deploy_dir / "delta.json", _svc("delta", magic=102))
@@ -101,8 +104,7 @@ def test_active_removal_deactivates_existing_instance(tmp_root):
     rs._distribute_deploy_configs()
 
     idx = json.loads((rs._LIVE_DIR / "instances.json").read_text(encoding="utf-8"))
-    assert idx["instances"]["gamma"]["active"] is False, \
-        "gamma removed from active.json must be flipped to inactive"
+    assert idx["instances"]["gamma"]["active"] is False, "gamma removed from active.json must be flipped to inactive"
     assert idx["instances"]["delta"]["active"] is True
     # Discovery skips inactive.
     configs = rs._discover_instance_configs()
@@ -123,8 +125,7 @@ def test_distribute_forces_filename_identity(tmp_root):
 
     rs._distribute_deploy_configs()
 
-    loaded = json.loads(
-        (rs._LIVE_DIR / "true_id" / "config.json").read_text(encoding="utf-8"))
+    loaded = json.loads((rs._LIVE_DIR / "true_id" / "config.json").read_text(encoding="utf-8"))
     assert loaded["instance_id"] == "true_id"
 
 
@@ -171,7 +172,6 @@ def test_migration_skipped_when_deploy_already_has_same_instance(tmp_root):
     rs._auto_migrate_legacy()
 
     # Only one instance dir should exist.
-    dirs = [p for p in rs._LIVE_DIR.iterdir()
-            if p.is_dir() and p.name not in ("archive", "reconcile")]
+    dirs = [p for p in rs._LIVE_DIR.iterdir() if p.is_dir() and p.name not in ("archive", "reconcile")]
     assert len(dirs) == 1, f"expected 1 instance dir, got {[d.name for d in dirs]}"
     assert dirs[0].name == "shared"

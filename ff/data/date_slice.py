@@ -4,13 +4,13 @@ Both bounds inclusive. Empty strings and ``None`` are treated as "no bound".
 The caller is expected to pass already-loaded DataFrames from
 ``ff.harness.load_parquet`` (UTC-localized index).
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
 from typing import Union
 
 import pandas as pd
-
 
 DateLike = Union[str, date, datetime, pd.Timestamp, None]
 

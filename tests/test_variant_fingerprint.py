@@ -6,6 +6,7 @@ fired the wrong strategy because it stored bare `signal_variant=42` in the
 deployed config and rebuilt the signal library with a different family
 order at startup, mapping 42 to a different (family, params).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -41,26 +42,21 @@ def test_int_ids_differ_across_family_order(h1_df, monkeypatch):
     monkeypatch.setenv("FF_NO_CACHE", "1")
 
     cfg_a = {
-        "ema_cross": {"fast": sc.IntRange(5, 15, step=5),
-                      "slow": sc.IntRange(20, 40, step=10)},
+        "ema_cross": {"fast": sc.IntRange(5, 15, step=5), "slow": sc.IntRange(20, 40, step=10)},
         "donchian": {"lookback": sc.IntRange(10, 30, step=10)},
     }
     cfg_b = {
         "donchian": {"lookback": sc.IntRange(10, 30, step=10)},
-        "ema_cross": {"fast": sc.IntRange(5, 15, step=5),
-                      "slow": sc.IntRange(20, 40, step=10)},
+        "ema_cross": {"fast": sc.IntRange(5, 15, step=5), "slow": sc.IntRange(20, 40, step=10)},
     }
 
-    lib_a = sl.build_signal_library(cfg_a, h1_df, pip_value=0.0001, atr_period=14,
-                                    use_cache=False)
-    lib_b = sl.build_signal_library(cfg_b, h1_df, pip_value=0.0001, atr_period=14,
-                                    use_cache=False)
+    lib_a = sl.build_signal_library(cfg_a, h1_df, pip_value=0.0001, atr_period=14, use_cache=False)
+    lib_b = sl.build_signal_library(cfg_b, h1_df, pip_value=0.0001, atr_period=14, use_cache=False)
 
     target = ("donchian", {"lookback": 20})
     id_a = _resolve(lib_a, *target)
     id_b = _resolve(lib_b, *target)
-    assert id_a is not None and id_b is not None, \
-        "donchian lookback=20 must exist in both libraries"
+    assert id_a is not None and id_b is not None, "donchian lookback=20 must exist in both libraries"
     assert id_a != id_b, (
         f"int IDs must differ across reversed family order — got {id_a}=={id_b}. "
         "If this ever passes it means the builder now sorts families, at which "
@@ -76,20 +72,16 @@ def test_fingerprint_resolves_to_same_family_across_builds(h1_df, monkeypatch):
     monkeypatch.setenv("FF_NO_CACHE", "1")
 
     cfg_a = {
-        "ema_cross": {"fast": sc.IntRange(5, 15, step=5),
-                      "slow": sc.IntRange(20, 40, step=10)},
+        "ema_cross": {"fast": sc.IntRange(5, 15, step=5), "slow": sc.IntRange(20, 40, step=10)},
         "donchian": {"lookback": sc.IntRange(10, 30, step=10)},
     }
     cfg_b = {
         "donchian": {"lookback": sc.IntRange(10, 30, step=10)},
-        "ema_cross": {"fast": sc.IntRange(5, 15, step=5),
-                      "slow": sc.IntRange(20, 40, step=10)},
+        "ema_cross": {"fast": sc.IntRange(5, 15, step=5), "slow": sc.IntRange(20, 40, step=10)},
     }
 
-    lib_a = sl.build_signal_library(cfg_a, h1_df, pip_value=0.0001, atr_period=14,
-                                    use_cache=False)
-    lib_b = sl.build_signal_library(cfg_b, h1_df, pip_value=0.0001, atr_period=14,
-                                    use_cache=False)
+    lib_a = sl.build_signal_library(cfg_a, h1_df, pip_value=0.0001, atr_period=14, use_cache=False)
+    lib_b = sl.build_signal_library(cfg_b, h1_df, pip_value=0.0001, atr_period=14, use_cache=False)
 
     # Training picks donchian(20) under lib_a and saves the fingerprint.
     training_id = _resolve(lib_a, "donchian", {"lookback": 20})
@@ -101,8 +93,7 @@ def test_fingerprint_resolves_to_same_family_across_builds(h1_df, monkeypatch):
 
     # Replay rebuilds the library (lib_b) with a different family order.
     # Resolving by fingerprint must still land on donchian(20).
-    replay_id = _resolve(lib_b, fingerprint["signal_family"],
-                         fingerprint["signal_params"])
+    replay_id = _resolve(lib_b, fingerprint["signal_family"], fingerprint["signal_params"])
     assert replay_id is not None, "fingerprint must match under rebuilt library"
     assert lib_b.variant_map[replay_id]["family"] == "donchian"
     assert lib_b.variant_map[replay_id]["params"] == {"lookback": 20}
@@ -117,8 +108,7 @@ def test_fingerprint_mismatch_returns_none(h1_df, monkeypatch):
     monkeypatch.setenv("FF_NO_CACHE", "1")
 
     cfg = {"donchian": {"lookback": sc.IntRange(10, 30, step=10)}}
-    lib = sl.build_signal_library(cfg, h1_df, pip_value=0.0001, atr_period=14,
-                                  use_cache=False)
+    lib = sl.build_signal_library(cfg, h1_df, pip_value=0.0001, atr_period=14, use_cache=False)
 
     # lookback=999 is not in the grid.
     assert _resolve(lib, "donchian", {"lookback": 999}) is None

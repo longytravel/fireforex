@@ -21,6 +21,7 @@ containing the full best trial (for pinning in
 ``artifacts/live/params_pinned.json``) plus the objective we optimised for
 and summary metrics of that trial.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -29,7 +30,6 @@ import json
 import sys
 from datetime import datetime
 from pathlib import Path
-
 
 ROOT = Path(__file__).resolve().parent.parent
 # Scripts run from anywhere — make sure `ff` and `app` imports resolve.
@@ -69,8 +69,14 @@ def calibrate_pair(
     from ff.harness import METRIC_COLUMNS  # noqa: F401
 
     ea = dict(_load_ea(EA_PATH))
-    ea["data"] = {**ea.get("data", {}), "pair": pair, "main_tf": main_tf, "sub_tf": sub_tf,
-                  "start_date": start, "end_date": end}
+    ea["data"] = {
+        **ea.get("data", {}),
+        "pair": pair,
+        "main_tf": main_tf,
+        "sub_tf": sub_tf,
+        "start_date": start,
+        "end_date": end,
+    }
 
     print(f"\n[calibrate] {pair} {main_tf}/{sub_tf} · {start} -> {end} · {n_trials} trials")
 
@@ -130,9 +136,11 @@ def calibrate_pair(
         "max_drawdown_pct": float(max_dd[best_idx]),
         "note": note,
     }
-    print(f"  → {summary['trade_count']} trades "
-          f"({summary['trades_per_day']:.1f}/day) "
-          f"pnl={summary['total_pips']:+.0f}p dd={summary['max_drawdown_pct']:.1f}% · {note}")
+    print(
+        f"  → {summary['trade_count']} trades "
+        f"({summary['trades_per_day']:.1f}/day) "
+        f"pnl={summary['total_pips']:+.0f}p dd={summary['max_drawdown_pct']:.1f}% · {note}"
+    )
 
     return {
         "summary": summary,
@@ -145,13 +153,18 @@ def calibrate_pair(
 def _metric_col(name: str) -> int:
     """Resolve a metric column index by name via harness."""
     from ff.harness import METRIC_INDEX
+
     return METRIC_INDEX[name]
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--pairs", nargs="+", required=True,
-                    help="e.g. EUR_USD GBP_USD USD_JPY AUD_USD USD_CAD NZD_USD USD_CHF EUR_JPY GBP_JPY")
+    ap.add_argument(
+        "--pairs",
+        nargs="+",
+        required=True,
+        help="e.g. EUR_USD GBP_USD USD_JPY AUD_USD USD_CAD NZD_USD USD_CHF EUR_JPY GBP_JPY",
+    )
     ap.add_argument("--main-tf", default="H1")
     ap.add_argument("--sub-tf", default="M1")
     ap.add_argument("--start", required=True, help="YYYY-MM-DD")

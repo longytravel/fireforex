@@ -16,13 +16,12 @@ core/src/trade_full.rs:180 and :185) rows 2, 3, 5 should start passing
 with PnL values that reflect the new behaviour (either the trade continues
 to TP, or exits on the original SL, etc). This test is the guardrail.
 """
+
 from __future__ import annotations
 
+import ff_core as bc
 import numpy as np
 import pytest
-
-import ff_core as bc
-
 
 # ── Constants (match core/src/constants.rs) ──────────────────────────
 
@@ -46,11 +45,12 @@ N_H = 5
 SUB_PER_BAR = 60
 N_M = N_H * SUB_PER_BAR
 SIG_BAR = 1
-TRIGGER_SUB = 2 * SUB_PER_BAR + 10   # 130: inside bar 2's sub-range
-NEXT_SUB = TRIGGER_SUB + 1           # 131: applies pending, exits here
+TRIGGER_SUB = 2 * SUB_PER_BAR + 10  # 130: inside bar 2's sub-range
+NEXT_SUB = TRIGGER_SUB + 1  # 131: applies pending, exits here
 
 
 # ── Scenarios (match 03-behaviour-table.md) ──────────────────────────
+
 
 def _p(pips: float) -> float:
     """pips offset from ENTRY_PRICE → absolute price."""
@@ -66,8 +66,8 @@ SCENARIOS = [
         # Trigger sub: sb_high reaches +6 pips (>= trigger of 5)
         # Next sub: sb_low dips to +1 pip (<= new SL of +2 pip) → exit at +2
         "subs": {
-            TRIGGER_SUB: (_p(+6), _p(+0), _p(+3)),   # h, l, c
-            NEXT_SUB:    (_p(+2), _p(+1), _p(+2)),
+            TRIGGER_SUB: (_p(+6), _p(+0), _p(+3)),  # h, l, c
+            NEXT_SUB: (_p(+2), _p(+1), _p(+2)),
         },
         "expected_pnl_pips": +2.0,
     },
@@ -81,7 +81,7 @@ SCENARIOS = [
         # instantly for +10 pips. THIS IS THE BUG.
         "subs": {
             TRIGGER_SUB: (_p(+6), _p(+0), _p(+3)),
-            NEXT_SUB:    (_p(+2), _p(+1), _p(+1)),
+            NEXT_SUB: (_p(+2), _p(+1), _p(+1)),
         },
         "expected_pnl_pips": +10.0,
     },
@@ -96,7 +96,7 @@ SCENARIOS = [
         # so SL fires for +10 pips short profit. Mirror bug.
         "subs": {
             TRIGGER_SUB: (_p(+0), _p(-6), _p(-3)),
-            NEXT_SUB:    (_p(-1), _p(-2), _p(-1)),
+            NEXT_SUB: (_p(-1), _p(-2), _p(-1)),
         },
         "expected_pnl_pips": +10.0,
     },
@@ -111,7 +111,7 @@ SCENARIOS = [
         # This is defensible (tick-level trigger is MT5-standard).
         "subs": {
             TRIGGER_SUB: (_p(+6), _p(+0), _p(+2)),
-            NEXT_SUB:    (_p(+1), _p(-4), _p(-3)),
+            NEXT_SUB: (_p(+1), _p(-4), _p(-3)),
         },
         "expected_pnl_pips": +2.0,
     },
@@ -126,7 +126,7 @@ SCENARIOS = [
         # THE WORST CASE COMBINATION — bug amplified by intrabar trigger.
         "subs": {
             TRIGGER_SUB: (_p(+6), _p(+0), _p(+2)),
-            NEXT_SUB:    (_p(+1), _p(-6), _p(-5)),
+            NEXT_SUB: (_p(+1), _p(-6), _p(-5)),
         },
         "expected_pnl_pips": +10.0,
     },
@@ -142,7 +142,7 @@ SCENARIOS = [
         # normal loss-limiting stop, not an impossible-profit stop.
         "subs": {
             TRIGGER_SUB: (_p(+6), _p(+0), _p(+3)),
-            NEXT_SUB:    (_p(+1), _p(-4), _p(-3)),
+            NEXT_SUB: (_p(+1), _p(-4), _p(-3)),
         },
         "expected_pnl_pips": -2.0,
     },
@@ -150,6 +150,7 @@ SCENARIOS = [
 
 
 # ── Fixture builder ──────────────────────────────────────────────────
+
 
 def _build_fixture(scenario: dict) -> dict:
     """Build OHLC + signal arrays for a single-trade scenario."""
@@ -192,12 +193,25 @@ def _build_fixture(scenario: dict) -> dict:
     sig_filters = np.full((bc.NUM_SIGNAL_PARAMS, 1), -1, dtype=np.int64)
 
     return dict(
-        h_h=h_h, h_l=h_l, h_c=h_c, h_s=h_s,
-        m_h=m_h, m_l=m_l, m_c=m_c, m_s=m_s,
-        map_start=map_start, map_end=map_end,
-        bar_index=bar_index, direction=direction, entry_price=entry_price,
-        hour=hour, day=day, atr_pips=atr_pips,
-        swing_sl=swing_sl, filter_value=filter_value, variant=variant,
+        h_h=h_h,
+        h_l=h_l,
+        h_c=h_c,
+        h_s=h_s,
+        m_h=m_h,
+        m_l=m_l,
+        m_c=m_c,
+        m_s=m_s,
+        map_start=map_start,
+        map_end=map_end,
+        bar_index=bar_index,
+        direction=direction,
+        entry_price=entry_price,
+        hour=hour,
+        day=day,
+        atr_pips=atr_pips,
+        swing_sl=swing_sl,
+        filter_value=filter_value,
+        variant=variant,
         sig_filters=sig_filters,
     )
 
@@ -233,18 +247,35 @@ def _run_scenario(scenario: dict) -> tuple[int, float]:
     param_layout = np.arange(bc.NUM_PL, dtype=np.int64)
 
     bc.batch_evaluate(
-        data["h_h"], data["h_l"], data["h_c"], data["h_s"],
-        PIP, 0.0,                    # pip_value, slippage
-        data["bar_index"], data["direction"], data["entry_price"],
-        data["hour"], data["day"], data["atr_pips"],
-        data["swing_sl"], data["filter_value"], data["variant"],
+        data["h_h"],
+        data["h_l"],
+        data["h_c"],
+        data["h_s"],
+        PIP,
+        0.0,  # pip_value, slippage
+        data["bar_index"],
+        data["direction"],
+        data["entry_price"],
+        data["hour"],
+        data["day"],
+        data["atr_pips"],
+        data["swing_sl"],
+        data["filter_value"],
+        data["variant"],
         data["sig_filters"],
-        param_matrix, param_layout,
+        param_matrix,
+        param_layout,
         metrics,
-        max_trades, 365.0 * 24.0,    # bars_per_year (H1)
-        0.0, 999.0,                  # commission, max_spread
-        data["m_h"], data["m_l"], data["m_c"], data["m_s"],
-        data["map_start"], data["map_end"],
+        max_trades,
+        365.0 * 24.0,  # bars_per_year (H1)
+        0.0,
+        999.0,  # commission, max_spread
+        data["m_h"],
+        data["m_l"],
+        data["m_c"],
+        data["m_s"],
+        data["map_start"],
+        data["map_end"],
         pnl,
     )
 
@@ -255,13 +286,13 @@ def _run_scenario(scenario: dict) -> tuple[int, float]:
 
 # ── The tests ────────────────────────────────────────────────────────
 
+
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=[s["name"] for s in SCENARIOS])
 def test_breakeven_offset_scenario(scenario):
     n_trades, trade_pnl = _run_scenario(scenario)
 
     assert n_trades == 1, (
-        f"{scenario['name']}: expected exactly 1 trade, got {n_trades}. "
-        f"Scenario setup rejected the signal — check the fixture."
+        f"{scenario['name']}: expected exactly 1 trade, got {n_trades}. Scenario setup rejected the signal — check the fixture."
     )
 
     expected = scenario["expected_pnl_pips"]

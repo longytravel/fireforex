@@ -1,7 +1,6 @@
 /// Full trade simulation — mirrors _simulate_trade_full() from jit_loop.py.
 ///
 /// Includes trailing stop, breakeven, partial close, stale exit, max bars.
-
 use crate::constants::*;
 /// Result of simulating one trade through the engine.
 /// Moved here from the (now-deleted) trade_basic module.
@@ -82,7 +81,11 @@ pub fn simulate_trade_full(
         let sub_entry_start = entry_sub_bar_idx as usize;
         let spread_at_entry = if sub_entry_start < sub_spread.len() {
             let s = sub_spread[sub_entry_start];
-            if s.is_nan() { 0.0 } else { s }
+            if s.is_nan() {
+                0.0
+            } else {
+                s
+            }
         } else {
             0.0
         };
@@ -265,7 +268,11 @@ pub fn simulate_trade_full(
                                 pending_sl = new_sl;
                             }
                         }
-                        pending_be_locked = if !has_pending_update { be_locked } else { pending_be_locked };
+                        pending_be_locked = if !has_pending_update {
+                            be_locked
+                        } else {
+                            pending_be_locked
+                        };
                         has_pending_update = true;
                     }
                 }
@@ -288,7 +295,11 @@ pub fn simulate_trade_full(
                         };
                         if new_sl > effective_sl && new_sl < sb_close {
                             pending_sl = new_sl;
-                            pending_be_locked = if !has_pending_update { be_locked } else { pending_be_locked };
+                            pending_be_locked = if !has_pending_update {
+                                be_locked
+                            } else {
+                                pending_be_locked
+                            };
                             pending_trailing_active = true;
                             has_pending_update = true;
                         }
@@ -301,7 +312,11 @@ pub fn simulate_trade_full(
                         };
                         if new_sl < effective_sl && new_sl > sb_close {
                             pending_sl = new_sl;
-                            pending_be_locked = if !has_pending_update { be_locked } else { pending_be_locked };
+                            pending_be_locked = if !has_pending_update {
+                                be_locked
+                            } else {
+                                pending_be_locked
+                            };
                             pending_trailing_active = true;
                             has_pending_update = true;
                         }
@@ -348,12 +363,21 @@ pub fn simulate_trade_full(
                         };
                         if new_sl > effective_sl && new_sl < sb_low {
                             pending_sl = new_sl;
-                            pending_be_locked = if !has_pending_update { be_locked } else { pending_be_locked };
-                            pending_trailing_active = if !has_pending_update { trailing_active } else { pending_trailing_active };
+                            pending_be_locked = if !has_pending_update {
+                                be_locked
+                            } else {
+                                pending_be_locked
+                            };
+                            pending_trailing_active = if !has_pending_update {
+                                trailing_active
+                            } else {
+                                pending_trailing_active
+                            };
                             pending_chandelier_active = true;
                             has_pending_update = true;
                         } else if !has_pending_update {
-                            pending_chandelier_active = pending_chandelier_active || chandelier_active
+                            pending_chandelier_active = pending_chandelier_active
+                                || chandelier_active
                                 || float_pnl_pips >= chandelier_activate_pips;
                             if pending_chandelier_active {
                                 pending_be_locked = be_locked;
@@ -372,12 +396,21 @@ pub fn simulate_trade_full(
                         };
                         if new_sl < effective_sl && new_sl > sb_high {
                             pending_sl = new_sl;
-                            pending_be_locked = if !has_pending_update { be_locked } else { pending_be_locked };
-                            pending_trailing_active = if !has_pending_update { trailing_active } else { pending_trailing_active };
+                            pending_be_locked = if !has_pending_update {
+                                be_locked
+                            } else {
+                                pending_be_locked
+                            };
+                            pending_trailing_active = if !has_pending_update {
+                                trailing_active
+                            } else {
+                                pending_trailing_active
+                            };
                             pending_chandelier_active = true;
                             has_pending_update = true;
                         } else if !has_pending_update {
-                            pending_chandelier_active = pending_chandelier_active || chandelier_active
+                            pending_chandelier_active = pending_chandelier_active
+                                || chandelier_active
                                 || float_pnl_pips >= chandelier_activate_pips;
                             if pending_chandelier_active {
                                 pending_be_locked = be_locked;
@@ -415,19 +448,22 @@ pub fn simulate_trade_full(
                     } else {
                         sb_low <= tp_price
                     };
-                    let tp_has_priority = tp_reachable_this_sub
-                        && tp_pips_from_entry < partial_trigger_pips;
+                    let tp_has_priority =
+                        tp_reachable_this_sub && tp_pips_from_entry < partial_trigger_pips;
                     if !tp_has_priority {
                         partial_done = true;
                         let close_pct = partial_pct / 100.0;
                         // Limit-order fill at the trigger price.
-                        let partial_pnl =
-                            (partial_trigger_pips - slippage_pips) * close_pct;
+                        let partial_pnl = (partial_trigger_pips - slippage_pips) * close_pct;
                         // Sell-side ask spread for the closing fraction on a short.
                         let partial_spread_cost = if !is_buy {
                             let sb_spread = if sb < sub_spread.len() {
                                 let s = sub_spread[sb];
-                                if s.is_nan() { 0.0 } else { s }
+                                if s.is_nan() {
+                                    0.0
+                                } else {
+                                    s
+                                }
                             } else {
                                 0.0
                             };
@@ -444,7 +480,8 @@ pub fn simulate_trade_full(
             // --- Check SL (uses current_sl) ---
             if is_buy {
                 if sb_low <= current_sl {
-                    let pnl = (current_sl - slippage_price - actual_entry) / pip_value * position_pct;
+                    let pnl =
+                        (current_sl - slippage_price - actual_entry) / pip_value * position_pct;
                     let exit_code = if chandelier_active {
                         EXIT_CHANDELIER
                     } else if trailing_active {
@@ -472,7 +509,8 @@ pub fn simulate_trade_full(
                 }
             } else {
                 if sb_high >= current_sl {
-                    let pnl = (actual_entry - current_sl - slippage_price) / pip_value * position_pct;
+                    let pnl =
+                        (actual_entry - current_sl - slippage_price) / pip_value * position_pct;
                     let exit_code = if chandelier_active {
                         EXIT_CHANDELIER
                     } else if trailing_active {
@@ -523,10 +561,18 @@ pub fn simulate_trade_full(
     if !is_buy {
         let sell_spread = if exit_sub_idx >= 0 && (exit_sub_idx as usize) < sub_spread.len() {
             let s = sub_spread[exit_sub_idx as usize];
-            if s.is_nan() { 0.0 } else { s }
+            if s.is_nan() {
+                0.0
+            } else {
+                s
+            }
         } else if exit_bar < spread_arr.len() {
             let s = spread_arr[exit_bar];
-            if s.is_nan() { 0.0 } else { s }
+            if s.is_nan() {
+                0.0
+            } else {
+                s
+            }
         } else {
             0.0
         };
@@ -567,18 +613,10 @@ mod tests {
         let (start, end) = make_identity_mapping(4);
 
         let r = simulate_trade_full(
-            DIR_BUY, 0, 1.1000, 1.0900, 1.1200, 10.0,
-            &high, &low, &close, &spread,
-            0.0001, 0.0, 4,
-            TRAIL_OFF, 0.0, 0.0, 0.0,
-            0, 0.0, 0.0,
-            0, 0.0, 0.0,
-            2, // max_bars = 2
-            0, 0, 0.0,
-            0, 0.0, 0.0, // chandelier off
-            0.0,
-            &high, &low, &close, &spread,
-            &start, &end,
+            DIR_BUY, 0, 1.1000, 1.0900, 1.1200, 10.0, &high, &low, &close, &spread, 0.0001, 0.0, 4,
+            TRAIL_OFF, 0.0, 0.0, 0.0, 0, 0.0, 0.0, 0, 0.0, 0.0, 2, // max_bars = 2
+            0, 0, 0.0, 0, 0.0, 0.0, // chandelier off
+            0.0, &high, &low, &close, &spread, &start, &end,
         );
         assert_eq!(r.exit_reason, EXIT_MAX_BARS);
     }
@@ -594,17 +632,10 @@ mod tests {
         let (start, end) = make_identity_mapping(4);
 
         let r = simulate_trade_full(
-            DIR_BUY, 0, 1.1000, 1.0950, 1.1100, 10.0,
-            &high, &low, &close, &spread,
-            0.0001, 0.0, 4,
-            TRAIL_OFF, 0.0, 0.0, 0.0,
-            1, 5.0, 2.0, // BE enabled, trigger=5, offset=2
-            0, 0.0, 0.0,
-            0, 0, 0, 0.0,
-            0, 0.0, 0.0, // chandelier off
-            0.0,
-            &high, &low, &close, &spread,
-            &start, &end,
+            DIR_BUY, 0, 1.1000, 1.0950, 1.1100, 10.0, &high, &low, &close, &spread, 0.0001, 0.0, 4,
+            TRAIL_OFF, 0.0, 0.0, 0.0, 1, 5.0, 2.0, // BE enabled, trigger=5, offset=2
+            0, 0.0, 0.0, 0, 0, 0, 0.0, 0, 0.0, 0.0, // chandelier off
+            0.0, &high, &low, &close, &spread, &start, &end,
         );
         // Should NOT exit at bar 1 (deferred), and SL moved from 1.0950 to 1.1002
         assert!(r.exit_reason != EXIT_BREAKEVEN || r.pnl_pips >= 0.0);

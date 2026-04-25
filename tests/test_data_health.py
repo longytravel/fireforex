@@ -1,9 +1,9 @@
 """Health checks: NaN / OHLC / timestamp / weekend-gap semantics."""
+
 from __future__ import annotations
 
 from pathlib import Path
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -21,8 +21,15 @@ def _build(tmp_path: Path, rows: list[dict], name: str = "EUR_USD_H1.parquet") -
 
 
 def _clean_row(ts, o=1.0, h=1.1, l=0.9, c=1.0):
-    return {"timestamp": ts, "open": o, "high": h, "low": l, "close": c,
-            "volume": 0, "spread": 0.0001}
+    return {
+        "timestamp": ts,
+        "open": o,
+        "high": h,
+        "low": l,
+        "close": c,
+        "volume": 0,
+        "spread": 0.0001,
+    }
 
 
 @pytest.fixture
@@ -64,8 +71,7 @@ def test_weekend_gap_is_not_flagged(tmp_root):
     # A gap that lives fully inside that window should NOT trigger a warning.
     fri = pd.Timestamp("2024-01-12 21:00", tz="UTC")  # Friday 21:00
     sun = pd.Timestamp("2024-01-14 23:00", tz="UTC")  # Sunday 23:00
-    rows = [_clean_row(fri), _clean_row(sun),
-            _clean_row(sun + pd.Timedelta(hours=1))]
+    rows = [_clean_row(fri), _clean_row(sun), _clean_row(sun + pd.Timedelta(hours=1))]
     _build(tmp_root, rows)
     r = health.check("EUR_USD", "H1")
     real_gaps = [g for g in r["gap_samples"] if "_more" not in g]
@@ -75,8 +81,8 @@ def test_weekend_gap_is_not_flagged(tmp_root):
 def test_midweek_gap_is_flagged(tmp_root):
     # Tuesday to Wednesday 12h gap — nothing to do with weekends.
     t0 = pd.Timestamp("2024-01-09 00:00", tz="UTC")  # Tue
-    t1 = t0 + pd.Timedelta(hours=12)                 # Tue noon
-    t2 = t1 + pd.Timedelta(hours=1)                  # +1h
+    t1 = t0 + pd.Timedelta(hours=12)  # Tue noon
+    t2 = t1 + pd.Timedelta(hours=1)  # +1h
     rows = [_clean_row(t0), _clean_row(t1), _clean_row(t2)]
     # Only two "gaps" — between [t0,t1] (12h, > 2×1h → flagged).
     _build(tmp_root, rows)

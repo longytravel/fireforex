@@ -10,13 +10,14 @@ A schema is a plain dict whose leaves are one of these types. Composition is
 unconstrained: Groups can nest Branches, Branches can nest Groups, Leaves are
 terminal.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any, Iterable, Iterator
 
-
 # ── Leaves ─────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class FloatRange:
@@ -28,9 +29,10 @@ class FloatRange:
     signal library requires a finite enumerable set); engine knobs may leave it
     ``None``.
     """
+
     min: float
     max: float
-    scale: str = "linear"   # "linear" | "log"
+    scale: str = "linear"  # "linear" | "log"
     step: float | None = None
 
     def __post_init__(self) -> None:
@@ -50,6 +52,7 @@ class IntRange:
 
     ``step`` defaults to 1. Always discretised (step is mandatory for ints).
     """
+
     min: int
     max: int
     step: int = 1
@@ -64,6 +67,7 @@ class IntRange:
 @dataclass(frozen=True)
 class Choice:
     """A categorical knob — a fixed list of values. Values can be any hashable."""
+
     values: tuple
 
     def __init__(self, values: Iterable) -> None:
@@ -78,6 +82,7 @@ Leaf = FloatRange | IntRange | Choice
 
 # ── Composite nodes ────────────────────────────────────────────────────
 
+
 @dataclass
 class Group:
     """An on/off block.
@@ -90,15 +95,14 @@ class Group:
     ``True``. If the switch is numeric, set ``on_value`` to the integer that
     means on (e.g. 1).
     """
+
     test: Choice
     when_on: dict[str, Any]
     on_value: Any = True
 
     def __post_init__(self) -> None:
         if self.on_value not in self.test.values:
-            raise ValueError(
-                f"Group: on_value {self.on_value!r} not in test.values {self.test.values!r}"
-            )
+            raise ValueError(f"Group: on_value {self.on_value!r} not in test.values {self.test.values!r}")
         if len(self.test.values) < 2:
             raise ValueError("Group: test needs at least two values")
 
@@ -112,6 +116,7 @@ class Branch:
     needs sub-knobs — an empty dict is fine (useful when an arm is a pure "mode"
     like ``"off"`` that flips the engine slot but carries no data).
     """
+
     selector: Choice
     arms: dict[str, dict[str, Any]]
 
@@ -128,6 +133,7 @@ Node = Leaf | Group | Branch
 
 
 # ── Helpers ────────────────────────────────────────────────────────────
+
 
 def expand(leaf: Leaf) -> list:
     """Enumerate the concrete values of a Leaf.
@@ -224,7 +230,7 @@ if __name__ == "__main__":  # pragma: no cover
                         selector=Choice(["fixed", "atr"]),
                         arms={
                             "fixed": {"distance": FloatRange(5, 50, scale="log", step=5)},
-                            "atr":   {"mult": FloatRange(0.3, 4.0, step=0.1)},
+                            "atr": {"mult": FloatRange(0.3, 4.0, step=0.1)},
                         },
                     ),
                 },

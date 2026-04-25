@@ -36,13 +36,12 @@ If row 1 or row 2 drops below +10, peak tracking or the ratchet
 broke. If rows 3/4/5 start producing +10, the guard or activation
 gate regressed. Either direction is a silent-knob recurrence.
 """
+
 from __future__ import annotations
 
+import ff_core as bc
 import numpy as np
 import pytest
-
-import ff_core as bc
-
 
 DIR_BUY = 1
 DIR_SELL = -1
@@ -58,8 +57,8 @@ N_H = 5
 SUB_PER_BAR = 60
 N_M = N_H * SUB_PER_BAR
 SIG_BAR = 1
-TRIGGER_SUB = 2 * SUB_PER_BAR + 10   # 130
-NEXT_SUB = TRIGGER_SUB + 1           # 131
+TRIGGER_SUB = 2 * SUB_PER_BAR + 10  # 130
+NEXT_SUB = TRIGGER_SUB + 1  # 131
 
 
 def _p(pips: float) -> float:
@@ -83,7 +82,7 @@ SCENARIOS = [
         # pnl = +10 pips.
         "subs": {
             TRIGGER_SUB: (_p(+40), _p(+30), _p(+35)),
-            NEXT_SUB:    (_p(+8),  _p(-5),  _p(0)),
+            NEXT_SUB: (_p(+8), _p(-5), _p(0)),
         },
         "expected_pnl_pips": +10.0,
     },
@@ -101,7 +100,7 @@ SCENARIOS = [
         # pnl = (entry - exit)/pip = -(-10) = +10 pips.
         "subs": {
             TRIGGER_SUB: (_p(-30), _p(-40), _p(-35)),
-            NEXT_SUB:    (_p(+5),  _p(-8),  _p(0)),
+            NEXT_SUB: (_p(+5), _p(-8), _p(0)),
         },
         "expected_pnl_pips": +10.0,
     },
@@ -118,8 +117,8 @@ SCENARIOS = [
         # Sub 131+: raw_sl still +10, sb_low still +0 → guard keeps rejecting.
         # End-of-data close at entry → pnl = 0.
         "subs": {
-            TRIGGER_SUB: (_p(+40), _p(0),  _p(+20)),
-            NEXT_SUB:    (_p(+30), _p(0),  _p(+15)),
+            TRIGGER_SUB: (_p(+40), _p(0), _p(+20)),
+            NEXT_SUB: (_p(+30), _p(0), _p(+15)),
         },
         "expected_pnl_pips": 0.0,
     },
@@ -127,7 +126,7 @@ SCENARIOS = [
         "name": "row_4_long_below_activate_never_arms",
         "direction": DIR_BUY,
         "enabled": 1,
-        "activate": 50.0,     # threshold far above peak
+        "activate": 50.0,  # threshold far above peak
         "atr_mult": 3.0,
         "atr_pips": 10.0,
         # Sub 130: H=+40, L=-5, C=+20. peak=+40, float=+40 < 50 → no arm.
@@ -136,16 +135,16 @@ SCENARIOS = [
         # End-of-data close at entry → pnl = 0.
         "subs": {
             TRIGGER_SUB: (_p(+40), _p(-5), _p(+20)),
-            NEXT_SUB:    (_p(+30), _p(-5), _p(+15)),
+            NEXT_SUB: (_p(+30), _p(-5), _p(+15)),
         },
         "expected_pnl_pips": 0.0,
     },
     {
         "name": "row_5_long_sentinel_strict_no_op",
         "direction": DIR_BUY,
-        "enabled": 0,          # sentinel off
-        "activate": -1.0,      # sentinel
-        "atr_mult": -1.0,      # sentinel
+        "enabled": 0,  # sentinel off
+        "activate": -1.0,  # sentinel
+        "atr_mult": -1.0,  # sentinel
         "atr_pips": 10.0,
         # Same OHLC as row 1. With chandelier disabled, trade runs
         # baseline (SL=30p, TP=60p). Peak at +40 < TP=60 → no TP.
@@ -153,7 +152,7 @@ SCENARIOS = [
         # entry → pnl = 0.
         "subs": {
             TRIGGER_SUB: (_p(+40), _p(+30), _p(+35)),
-            NEXT_SUB:    (_p(+8),  _p(-5),  _p(0)),
+            NEXT_SUB: (_p(+8), _p(-5), _p(0)),
         },
         "expected_pnl_pips": 0.0,
     },
@@ -196,12 +195,25 @@ def _build_fixture(scenario: dict) -> dict:
     sig_filters = np.full((bc.NUM_SIGNAL_PARAMS, 1), -1, dtype=np.int64)
 
     return dict(
-        h_h=h_h, h_l=h_l, h_c=h_c, h_s=h_s,
-        m_h=m_h, m_l=m_l, m_c=m_c, m_s=m_s,
-        map_start=map_start, map_end=map_end,
-        bar_index=bar_index, direction=direction, entry_price=entry_price,
-        hour=hour, day=day, atr_pips=atr_pips,
-        swing_sl=swing_sl, filter_value=filter_value, variant=variant,
+        h_h=h_h,
+        h_l=h_l,
+        h_c=h_c,
+        h_s=h_s,
+        m_h=m_h,
+        m_l=m_l,
+        m_c=m_c,
+        m_s=m_s,
+        map_start=map_start,
+        map_end=map_end,
+        bar_index=bar_index,
+        direction=direction,
+        entry_price=entry_price,
+        hour=hour,
+        day=day,
+        atr_pips=atr_pips,
+        swing_sl=swing_sl,
+        filter_value=filter_value,
+        variant=variant,
         sig_filters=sig_filters,
     )
 
@@ -236,18 +248,35 @@ def _run_scenario(scenario: dict) -> tuple[int, float]:
     param_layout = np.arange(bc.NUM_PL, dtype=np.int64)
 
     bc.batch_evaluate(
-        data["h_h"], data["h_l"], data["h_c"], data["h_s"],
-        PIP, 0.0,
-        data["bar_index"], data["direction"], data["entry_price"],
-        data["hour"], data["day"], data["atr_pips"],
-        data["swing_sl"], data["filter_value"], data["variant"],
+        data["h_h"],
+        data["h_l"],
+        data["h_c"],
+        data["h_s"],
+        PIP,
+        0.0,
+        data["bar_index"],
+        data["direction"],
+        data["entry_price"],
+        data["hour"],
+        data["day"],
+        data["atr_pips"],
+        data["swing_sl"],
+        data["filter_value"],
+        data["variant"],
         data["sig_filters"],
-        param_matrix, param_layout,
+        param_matrix,
+        param_layout,
         metrics,
-        max_trades, 365.0 * 24.0,
-        0.0, 999.0,
-        data["m_h"], data["m_l"], data["m_c"], data["m_s"],
-        data["map_start"], data["map_end"],
+        max_trades,
+        365.0 * 24.0,
+        0.0,
+        999.0,
+        data["m_h"],
+        data["m_l"],
+        data["m_c"],
+        data["m_s"],
+        data["map_start"],
+        data["map_end"],
         pnl,
         trade_records,
     )
@@ -260,9 +289,7 @@ def _run_scenario(scenario: dict) -> tuple[int, float]:
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=[s["name"] for s in SCENARIOS])
 def test_chandelier_scenario(scenario):
     n_trades, trade_pnl = _run_scenario(scenario)
-    assert n_trades == 1, (
-        f"{scenario['name']}: expected 1 trade, got {n_trades}"
-    )
+    assert n_trades == 1, f"{scenario['name']}: expected 1 trade, got {n_trades}"
     expected = scenario["expected_pnl_pips"]
     tol = 0.25
     assert abs(trade_pnl - expected) <= tol, (

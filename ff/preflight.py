@@ -13,6 +13,7 @@ Two entry points:
 - :func:`preflight_report` — human-readable text (built on top of
   :func:`preflight_dict`), what ``run.py --dry-run`` prints.
 """
+
 from __future__ import annotations
 
 import csv
@@ -20,13 +21,12 @@ import statistics
 from pathlib import Path
 from typing import Any
 
+from . import sampler as spl
 from . import schema as sc
 from . import signal_lib as sl
-from . import sampler as spl
-
 
 # Heuristic fallbacks — replaced by medians from history.csv once available.
-SIGNAL_BUILD_SEC_PER_COMBO = 0.25        # seconds per indicator-combo (observed).
+SIGNAL_BUILD_SEC_PER_COMBO = 0.25  # seconds per indicator-combo (observed).
 SWEEP_RATE_BT_PER_SEC_HINT = (120, 400)  # (low, high) per-trial rate range.
 
 _HISTORY_CSV = Path(__file__).resolve().parent.parent / "artifacts" / "history.csv"
@@ -66,7 +66,7 @@ def _learn_rates_from_history(max_rows: int = 10) -> dict[str, float] | None:
         return None
     return {
         "per_combo_s": statistics.median(per_combo) if per_combo else None,
-        "bt_per_sec":  statistics.median(bt_rates)  if bt_rates  else None,
+        "bt_per_sec": statistics.median(bt_rates) if bt_rates else None,
     }
 
 
@@ -85,8 +85,7 @@ def _count_leaves_and_groups(subtree: dict) -> tuple[int, int, int]:
     return leaves, groups, branches
 
 
-def _effective_dim_sample(engine_schema: dict, n_variants: int,
-                          sample_n: int = 200, seed: int = 0) -> dict:
+def _effective_dim_sample(engine_schema: dict, n_variants: int, sample_n: int = 200, seed: int = 0) -> dict:
     """Sample trials and count how many leaf decisions each one records.
 
     Returns {min, max, mean} effective-dim counts.
@@ -111,6 +110,7 @@ def _count_trial_decisions(trial: dict | Any) -> int:
     - Missing sub-knobs (from off Groups / inactive Branch arms) don't count.
     """
     n = 0
+
     def visit(node):
         nonlocal n
         if isinstance(node, dict):
@@ -118,6 +118,7 @@ def _count_trial_decisions(trial: dict | Any) -> int:
                 visit(v)
         else:
             n += 1
+
     visit(trial)
     return n
 
@@ -141,9 +142,7 @@ def preflight_dict(ea: dict, n_trials: int) -> dict:
     # Signal library.
     lib_est = sl.estimate_library_size(ea["signals"])
     total = int(lib_est["_total"])
-    families: dict[str, int] = {
-        fam: int(d["combos"]) for fam, d in lib_est.items() if fam != "_total"
-    }
+    families: dict[str, int] = {fam: int(d["combos"]) for fam, d in lib_est.items() if fam != "_total"}
     # Learn from recent runs when we can — otherwise fall back to the
     # heuristic constant.
     rates = _learn_rates_from_history()
@@ -152,9 +151,7 @@ def preflight_dict(ea: dict, n_trials: int) -> dict:
 
     # Engine schema dimensions.
     leaves, groups, branches = _count_leaves_and_groups(ea["engine_schema"])
-    eff = _effective_dim_sample(
-        ea["engine_schema"], n_variants=max(1, total), sample_n=200
-    )
+    eff = _effective_dim_sample(ea["engine_schema"], n_variants=max(1, total), sample_n=200)
 
     bps = (rates or {}).get("bt_per_sec")
     if bps and bps > 0:
@@ -190,8 +187,7 @@ def preflight_dict(ea: dict, n_trials: int) -> dict:
     return out
 
 
-def _format_preflight_text(ea: dict, n_trials: int, structured: dict,
-                           lib_est: dict) -> str:
+def _format_preflight_text(ea: dict, n_trials: int, structured: dict, lib_est: dict) -> str:
     """Render the text preflight report from the already-computed structured data."""
     name = ea.get("name", "unnamed")
     data = ea.get("data", {})
@@ -231,7 +227,7 @@ def _format_preflight_text(ea: dict, n_trials: int, structured: dict,
     lines.append("[engine knobs]")
     lines.append(f"  total leaves (max dim)         : {leaves}")
     lines.append(f"  on/off groups                  : {groups}")
-    lines.append(f"  effective-dim (sampled 200):")
+    lines.append("  effective-dim (sampled 200):")
     lines.append(f"     min / mean / max           : {eff_min} / {eff_mean:.1f} / {eff_max}")
     lines.append("[sweep]")
     lines.append(f"  N_TRIALS                       : {n_trials:,}")
@@ -256,14 +252,22 @@ if __name__ == "__main__":  # pragma: no cover
     ea = {
         "name": "demo_preflight",
         "data": {"pair": "EUR_USD", "main_tf": "H1", "sub_tf": "M1"},
-        "execution": {"pip_value": 0.0001, "commission_pips": 0.3,
-                      "max_spread_pips": 10.0, "slippage_pips": 0.0, "atr_period": 14},
+        "execution": {
+            "pip_value": 0.0001,
+            "commission_pips": 0.3,
+            "max_spread_pips": 10.0,
+            "slippage_pips": 0.0,
+            "atr_period": 14,
+        },
         "signals": {
             "ema_cross": {"fast": sc.IntRange(5, 20, step=5), "slow": sc.IntRange(21, 50, step=10)},
         },
         "engine_schema": {
-            "trailing": sc.Group(test=sc.Choice([True, False]), on_value=True,
-                                 when_on={"activate": sc.FloatRange(5, 100, scale="log")}),
+            "trailing": sc.Group(
+                test=sc.Choice([True, False]),
+                on_value=True,
+                when_on={"activate": sc.FloatRange(5, 100, scale="log")},
+            ),
             "days": sc.Choice([31, 127]),
         },
     }

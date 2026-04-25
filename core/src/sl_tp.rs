@@ -1,5 +1,4 @@
 /// SL/TP price computation — mirrors _compute_sl_tp() from jit_loop.py.
-
 use crate::constants::*;
 
 /// Computed SL/TP result.
@@ -36,7 +35,11 @@ pub fn compute_sl_tp(
         if !swing_sl_price.is_nan() {
             let dist = (entry_price - swing_sl_price).abs();
             let min_sl = 5.0 * pip_value;
-            if dist < min_sl { min_sl } else { dist }
+            if dist < min_sl {
+                min_sl
+            } else {
+                dist
+            }
         } else {
             atr_price * 1.5 // Fallback
         }
@@ -91,9 +94,18 @@ mod tests {
     #[test]
     fn test_fixed_sl_tp_buy() {
         let r = compute_sl_tp(
-            DIR_BUY, 1.10000, 10.0, 0.0001,
-            SL_FIXED_PIPS, 20.0, 0.0, f64::NAN,
-            TP_FIXED_PIPS, 0.0, 0.0, 40.0,
+            DIR_BUY,
+            1.10000,
+            10.0,
+            0.0001,
+            SL_FIXED_PIPS,
+            20.0,
+            0.0,
+            f64::NAN,
+            TP_FIXED_PIPS,
+            0.0,
+            0.0,
+            40.0,
         );
         assert!((r.sl_price - 1.09800).abs() < 1e-10);
         assert!((r.tp_price - 1.10400).abs() < 1e-10);
@@ -104,9 +116,18 @@ mod tests {
     #[test]
     fn test_atr_sl_rr_tp_sell() {
         let r = compute_sl_tp(
-            DIR_SELL, 1.10000, 10.0, 0.0001,
-            SL_ATR_BASED, 0.0, 1.5, f64::NAN,
-            TP_RR_RATIO, 2.0, 0.0, 0.0,
+            DIR_SELL,
+            1.10000,
+            10.0,
+            0.0001,
+            SL_ATR_BASED,
+            0.0,
+            1.5,
+            f64::NAN,
+            TP_RR_RATIO,
+            2.0,
+            0.0,
+            0.0,
         );
         // SL = 10 * 1.5 = 15 pips → sell SL = 1.10000 + 0.0015 = 1.10150
         assert!((r.sl_price - 1.10150).abs() < 1e-10);
@@ -120,9 +141,18 @@ mod tests {
     fn test_tp_enforced_gte_sl() {
         // TP ratio of 0.5 would give TP < SL, should be clamped to SL
         let r = compute_sl_tp(
-            DIR_BUY, 1.10000, 10.0, 0.0001,
-            SL_FIXED_PIPS, 20.0, 0.0, f64::NAN,
-            TP_RR_RATIO, 0.5, 0.0, 0.0,
+            DIR_BUY,
+            1.10000,
+            10.0,
+            0.0001,
+            SL_FIXED_PIPS,
+            20.0,
+            0.0,
+            f64::NAN,
+            TP_RR_RATIO,
+            0.5,
+            0.0,
+            0.0,
         );
         assert!((r.tp_pips - r.sl_pips).abs() < 1e-10);
     }
@@ -131,9 +161,18 @@ mod tests {
     fn test_swing_sl_with_min() {
         // Swing SL very close to entry → min 5 pips
         let r = compute_sl_tp(
-            DIR_BUY, 1.10000, 10.0, 0.0001,
-            SL_SWING, 0.0, 0.0, 1.09998, // 0.2 pips from entry
-            TP_RR_RATIO, 2.0, 0.0, 0.0,
+            DIR_BUY,
+            1.10000,
+            10.0,
+            0.0001,
+            SL_SWING,
+            0.0,
+            0.0,
+            1.09998, // 0.2 pips from entry
+            TP_RR_RATIO,
+            2.0,
+            0.0,
+            0.0,
         );
         assert!((r.sl_pips - 5.0).abs() < 1e-10); // clamped to min
     }

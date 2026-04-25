@@ -15,6 +15,7 @@ Usage:
     .\\.venv\\Scripts\\python.exe scripts\\migrate_best_trial_fingerprint.py
     .\\.venv\\Scripts\\python.exe scripts\\migrate_best_trial_fingerprint.py --dry-run
 """
+
 from __future__ import annotations
 
 import argparse
@@ -85,13 +86,11 @@ def _migrate_one(path: Path, *, dry_run: bool) -> str:
     source_run_id = config.get("source_run_id")
     variant_id = best_trial.get("signal_variant")
     if not source_run_id or variant_id is None:
-        return (f"  SKIP  {path}  — missing source_run_id or signal_variant "
-                f"(run_id={source_run_id!r}, variant={variant_id!r})")
+        return f"  SKIP  {path}  — missing source_run_id or signal_variant (run_id={source_run_id!r}, variant={variant_id!r})"
 
     found = _lookup_fingerprint(str(source_run_id), int(variant_id))
     if found is None:
-        return (f"  SKIP  {path}  — could not resolve variant {variant_id} "
-                f"from {source_run_id}.npz (file missing or variant_map_json bad)")
+        return f"  SKIP  {path}  — could not resolve variant {variant_id} from {source_run_id}.npz (file missing or variant_map_json bad)"
     family, params = found
 
     best_trial["signal_family"] = family
@@ -99,14 +98,12 @@ def _migrate_one(path: Path, *, dry_run: bool) -> str:
     action = "WOULD WRITE" if dry_run else "WROTE"
     if not dry_run:
         path.write_text(json.dumps(config, indent=2), encoding="utf-8")
-    return (f"  {action}  {path}  — variant {variant_id} -> "
-            f"family={family!r}  params={params}")
+    return f"  {action}  {path}  — variant {variant_id} -> family={family!r}  params={params}"
 
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--dry-run", action="store_true",
-                   help="Report what would change without writing.")
+    p.add_argument("--dry-run", action="store_true", help="Report what would change without writing.")
     args = p.parse_args()
 
     configs = _iter_configs()

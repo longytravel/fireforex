@@ -9,6 +9,7 @@ This is the pattern future math (e.g. a Chandelier stop) should follow: prove
 the formula on a handful of bars you can reason about, then prove it composes
 with the rest of the system on a synthetic trade fixture.
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -17,8 +18,8 @@ import pytest
 
 from ff import signal_lib as sl
 
-
 # ── 1. EMA (span-based, no warmup) ────────────────────────────────────
+
 
 def test_ewm_span3_matches_hand_calculation():
     """span=3 → alpha = 2/(3+1) = 0.5. Start from arr[0], blend 50/50 forward.
@@ -43,6 +44,7 @@ def test_ewm_returns_float64():
 
 
 # ── 2. ATR (true-range then EMA) ──────────────────────────────────────
+
 
 def test_atr_ema_true_range_formula():
     """TR[i] = max(H[i]-L[i], |H[i]-C[i-1]|, |L[i]-C[i-1]|). TR[0] uses
@@ -73,11 +75,12 @@ def test_atr_ema_true_range_formula():
     # Clear per-run caches first (atr_ema caches by id).
     sl._ATR_CACHE.clear()
     got = sl.atr_ema(h, l, c, period=2)
-    expected = np.array([0.4, 7.0/15.0, 28.0/45.0, 64.0/135.0])
+    expected = np.array([0.4, 7.0 / 15.0, 28.0 / 45.0, 64.0 / 135.0])
     np.testing.assert_allclose(got, expected, rtol=1e-10)
 
 
 # ── 3. RSI (Wilder-style via span-based EMA) ──────────────────────────
+
 
 def test_rsi_flat_series_is_50_or_neutral():
     """On a perfectly flat series, gain and loss are both 0 → rs = inf (by
@@ -105,6 +108,7 @@ def test_rsi_monotonic_down_approaches_zero():
 
 
 # ── 4. Donchian breakout: entry on the bar where close exceeds prior range ──
+
 
 def test_donchian_breakout_fires_on_first_break():
     """Lookback=3 Donchian:
@@ -138,14 +142,14 @@ def test_donchian_breakout_fires_on_first_break():
     sl._ATR_CACHE.clear()
     ss = sl.donchian(df, lookback=3, atr_period=3, pip_value=0.0001)
 
-    assert set(ss.bar_index.tolist()) == {4, 6}, \
-        f"expected signals at bar 4 (short, first edge) and 6 (long), got {ss.bar_index.tolist()}"
+    assert set(ss.bar_index.tolist()) == {4, 6}, f"expected signals at bar 4 (short, first edge) and 6 (long), got {ss.bar_index.tolist()}"
     dir_by_bar = dict(zip(ss.bar_index.tolist(), ss.direction.tolist()))
     assert dir_by_bar[4] == -1, f"bar 4 should be short, got {dir_by_bar[4]}"
     assert dir_by_bar[6] == +1, f"bar 6 should be long, got {dir_by_bar[6]}"
 
 
 # ── 5. EMA cross: signal fires on the bar AFTER the cross (no lookahead) ──
+
 
 def test_ema_cross_fires_on_bar_after_cross():
     """Construct a series that definitely crosses at a known bar. Use
@@ -174,8 +178,7 @@ def test_ema_cross_fires_on_bar_after_cross():
     # Signal bar must be cross_index+1 (one bar after the crossover condition).
     for bar in ss.bar_index.tolist():
         if ss.direction[list(ss.bar_index).index(bar)] == +1:
-            assert bar in expected_up_bars, \
-                f"long signal at bar {bar} doesn't match hand-calculated cross bars {expected_up_bars.tolist()}"
+            assert bar in expected_up_bars, f"long signal at bar {bar} doesn't match hand-calculated cross bars {expected_up_bars.tolist()}"
 
     # Anti-lookahead: entry_price must equal close at the signal bar
     # (never the bar before, which would peek at the crossover bar's data).
@@ -183,6 +186,7 @@ def test_ema_cross_fires_on_bar_after_cross():
 
 
 # ── 6. MACD cross: similar anti-lookahead property ────────────────────
+
 
 def test_macd_cross_fires_on_bar_after_cross():
     close = np.concatenate([np.linspace(1.5, 1.0, 30), np.linspace(1.0, 1.5, 30)])
@@ -193,8 +197,7 @@ def test_macd_cross_fires_on_bar_after_cross():
 
     sl._ARRAYS_CACHE.clear()
     sl._ATR_CACHE.clear()
-    ss = sl.macd_cross(df, fast=3, slow=8, signal=2,
-                       atr_period=3, pip_value=0.0001)
+    ss = sl.macd_cross(df, fast=3, slow=8, signal=2, atr_period=3, pip_value=0.0001)
 
     # At least one signal, and entry_price must match close at the signal bar.
     assert ss.bar_index.size >= 1
@@ -204,29 +207,26 @@ def test_macd_cross_fires_on_bar_after_cross():
 def test_macd_rejects_invalid_combos():
     close = np.linspace(1.0, 1.2, 50)
     idx = pd.date_range("2020-01-01", periods=len(close), freq="1h", tz="UTC")
-    df = pd.DataFrame({"high": close + 0.001, "low": close - 0.001, "close": close},
-                      index=idx)
+    df = pd.DataFrame({"high": close + 0.001, "low": close - 0.001, "close": close}, index=idx)
     # fast >= slow must raise InvalidCombo (sampler should have filtered this,
     # but the family is the last line of defence).
     with pytest.raises(sl.InvalidCombo):
-        sl.macd_cross(df, fast=10, slow=10, signal=3,
-                      atr_period=3, pip_value=0.0001)
+        sl.macd_cross(df, fast=10, slow=10, signal=3, atr_period=3, pip_value=0.0001)
     with pytest.raises(sl.InvalidCombo):
-        sl.macd_cross(df, fast=3, slow=10, signal=10,
-                      atr_period=3, pip_value=0.0001)
+        sl.macd_cross(df, fast=3, slow=10, signal=10, atr_period=3, pip_value=0.0001)
 
 
 # ── 7. Session tagging (sanity-check hour → session mapping) ──────────
+
 
 def test_session_of_hour_covers_all_24_hours():
     hours = np.arange(24, dtype=np.int64)
     out = sl.session_of_hour(hours)
     assert out.shape == hours.shape
     # All values must be one of the four defined session IDs.
-    assert set(out.tolist()).issubset({sl.SESSION_ASIA, sl.SESSION_LONDON,
-                                        sl.SESSION_NY, sl.SESSION_OVERLAP})
+    assert set(out.tolist()).issubset({sl.SESSION_ASIA, sl.SESSION_LONDON, sl.SESSION_NY, sl.SESSION_OVERLAP})
     # Known spot-checks from the docstring:
-    assert out[3] == sl.SESSION_ASIA       # 3am UTC → Asia
-    assert out[10] == sl.SESSION_LONDON    # 10am UTC → London
-    assert out[14] == sl.SESSION_OVERLAP   # 2pm UTC → London/NY overlap
-    assert out[18] == sl.SESSION_NY        # 6pm UTC → NY
+    assert out[3] == sl.SESSION_ASIA  # 3am UTC → Asia
+    assert out[10] == sl.SESSION_LONDON  # 10am UTC → London
+    assert out[14] == sl.SESSION_OVERLAP  # 2pm UTC → London/NY overlap
+    assert out[18] == sl.SESSION_NY  # 6pm UTC → NY

@@ -15,6 +15,7 @@ The engine filters signals by equality: ``signal.variant == PL_SIGNAL_VARIANT``
 (see audit). So a per-trial call to ``batch_evaluate`` sees all variants in the
 pooled array but only acts on the one the trial picked.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -70,6 +71,7 @@ def _df_fingerprint(df: pd.DataFrame) -> str:
     last_c = float(df[close_col].iloc[-1])
     return f"{n}|{first_ts}|{last_ts}|{first_c:.12g}|{last_c:.12g}"
 
+
 # ``pip_value`` is not constant across pairs (JPY pairs use 0.01). To avoid
 # silent bugs on non-EUR/USD data, every family REQUIRES an explicit
 # ``pip_value`` keyword — no default. The harness passes it through after
@@ -78,6 +80,7 @@ def _df_fingerprint(df: pd.DataFrame) -> str:
 
 # ── Types ──────────────────────────────────────────────────────────────
 
+
 @dataclass
 class SignalSet:
     """One family's output for one parameter combo.
@@ -85,14 +88,15 @@ class SignalSet:
     All arrays are of equal length N = number of signal events. Array dtypes
     match what ``ff_core.batch_evaluate`` expects.
     """
-    bar_index: np.ndarray    # int64
-    direction: np.ndarray    # int64, +1 long / -1 short
+
+    bar_index: np.ndarray  # int64
+    direction: np.ndarray  # int64, +1 long / -1 short
     entry_price: np.ndarray  # float64
-    atr_pips: np.ndarray     # float64
-    hour: np.ndarray         # int64
-    day: np.ndarray          # int64
+    atr_pips: np.ndarray  # float64
+    hour: np.ndarray  # int64
+    day: np.ndarray  # int64
     filter_value: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float64))
-    swing_sl:    np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float64))
+    swing_sl: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float64))
 
     def __post_init__(self) -> None:
         n = self.bar_index.size
@@ -117,11 +121,13 @@ _REGISTRY: dict[str, Callable] = {}
 
 def register(name: str) -> Callable:
     """Decorator: register a signal family under ``name``."""
+
     def _wrap(fn: Callable) -> Callable:
         if name in _REGISTRY:
             raise KeyError(f"signal family {name!r} already registered")
         _REGISTRY[name] = fn
         return fn
+
     return _wrap
 
 
@@ -136,6 +142,7 @@ def list_families() -> list[str]:
 
 
 # ── Indicator helpers (migrated from demo_speed.py) ────────────────────
+
 
 def ewm(arr: np.ndarray, span: int) -> np.ndarray:
     """Pandas-style exponentially-weighted moving average (span-based alpha)."""
@@ -162,7 +169,7 @@ def atr_ema(high: np.ndarray, low: np.ndarray, close: np.ndarray, period: int) -
 SESSION_ASIA = 0
 SESSION_LONDON = 1
 SESSION_NY = 2
-SESSION_OVERLAP = 3   # London-NY overlap (13-16 UTC)
+SESSION_OVERLAP = 3  # London-NY overlap (13-16 UTC)
 
 # Rough UTC session hours. Real-world session boundaries drift with DST; good-enough
 # for strategy gating and refinable per-EA.
@@ -171,7 +178,7 @@ _SESSION_OF_HOUR = {
     **{h: SESSION_LONDON for h in range(7, 13)},
     **{h: SESSION_OVERLAP for h in range(13, 16)},
     **{h: SESSION_NY for h in range(16, 22)},
-    **{h: SESSION_ASIA for h in range(22, 24)},   # late-NY / Asia rollover
+    **{h: SESSION_ASIA for h in range(22, 24)},  # late-NY / Asia rollover
 }
 
 
@@ -216,10 +223,10 @@ def _main_tf_arrays(main_tf: pd.DataFrame) -> dict:
         return hit
     out = {
         "high": main_tf["high"].to_numpy(dtype=np.float64, copy=True),
-        "low":  main_tf["low"].to_numpy(dtype=np.float64, copy=True),
+        "low": main_tf["low"].to_numpy(dtype=np.float64, copy=True),
         "close": main_tf["close"].to_numpy(dtype=np.float64, copy=True),
         "hour": main_tf.index.hour.to_numpy().astype(np.int64),
-        "day":  main_tf.index.dayofweek.to_numpy().astype(np.int64),
+        "day": main_tf.index.dayofweek.to_numpy().astype(np.int64),
     }
     _ARRAYS_CACHE[key] = out
     return out
@@ -239,10 +246,12 @@ def _signals_from_crosses(
     bars_up = np.where(up)[0] + 1
     bars_dn = np.where(dn)[0] + 1
     bars = np.concatenate([bars_up, bars_dn])
-    dirs = np.concatenate([
-        np.ones(bars_up.size, dtype=np.int64),
-        -np.ones(bars_dn.size, dtype=np.int64),
-    ])
+    dirs = np.concatenate(
+        [
+            np.ones(bars_up.size, dtype=np.int64),
+            -np.ones(bars_dn.size, dtype=np.int64),
+        ]
+    )
     order = np.argsort(bars)
     bars = bars[order].astype(np.int64)
     dirs = dirs[order]
@@ -259,9 +268,9 @@ def _signals_from_crosses(
 
 # ── Families ───────────────────────────────────────────────────────────
 
+
 @register("ema_cross")
-def ema_cross(main_tf: pd.DataFrame, *, fast: int, slow: int,
-              atr_period: int, pip_value: float) -> SignalSet:
+def ema_cross(main_tf: pd.DataFrame, *, fast: int, slow: int, atr_period: int, pip_value: float) -> SignalSet:
     if fast >= slow:
         raise InvalidCombo(f"ema_cross needs fast < slow, got fast={fast} slow={slow}")
     h = _main_tf_arrays(main_tf)
@@ -275,8 +284,7 @@ def ema_cross(main_tf: pd.DataFrame, *, fast: int, slow: int,
 
 
 @register("macd_cross")
-def macd_cross(main_tf: pd.DataFrame, *, fast: int, slow: int, signal: int,
-               atr_period: int, pip_value: float) -> SignalSet:
+def macd_cross(main_tf: pd.DataFrame, *, fast: int, slow: int, signal: int, atr_period: int, pip_value: float) -> SignalSet:
     if fast >= slow:
         raise InvalidCombo(f"macd_cross needs fast < slow, got fast={fast} slow={slow}")
     if signal >= slow:
@@ -294,15 +302,14 @@ def macd_cross(main_tf: pd.DataFrame, *, fast: int, slow: int, signal: int,
 
 
 @register("donchian")
-def donchian(main_tf: pd.DataFrame, *, lookback: int,
-             atr_period: int, pip_value: float) -> SignalSet:
+def donchian(main_tf: pd.DataFrame, *, lookback: int, atr_period: int, pip_value: float) -> SignalSet:
     """Donchian breakout: close above the prior N-bar high → long; below prior N-bar low → short."""
     if lookback < 2:
         raise InvalidCombo(f"donchian needs lookback >= 2, got {lookback}")
     h = _main_tf_arrays(main_tf)
     # Rolling prior max/min over ``lookback`` bars, strictly before current bar.
     highs = pd.Series(h["high"]).shift(1).rolling(lookback).max().to_numpy()
-    lows  = pd.Series(h["low"]).shift(1).rolling(lookback).min().to_numpy()
+    lows = pd.Series(h["low"]).shift(1).rolling(lookback).min().to_numpy()
     long_breaks = (h["close"] > highs) & ~np.isnan(highs)
     short_breaks = (h["close"] < lows) & ~np.isnan(lows)
     # One signal per fresh breakout edge.
@@ -311,10 +318,12 @@ def donchian(main_tf: pd.DataFrame, *, lookback: int,
     bars_up = np.where(up)[0]
     bars_dn = np.where(dn)[0]
     bars = np.concatenate([bars_up, bars_dn])
-    dirs = np.concatenate([
-        np.ones(bars_up.size, dtype=np.int64),
-        -np.ones(bars_dn.size, dtype=np.int64),
-    ])
+    dirs = np.concatenate(
+        [
+            np.ones(bars_up.size, dtype=np.int64),
+            -np.ones(bars_dn.size, dtype=np.int64),
+        ]
+    )
     order = np.argsort(bars)
     bars = bars[order].astype(np.int64)
     dirs = dirs[order]
@@ -330,8 +339,7 @@ def donchian(main_tf: pd.DataFrame, *, lookback: int,
 
 
 @register("rsi_reversal")
-def rsi_reversal(main_tf: pd.DataFrame, *, period: int, lower: int, upper: int,
-                 atr_period: int, pip_value: float) -> SignalSet:
+def rsi_reversal(main_tf: pd.DataFrame, *, period: int, lower: int, upper: int, atr_period: int, pip_value: float) -> SignalSet:
     """RSI reversal: crosses back above ``lower`` → long; back below ``upper`` → short."""
     if not (0 < lower < upper < 100):
         raise InvalidCombo(f"rsi_reversal needs 0<lower<upper<100, got lower={lower} upper={upper}")
@@ -344,10 +352,12 @@ def rsi_reversal(main_tf: pd.DataFrame, *, period: int, lower: int, upper: int,
     bars_up = np.where(up)[0] + 1
     bars_dn = np.where(dn)[0] + 1
     bars = np.concatenate([bars_up, bars_dn])
-    dirs = np.concatenate([
-        np.ones(bars_up.size, dtype=np.int64),
-        -np.ones(bars_dn.size, dtype=np.int64),
-    ])
+    dirs = np.concatenate(
+        [
+            np.ones(bars_up.size, dtype=np.int64),
+            -np.ones(bars_dn.size, dtype=np.int64),
+        ]
+    )
     order = np.argsort(bars)
     bars = bars[order].astype(np.int64)
     dirs = dirs[order]
@@ -364,6 +374,7 @@ def rsi_reversal(main_tf: pd.DataFrame, *, period: int, lower: int, upper: int,
 
 # ── Grid iteration and library build ───────────────────────────────────
 
+
 def _iter_grid(param_spec: dict) -> Iterator[dict]:
     """Cartesian product over {name: Leaf} → iterator of {name: value} dicts.
 
@@ -375,10 +386,7 @@ def _iter_grid(param_spec: dict) -> Iterator[dict]:
     for k in keys:
         leaf = param_spec[k]
         if not isinstance(leaf, (sc.IntRange, sc.FloatRange, sc.Choice)):
-            raise TypeError(
-                f"signal grid entry {k!r} must be a Leaf (IntRange/FloatRange/Choice), "
-                f"got {type(leaf).__name__}"
-            )
+            raise TypeError(f"signal grid entry {k!r} must be a Leaf (IntRange/FloatRange/Choice), got {type(leaf).__name__}")
         value_lists.append(sc.expand(leaf))
     for combo in itertools.product(*value_lists):
         yield dict(zip(keys, combo))
@@ -387,6 +395,7 @@ def _iter_grid(param_spec: dict) -> Iterator[dict]:
 @dataclass
 class SignalLibrary:
     """Pooled signal arrays produced by building an EA's signal section."""
+
     bar_index: np.ndarray
     direction: np.ndarray
     entry_price: np.ndarray
@@ -395,8 +404,8 @@ class SignalLibrary:
     day: np.ndarray
     filter_value: np.ndarray
     swing_sl: np.ndarray
-    variant: np.ndarray                     # int64: per-signal variant id
-    variant_map: list[dict]                 # variant_id → {family, params, n_signals}
+    variant: np.ndarray  # int64: per-signal variant id
+    variant_map: list[dict]  # variant_id → {family, params, n_signals}
 
     @property
     def n_signals(self) -> int:
@@ -434,10 +443,12 @@ def _pool_worker(family_name: str, combo: dict):
     """
     fn = get_family(family_name)
     try:
-        ss = fn(_WORKER_STATE["df"],
-                pip_value=_WORKER_STATE["pip_value"],
-                atr_period=_WORKER_STATE["atr_period"],
-                **combo)
+        ss = fn(
+            _WORKER_STATE["df"],
+            pip_value=_WORKER_STATE["pip_value"],
+            atr_period=_WORKER_STATE["atr_period"],
+            **combo,
+        )
     except InvalidCombo:
         return None
     return ss
@@ -481,24 +492,25 @@ def _canonical_signals_cfg(signals_cfg: dict) -> str:
     return json.dumps(out, sort_keys=True, default=str)
 
 
-def _signal_cache_key(data_path: Path, df_fp: str, signals_cfg: dict,
-                      pip_value: float, atr_period: int) -> str:
+def _signal_cache_key(data_path: Path, df_fp: str, signals_cfg: dict, pip_value: float, atr_period: int) -> str:
     try:
         mtime = int(data_path.stat().st_mtime_ns)
         size = int(data_path.stat().st_size)
     except OSError:
         mtime, size = 0, 0
-    payload = "|".join([
-        _CACHE_VERSION,
-        _source_hash(),
-        str(data_path.resolve()),
-        str(mtime),
-        str(size),
-        df_fp,
-        _canonical_signals_cfg(signals_cfg),
-        f"pip={pip_value:.12g}",
-        f"atr={int(atr_period)}",
-    ])
+    payload = "|".join(
+        [
+            _CACHE_VERSION,
+            _source_hash(),
+            str(data_path.resolve()),
+            str(mtime),
+            str(size),
+            df_fp,
+            _canonical_signals_cfg(signals_cfg),
+            f"pip={pip_value:.12g}",
+            f"atr={int(atr_period)}",
+        ]
+    )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -543,9 +555,14 @@ def _save_cached_library(path: Path, lib: SignalLibrary) -> None:
     os.replace(tmp, path)
 
 
-def _run_variants_serial(tasks: list[tuple[str, dict]], main_tf_df: pd.DataFrame,
-                         pip_value: float, atr_period: int,
-                         total_est: int, progress_cb) -> list:
+def _run_variants_serial(
+    tasks: list[tuple[str, dict]],
+    main_tf_df: pd.DataFrame,
+    pip_value: float,
+    atr_period: int,
+    total_est: int,
+    progress_cb,
+) -> list:
     """Serial path: build each variant in order. Returns outcomes list aligned
     with ``tasks`` — SignalSet for kept variants, None for invalid/empty.
     """
@@ -568,17 +585,23 @@ def _run_variants_serial(tasks: list[tuple[str, dict]], main_tf_df: pd.DataFrame
             if now - last_tick > 0.2:
                 last_tick = now
                 try:
-                    progress_cb(min(0.999, i / max(total_est, 1)),
-                                f"building signals {i}/{total_est} "
-                                f"({family_name}: {kept} kept)")
+                    progress_cb(
+                        min(0.999, i / max(total_est, 1)),
+                        f"building signals {i}/{total_est} ({family_name}: {kept} kept)",
+                    )
                 except Exception:
                     pass
     return outcomes
 
 
-def _run_variants_parallel(tasks: list[tuple[str, dict]], main_tf_df: pd.DataFrame,
-                           pip_value: float, atr_period: int,
-                           total_est: int, progress_cb) -> list:
+def _run_variants_parallel(
+    tasks: list[tuple[str, dict]],
+    main_tf_df: pd.DataFrame,
+    pip_value: float,
+    atr_period: int,
+    total_est: int,
+    progress_cb,
+) -> list:
     """Parallel path: fan tasks across worker processes. Order-preserving
     (results slotted by submission index) so variant IDs match serial.
     """
@@ -591,10 +614,7 @@ def _run_variants_parallel(tasks: list[tuple[str, dict]], main_tf_df: pd.DataFra
         initializer=_pool_init,
         initargs=(main_tf_df, float(pip_value), int(atr_period)),
     ) as pool:
-        fut_to_idx = {
-            pool.submit(_pool_worker, family_name, combo): i
-            for i, (family_name, combo) in enumerate(tasks)
-        }
+        fut_to_idx = {pool.submit(_pool_worker, family_name, combo): i for i, (family_name, combo) in enumerate(tasks)}
         for fut in as_completed(fut_to_idx):
             i = fut_to_idx[fut]
             outcomes[i] = fut.result()
@@ -605,19 +625,25 @@ def _run_variants_parallel(tasks: list[tuple[str, dict]], main_tf_df: pd.DataFra
                     last_tick = now
                     kept = sum(1 for x in outcomes if x is not None)
                     try:
-                        progress_cb(min(0.999, done / max(total_est, 1)),
-                                    f"building signals {done}/{total_est} "
-                                    f"(parallel x{workers}: {kept} kept)")
+                        progress_cb(
+                            min(0.999, done / max(total_est, 1)),
+                            f"building signals {done}/{total_est} (parallel x{workers}: {kept} kept)",
+                        )
                     except Exception:
                         pass
     return outcomes
 
 
-def build_signal_library(signals_cfg: dict, main_tf_df: pd.DataFrame,
-                         *, pip_value: float, atr_period: int,
-                         progress_cb=None,
-                         data_path: Path | str | None = None,
-                         use_cache: bool = True) -> SignalLibrary:
+def build_signal_library(
+    signals_cfg: dict,
+    main_tf_df: pd.DataFrame,
+    *,
+    pip_value: float,
+    atr_period: int,
+    progress_cb=None,
+    data_path: Path | str | None = None,
+    use_cache: bool = True,
+) -> SignalLibrary:
     """Expand an EA's ``signals`` config into one pooled library.
 
     ``signals_cfg`` maps family name → {param_name: Leaf}. Every Cartesian combo
@@ -646,9 +672,10 @@ def build_signal_library(signals_cfg: dict, main_tf_df: pd.DataFrame,
             if hit is not None:
                 if progress_cb is not None:
                     try:
-                        progress_cb(0.999,
-                                    f"signals cached ({hit.n_variants} variants, "
-                                    f"{hit.n_signals:,} signals)")
+                        progress_cb(
+                            0.999,
+                            f"signals cached ({hit.n_variants} variants, {hit.n_signals:,} signals)",
+                        )
                     except Exception:
                         pass
                 return hit
@@ -672,11 +699,21 @@ def build_signal_library(signals_cfg: dict, main_tf_df: pd.DataFrame,
 
     if _should_parallelize(total_est):
         outcomes = _run_variants_parallel(
-            tasks, main_tf_df, pip_value, atr_period, total_est, progress_cb,
+            tasks,
+            main_tf_df,
+            pip_value,
+            atr_period,
+            total_est,
+            progress_cb,
         )
     else:
         outcomes = _run_variants_serial(
-            tasks, main_tf_df, pip_value, atr_period, total_est, progress_cb,
+            tasks,
+            main_tf_df,
+            pip_value,
+            atr_period,
+            total_est,
+            progress_cb,
         )
 
     bar_index_parts: list[np.ndarray] = []

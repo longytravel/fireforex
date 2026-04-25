@@ -1,4 +1,5 @@
 """Inventory scan, caching, and back-compat shape."""
+
 from __future__ import annotations
 
 import json
@@ -12,11 +13,17 @@ from ff.data import inventory as inv
 
 def _write_parquet(path: Path, bars: int = 100) -> None:
     idx = pd.date_range("2024-01-01", periods=bars, freq="h", tz="UTC")
-    df = pd.DataFrame({
-        "timestamp": idx,
-        "open": 1.0, "high": 1.1, "low": 0.9, "close": 1.05,
-        "volume": 0, "spread": 0.0001,
-    })
+    df = pd.DataFrame(
+        {
+            "timestamp": idx,
+            "open": 1.0,
+            "high": 1.1,
+            "low": 0.9,
+            "close": 1.05,
+            "volume": 0,
+            "spread": 0.0001,
+        }
+    )
     df.to_parquet(path, index=False)
 
 

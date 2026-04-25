@@ -5,16 +5,16 @@ array and asserts the Rust engine + Python finalisation agree. Covers:
 Expectancy (R / pips), SQN, Omega, Recovery, UPI, Max-Consec-Loss, PSR,
 DSR, K-Ratio, Quality v1/v2 invariants.
 """
+
 from __future__ import annotations
 
 import math
 
+import ff_core as bc
 import numpy as np
 import pytest
 
-import ff_core as bc
 from ff.harness import METRIC_INDEX, _finalise_dsr, pick_best
-
 
 # 10-trade reference fixture. Alternating wins/losses with no adjacent
 # losses → max_consec_loss = 1. Mean=5, var(n-1)=82, gross=65, loss=15,
@@ -25,8 +25,7 @@ FIX_N_BARS = 1000
 FIX_BPY = 6048.0  # H1 default
 
 
-def _compute_one_trial(pnl: np.ndarray, avg_sl: float = FIX_AVG_SL,
-                       n_bars: int = FIX_N_BARS, bpy: float = FIX_BPY) -> np.ndarray:
+def _compute_one_trial(pnl: np.ndarray, avg_sl: float = FIX_AVG_SL, n_bars: int = FIX_N_BARS, bpy: float = FIX_BPY) -> np.ndarray:
     """Run one synthetic trade series through the Rust metric kernel.
 
     Rust's ``batch_evaluate`` drives the full simulator, so we can't reach
@@ -54,10 +53,12 @@ def test_metric_index_contract_is_stable():
 
 def test_num_metrics_matches_registry():
     from ff.harness import METRIC_COLUMNS
+
     assert len(METRIC_COLUMNS) == bc.NUM_METRICS == 25
 
 
 # ── DSR / PSR finalisation ─────────────────────────────────────────────
+
 
 def test_dsr_equals_psr_when_n_trials_is_one():
     m = np.zeros((3, bc.NUM_METRICS), dtype=np.float64)
@@ -76,8 +77,10 @@ def test_dsr_is_never_greater_than_psr():
 
 def test_dsr_deflation_is_stronger_with_more_trials():
     psr = 0.95
-    m_small = np.zeros((1, bc.NUM_METRICS)); m_small[0, METRIC_INDEX["psr"]] = psr
-    m_large = np.zeros((1, bc.NUM_METRICS)); m_large[0, METRIC_INDEX["psr"]] = psr
+    m_small = np.zeros((1, bc.NUM_METRICS))
+    m_small[0, METRIC_INDEX["psr"]] = psr
+    m_large = np.zeros((1, bc.NUM_METRICS))
+    m_large[0, METRIC_INDEX["psr"]] = psr
     _finalise_dsr(m_small, n_trials=10)
     _finalise_dsr(m_large, n_trials=10_000)
     dsr_small = m_small[0, METRIC_INDEX["dsr"]]
@@ -86,6 +89,7 @@ def test_dsr_deflation_is_stronger_with_more_trials():
 
 
 # ── pick_best ──────────────────────────────────────────────────────────
+
 
 def test_pick_best_matches_legacy_argmax_quality():
     rng = np.random.default_rng(0)
@@ -99,8 +103,8 @@ def test_pick_best_matches_legacy_argmax_quality():
 
 def test_pick_best_tie_break_prefers_higher_return_pct():
     m = np.zeros((5, bc.NUM_METRICS))
-    m[:, METRIC_INDEX["quality"]] = [1.0, 3.0, 2.0, 3.0, 0.5]       # tied at 3 → rows 1 & 3
-    m[:, METRIC_INDEX["return_pct"]] = [10, 50, 80, 90, 200]         # row 3 > row 1
+    m[:, METRIC_INDEX["quality"]] = [1.0, 3.0, 2.0, 3.0, 0.5]  # tied at 3 → rows 1 & 3
+    m[:, METRIC_INDEX["return_pct"]] = [10, 50, 80, 90, 200]  # row 3 > row 1
     m[:, METRIC_INDEX["trades"]] = [5, 20, 30, 15, 10]
     assert pick_best(m, objective="quality", tie_break=("return_pct", "trades")) == 3
 
@@ -125,7 +129,7 @@ def test_pick_best_falls_back_when_no_row_passes_constraints():
 def test_pick_best_lower_is_better_for_drawdown_metrics():
     m = np.zeros((4, bc.NUM_METRICS))
     m[:, METRIC_INDEX["max_dd_pct"]] = [50.0, 20.0, 10.0, 30.0]  # row 2 is best (lowest)
-    m[:, METRIC_INDEX["return_pct"]] = [100, 100, 100, 100]      # all profitable
+    m[:, METRIC_INDEX["return_pct"]] = [100, 100, 100, 100]  # all profitable
     m[:, METRIC_INDEX["profit_factor"]] = [2.0, 2.0, 2.0, 2.0]
     assert pick_best(m, objective="max_dd_pct") == 2
 
@@ -135,8 +139,8 @@ def test_pick_best_skips_losing_trials_by_default():
     # K-Ratio, Tail Ratio). pick_best must not promote it when profitable
     # trials exist.
     m = np.zeros((3, bc.NUM_METRICS))
-    m[:, METRIC_INDEX["r_squared"]] = [0.99, 0.80, 0.70]          # losing row 0 has highest R²
-    m[:, METRIC_INDEX["return_pct"]] = [-500.0, 100.0, 50.0]     # only rows 1, 2 are profitable
+    m[:, METRIC_INDEX["r_squared"]] = [0.99, 0.80, 0.70]  # losing row 0 has highest R²
+    m[:, METRIC_INDEX["return_pct"]] = [-500.0, 100.0, 50.0]  # only rows 1, 2 are profitable
     m[:, METRIC_INDEX["profit_factor"]] = [0.5, 1.5, 1.3]
     got = pick_best(m, objective="r_squared")
     assert got == 1, f"expected row 1 (profitable, highest R² among winners), got {got}"
@@ -169,8 +173,7 @@ def test_pick_best_handles_nan_in_tie_break_column():
     m[:, METRIC_INDEX["avg_hold_bars"]] = np.nan
     m[:, METRIC_INDEX["return_pct"]] = [10, 50, 30, 100]
     # avg_hold_bars is all-NaN so should be skipped; return_pct is the real tie-break.
-    got = pick_best(m, objective="quality",
-                    tie_break=("avg_hold_bars", "return_pct"))
+    got = pick_best(m, objective="quality", tie_break=("avg_hold_bars", "return_pct"))
     assert got == 1  # row with return_pct=50 (highest among quality==1.0 ties)
 
 
@@ -180,10 +183,11 @@ def test_pick_best_handles_nan_in_tie_break_column():
 # harness runs `python run.py eas/complex01.py --trials 100` as part of
 # its build). Skip gracefully otherwise.
 
+
 def _find_recent_run_npz():
     from pathlib import Path
-    candidates = sorted(Path("artifacts/runs").glob("complex01*.npz"),
-                        key=lambda p: p.stat().st_mtime, reverse=True)
+
+    candidates = sorted(Path("artifacts/runs").glob("complex01*.npz"), key=lambda p: p.stat().st_mtime, reverse=True)
     for p in candidates:
         with np.load(p, allow_pickle=False) as z:
             if "per_trial_metrics" in z.files and z["per_trial_metrics"].shape[1] >= bc.NUM_METRICS:
@@ -270,13 +274,12 @@ def test_sqn_matches_formula_on_real_run():
     # Pick a trial with enough trades to have stable stats.
     for i in range(len(m)):
         if n_tr[i] >= 30:
-            arr = pnl[i, :n_tr[i]].astype(np.float64)
+            arr = pnl[i, : n_tr[i]].astype(np.float64)
             n = len(arr)
             mean = arr.mean()
             std = arr.std(ddof=1)
             expected = math.sqrt(n) * mean / std if std > 0 else 0.0
             got = float(m[i, METRIC_INDEX["sqn"]])
-            assert math.isclose(got, expected, rel_tol=1e-3, abs_tol=1e-4), \
-                f"trial {i}: SQN mismatch — got {got}, expected {expected}"
+            assert math.isclose(got, expected, rel_tol=1e-3, abs_tol=1e-4), f"trial {i}: SQN mismatch — got {got}, expected {expected}"
             return
     pytest.skip("no trial with >= 30 trades for SQN formula check")

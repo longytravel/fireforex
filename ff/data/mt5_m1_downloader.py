@@ -20,6 +20,7 @@ smallest increment). On modern 5-digit and 3-digit-JPY brokers 1 pip = 10
 points universally — same convention ``ff/live/runner.py:659`` applies to
 live spread telemetry, so we divide by 10 here too.
 """
+
 from __future__ import annotations
 
 import os
@@ -31,9 +32,9 @@ from typing import Any, Callable
 import pandas as pd
 
 from ff import harness
-from . import inventory
-from ..live import broker_mt5 as _bmt5
 
+from ..live import broker_mt5 as _bmt5
+from . import inventory
 
 LogCallback = Callable[[str], None]
 CancelCallback = Callable[[], bool]
@@ -85,15 +86,15 @@ def _ensure_mt5_connected() -> Any:
     mt5 = _bmt5._require_mt5()
     if not mt5.initialize():
         err = mt5.last_error()
-        raise RuntimeError(
-            f"MT5 initialize() failed: {err}. "
-            "Open MetaTrader 5 terminal and ensure it's logged in, then retry."
-        )
+        raise RuntimeError(f"MT5 initialize() failed: {err}. Open MetaTrader 5 terminal and ensure it's logged in, then retry.")
     return mt5
 
 
 def _fetch_window(
-    mt5: Any, symbol: str, start_utc: datetime, end_utc: datetime,
+    mt5: Any,
+    symbol: str,
+    start_utc: datetime,
+    end_utc: datetime,
 ) -> pd.DataFrame:
     """Pull M1 rates for [start_utc, end_utc] from MT5 and normalise to our
     parquet schema.
@@ -104,12 +105,23 @@ def _fetch_window(
     pattern ``MT5Broker.connect()`` uses.
     """
     rates = mt5.copy_rates_range(
-        symbol, mt5.TIMEFRAME_M1, start_utc, end_utc,
+        symbol,
+        mt5.TIMEFRAME_M1,
+        start_utc,
+        end_utc,
     )
     if rates is None or len(rates) == 0:
-        return pd.DataFrame(columns=[
-            "timestamp", "open", "high", "low", "close", "volume", "spread",
-        ])
+        return pd.DataFrame(
+            columns=[
+                "timestamp",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "spread",
+            ]
+        )
 
     df = pd.DataFrame(rates)
 
@@ -123,7 +135,8 @@ def _fetch_window(
 
     df["timestamp"] = pd.to_datetime(
         df["time"].astype("int64") + int(offset_sec),
-        unit="s", utc=True,
+        unit="s",
+        utc=True,
     )
 
     # Volume field is "tick_volume" in MT5 historical; fall back gracefully.
@@ -140,9 +153,17 @@ def _fetch_window(
     else:
         df["spread"] = float("nan")
 
-    return df[[
-        "timestamp", "open", "high", "low", "close", "volume", "spread",
-    ]].copy()
+    return df[
+        [
+            "timestamp",
+            "open",
+            "high",
+            "low",
+            "close",
+            "volume",
+            "spread",
+        ]
+    ].copy()
 
 
 def _write_atomic(path: Path, df: pd.DataFrame) -> None:
@@ -193,16 +214,20 @@ def download(
 
     start_utc = datetime(start.year, start.month, start.day, tzinfo=timezone.utc)
     # Exclusive end of day so we don't double-count midnight.
-    end_utc = (datetime(end.year, end.month, end.day, tzinfo=timezone.utc)
-               + timedelta(days=1))
+    end_utc = datetime(end.year, end.month, end.day, tzinfo=timezone.utc) + timedelta(days=1)
 
     existing = _load_existing(path) if append else None
 
     if cancel_cb is not None and cancel_cb():
         _emit(log_cb, "cancelled before MT5 fetch")
-        return {"path": str(path), "appended": False, "new_bars": 0,
-                "total_bars": int(len(existing)) if existing is not None else 0,
-                "start_ts": None, "end_ts": None}
+        return {
+            "path": str(path),
+            "appended": False,
+            "new_bars": 0,
+            "total_bars": int(len(existing)) if existing is not None else 0,
+            "start_ts": None,
+            "end_ts": None,
+        }
 
     # Allow off-terminal replays: if FF_MT5_SKIP_DOWNLOAD=1 OR the local
     # MetaTrader5 package / terminal is unavailable, reuse existing parquet
@@ -217,9 +242,17 @@ def download(
         _emit(log_cb, f"MT5 terminal not reachable; using on-disk parquet only ({e})")
 
     if mt5 is None:
-        new_df = pd.DataFrame(columns=[
-            "timestamp", "open", "high", "low", "close", "volume", "spread",
-        ])
+        new_df = pd.DataFrame(
+            columns=[
+                "timestamp",
+                "open",
+                "high",
+                "low",
+                "close",
+                "volume",
+                "spread",
+            ]
+        )
         if existing is None:
             raise FileNotFoundError(
                 f"No MT5 terminal and no existing parquet at {path}. "
@@ -227,8 +260,7 @@ def download(
                 "MT5 installed, or unset FF_MT5_SKIP_DOWNLOAD."
             )
     else:
-        _emit(log_cb, f"→ MT5 {pair} ({symbol}) M1  "
-                      f"{start.isoformat()} → {end.isoformat()}")
+        _emit(log_cb, f"→ MT5 {pair} ({symbol}) M1  {start.isoformat()} → {end.isoformat()}")
         new_df = _fetch_window(mt5, symbol, start_utc, end_utc)
         _emit(log_cb, f"  {len(new_df):,} new M1 bars from MT5")
 
@@ -244,7 +276,9 @@ def download(
                 existing[c] = pd.NA
         existing = existing[new_df.columns]
         existing["timestamp"] = pd.to_datetime(
-            existing["timestamp"], utc=True, errors="coerce",
+            existing["timestamp"],
+            utc=True,
+            errors="coerce",
         )
         existing = existing.dropna(subset=["timestamp"])
         combined = pd.concat([existing, new_df], ignore_index=True)
@@ -269,8 +303,6 @@ def download(
         "appended": append and existing is not None,
         "new_bars": new_bars,
         "total_bars": int(len(final_df)),
-        "start_ts": (final_df["timestamp"].iloc[0].isoformat()
-                     if not final_df.empty else None),
-        "end_ts": (final_df["timestamp"].iloc[-1].isoformat()
-                   if not final_df.empty else None),
+        "start_ts": (final_df["timestamp"].iloc[0].isoformat() if not final_df.empty else None),
+        "end_ts": (final_df["timestamp"].iloc[-1].isoformat() if not final_df.empty else None),
     }

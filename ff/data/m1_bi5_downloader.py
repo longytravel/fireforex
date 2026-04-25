@@ -28,6 +28,7 @@ Empirically verified against Dukascopy's GBP/USD 2024-06-03 file:
 record 0 decodes to (0 s, 127439, 127429, 127428, 127439, 55.89) →
 O=1.27439, C=1.27429, L=1.27428, H=1.27439 at 00:00 UTC.
 """
+
 from __future__ import annotations
 
 import lzma
@@ -41,8 +42,8 @@ from urllib.request import Request, urlopen
 import pandas as pd
 
 from ff import harness
-from . import inventory
 
+from . import inventory
 
 LogCallback = Callable[[str], None]
 CancelCallback = Callable[[], bool]
@@ -77,8 +78,7 @@ def _target_path(pair: str) -> Path:
 
 def _day_url(pair: str, d: date, side: str) -> str:
     # side ∈ {"BID", "ASK"}. Months zero-based in URL.
-    return (f"{_BASE_URL}/{_symbol(pair)}/{d.year:04d}/{d.month - 1:02d}/"
-            f"{d.day:02d}/{side}_candles_min_1.bi5")
+    return f"{_BASE_URL}/{_symbol(pair)}/{d.year:04d}/{d.month - 1:02d}/{d.day:02d}/{side}_candles_min_1.bi5"
 
 
 def _fetch_day(url: str, retries: int = 3, timeout: float = 45.0) -> bytes:
@@ -93,7 +93,7 @@ def _fetch_day(url: str, retries: int = 3, timeout: float = 45.0) -> bytes:
             if "404" in msg or "not found" in msg:
                 return b""
             last_err = exc
-            time.sleep(2.0 ** attempt)
+            time.sleep(2.0**attempt)
     assert last_err is not None
     raise last_err
 
@@ -134,14 +134,16 @@ def _decode_candles(raw: bytes, day_start: datetime, scale: float) -> pd.DataFra
     base = pd.Timestamp(day_start)
     ts = base + pd.to_timedelta(t_list, unit="s")
 
-    return pd.DataFrame({
-        "timestamp": ts,
-        "open": o_list,
-        "high": h_list,
-        "low": l_list,
-        "close": c_list,
-        "volume": v_list,
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": ts,
+            "open": o_list,
+            "high": h_list,
+            "low": l_list,
+            "close": c_list,
+            "volume": v_list,
+        }
+    )
 
 
 def _write_atomic(path: Path, df: pd.DataFrame) -> None:
@@ -179,7 +181,10 @@ def _iter_days(start_d: date, end_d: date):
 
 
 def _fetch_day_via_ticks(
-    pair: str, d: date, side: str, scale: float,
+    pair: str,
+    d: date,
+    side: str,
+    scale: float,
     log_cb: LogCallback | None,
     cancel_cb: CancelCallback | None,
 ) -> pd.DataFrame:
@@ -224,14 +229,21 @@ def _fetch_day_via_ticks(
     m1 = ticks_df[col].resample("1min").ohlc().dropna(how="any")
     m1 = m1.reset_index()
     m1["volume"] = 0.0  # tick files don't carry per-minute volume reliably
-    _emit(log_cb, f"  {side} tick-fallback @ {d.isoformat()}: "
-                  f"{len(m1)} M1 bars from {last_hour + 1} hours")
+    _emit(
+        log_cb,
+        f"  {side} tick-fallback @ {d.isoformat()}: {len(m1)} M1 bars from {last_hour + 1} hours",
+    )
     return m1[["timestamp", "open", "high", "low", "close", "volume"]]
 
 
-def _fetch_side(pair: str, days: list[date], side: str, scale: float,
-                log_cb: LogCallback | None,
-                cancel_cb: CancelCallback | None) -> pd.DataFrame:
+def _fetch_side(
+    pair: str,
+    days: list[date],
+    side: str,
+    scale: float,
+    log_cb: LogCallback | None,
+    cancel_cb: CancelCallback | None,
+) -> pd.DataFrame:
     frames: list[pd.DataFrame] = []
     fetched = 0
     today = datetime.now(timezone.utc).date()
@@ -265,10 +277,15 @@ def _fetch_side(pair: str, days: list[date], side: str, scale: float,
     return pd.concat(frames, ignore_index=True)
 
 
-def download(pair: str, start: date, end: date, *,
-             append: bool = True,
-             log_cb: LogCallback | None = None,
-             cancel_cb: CancelCallback | None = None) -> dict:
+def download(
+    pair: str,
+    start: date,
+    end: date,
+    *,
+    append: bool = True,
+    log_cb: LogCallback | None = None,
+    cancel_cb: CancelCallback | None = None,
+) -> dict:
     """Download a window of Dukascopy M1 candles to ``{pair}_M1.parquet``.
 
     Fetches BID + ASK sides, computes per-candle spread, writes
@@ -295,10 +312,13 @@ def download(pair: str, start: date, end: date, *,
                 existing = existing.reset_index()
             existing.columns = [c.lower() for c in existing.columns]
             ts = pd.to_datetime(existing["timestamp"], utc=True, errors="coerce").dropna()
-            _emit(log_cb, f"append — existing M1 has {len(existing):,} bars "
-                          f"({ts.min().date()} → {ts.max().date()}). "
-                          f"Will fetch user window {start_d} → {end_d} and merge "
-                          f"(skip days already covered).")
+            _emit(
+                log_cb,
+                f"append — existing M1 has {len(existing):,} bars "
+                f"({ts.min().date()} → {ts.max().date()}). "
+                f"Will fetch user window {start_d} → {end_d} and merge "
+                f"(skip days already covered).",
+            )
 
     # Always honour the user's window. Skip days already covered (with at least
     # 1 bar) by the existing file — supports both backfill and forward-append.
@@ -315,9 +335,14 @@ def download(pair: str, start: date, end: date, *,
 
     if not days:
         _emit(log_cb, "nothing to fetch — every requested weekday already has bars")
-        return {"path": str(path), "appended": True, "new_bars": 0,
-                "total_bars": int(len(existing)) if existing is not None else 0,
-                "start_ts": None, "end_ts": None}
+        return {
+            "path": str(path),
+            "appended": True,
+            "new_bars": 0,
+            "total_bars": int(len(existing)) if existing is not None else 0,
+            "start_ts": None,
+            "end_ts": None,
+        }
 
     _emit(log_cb, f"→ {pair} M1  {days[0].isoformat()} → {days[-1].isoformat()}")
     _emit(log_cb, f"  {len(days)} days × 2 sides (BID+ASK) to fetch")
@@ -339,12 +364,11 @@ def download(pair: str, start: date, end: date, *,
             ask_df = ask_df.drop_duplicates(subset=["timestamp"], keep="last")
             ask_df = ask_df.sort_values("timestamp").reset_index(drop=True)
             merged = bid_df.merge(
-                ask_df[["timestamp", "open", "close"]]
-                    .rename(columns={"open": "_ask_o", "close": "_ask_c"}),
-                on="timestamp", how="left",
+                ask_df[["timestamp", "open", "close"]].rename(columns={"open": "_ask_o", "close": "_ask_c"}),
+                on="timestamp",
+                how="left",
             )
-            merged["spread"] = ((merged["_ask_o"] - merged["open"])
-                                + (merged["_ask_c"] - merged["close"])) / 2.0
+            merged["spread"] = ((merged["_ask_o"] - merged["open"]) + (merged["_ask_c"] - merged["close"])) / 2.0
             bid_df = merged.drop(columns=["_ask_o", "_ask_c"])
         else:
             bid_df["spread"] = float("nan")
@@ -389,8 +413,6 @@ def download(pair: str, start: date, end: date, *,
         "appended": append and existing is not None,
         "new_bars": new_bars,
         "total_bars": int(len(final_df)),
-        "start_ts": (final_df["timestamp"].iloc[0].isoformat()
-                     if not final_df.empty else None),
-        "end_ts": (final_df["timestamp"].iloc[-1].isoformat()
-                   if not final_df.empty else None),
+        "start_ts": (final_df["timestamp"].iloc[0].isoformat() if not final_df.empty else None),
+        "end_ts": (final_df["timestamp"].iloc[-1].isoformat() if not final_df.empty else None),
     }

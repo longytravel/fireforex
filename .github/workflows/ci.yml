@@ -32,14 +32,14 @@ jobs:
             core/target
           key: ${{ runner.os }}-ff-${{ hashFiles('pyproject.toml','core/Cargo.toml','core/Cargo.lock') }}
 
-      - name: Install python deps
+      - name: Install python deps + build Rust engine
         run: |
           python -m pip install --upgrade pip
-          pip install maturin pytest ruff
-          pip install -e .
-
-      - name: Build Rust engine
-        run: maturin develop --release
+          # `pip install -e .[dev]` invokes maturin via PEP 517 to build
+          # ff_core in-place AND pulls runtime + dev deps. No separate
+          # `maturin develop` step needed (and it would fail without an
+          # active virtualenv).
+          pip install -e ".[dev]"
 
       - name: Ruff lint
         run: ruff check .
@@ -48,7 +48,19 @@ jobs:
         run: ruff format --check .
 
       - name: Unit + integration tests
-        run: pytest tests/ -v --ignore=tests/live
+        # Skipped tests fall into two buckets:
+        #   1. MT5-touching: MetaTrader5 is Windows-only.
+        #   2. Data-dependent: golden_baseline + trade_log_roundtrip read
+        #      from G:\My Drive\BackTestData. To be fixed in the architecture
+        #      stocktake by either pinning a small fixture parquet under
+        #      tests/fixtures/ or making the tests auto-skip when data is
+        #      missing.
+        run: |
+          pytest tests/ -v \
+            --ignore=tests/test_live_runner_synthetic.py \
+            --ignore=tests/test_broker_mt5_submit.py \
+            --ignore=tests/test_golden_baseline.py \
+            --ignore=tests/test_trade_log_roundtrip.py
 
   rust:
     name: rust
@@ -58,6 +70,9 @@ jobs:
         working-directory: core
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy

@@ -20,6 +20,7 @@ What it does:
 No new reconcile logic — this is pure glue over existing primitives so
 the end-to-end path is a single command.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -105,14 +106,15 @@ def _resolve_stamp(source_run_id: str, data_source: str) -> str:
         legacy = root / "latest_stamp.txt"
         if legacy.exists():
             return legacy.read_text(encoding="utf-8").strip()
-    raise FileNotFoundError(
-        f"no replay stamp pointer found for source={data_source!r} "
-        f"under {root} — run without --skip-replay first."
-    )
+    raise FileNotFoundError(f"no replay stamp pointer found for source={data_source!r} under {root} — run without --skip-replay first.")
 
 
 def _run_or_reuse_replay(
-    config_path: Path, config: dict, data_source: str, *, skip_replay: bool,
+    config_path: Path,
+    config: dict,
+    data_source: str,
+    *,
+    skip_replay: bool,
 ) -> tuple[str, str, pd.DataFrame]:
     """Returns ``(source_run_id, stamp, bt_df)`` for one data source."""
     source_run_id = str(config.get("source_run_id") or "unknown_run")
@@ -126,15 +128,16 @@ def _run_or_reuse_replay(
         # replay_service_config writes to "<stamp>_<data_source>/" — summary["stamp"]
         # carries only the bare timestamp, so we reconstruct the dir name.
         stamp = f"{summary['stamp']}_{data_source}"
-        print(f"[reconcile][{data_source}] replay done -> {source_run_id}/{stamp} "
-              f"({summary['n_trades_total']} trades, {summary['elapsed_sec']}s)")
+        print(
+            f"[reconcile][{data_source}] replay done -> {source_run_id}/{stamp} "
+            f"({summary['n_trades_total']} trades, {summary['elapsed_sec']}s)"
+        )
     bt_df = _load_bt_trades(source_run_id, stamp)
     print(f"[reconcile][{data_source}] backtest df: {len(bt_df)} rows")
     return source_run_id, stamp, bt_df
 
 
-def _resolve_instance_config(instance_id: str | None,
-                              explicit_config: Path | None) -> Path:
+def _resolve_instance_config(instance_id: str | None, explicit_config: Path | None) -> Path:
     """Pick which config.json to reconcile.
 
     1. If ``--config`` passed explicitly, use that.
@@ -150,29 +153,27 @@ def _resolve_instance_config(instance_id: str | None,
     if instance_id is not None:
         path = LIVE_DIR / instance_id / "config.json"
         if not path.exists():
-            raise FileNotFoundError(
-                f"No config for instance '{instance_id}' at {path}")
+            raise FileNotFoundError(f"No config for instance '{instance_id}' at {path}")
         return path
 
-    candidates = sorted(p for p in LIVE_DIR.glob("*/config.json")
-                        if p.parent.name not in ("archive", "reconcile"))
+    candidates = sorted(p for p in LIVE_DIR.glob("*/config.json") if p.parent.name not in ("archive", "reconcile"))
     if len(candidates) == 1:
         return candidates[0]
     if len(candidates) == 0:
         legacy = LIVE_DIR / "service_config.json"
         if legacy.exists():
             return legacy
-        raise FileNotFoundError(
-            f"No instance configs found under {LIVE_DIR}. "
-            "Deploy one via the web UI first.")
+        raise FileNotFoundError(f"No instance configs found under {LIVE_DIR}. Deploy one via the web UI first.")
     listed = "\n".join(f"  - {c.parent.name}" for c in candidates)
-    raise SystemExit(
-        f"Multiple active instances found; pass --instance <id>:\n{listed}")
+    raise SystemExit(f"Multiple active instances found; pass --instance <id>:\n{listed}")
 
 
 def _run_pass(
-    name: str, bt_df: pd.DataFrame, target_df: pd.DataFrame,
-    reconcile_out: Path, stamp_base: str,
+    name: str,
+    bt_df: pd.DataFrame,
+    target_df: pd.DataFrame,
+    reconcile_out: Path,
+    stamp_base: str,
 ) -> dict[str, int]:
     """One reconcile pass. ``name`` is a short tag (e.g. ``A_live_vs_duka``)
     folded into the stamp so the three outputs don't collide."""
@@ -193,50 +194,56 @@ def _run_pass(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fire Forex live vs backtest reconcile")
     parser.add_argument(
-        "--instance", type=str, default=None,
-        help="Instance id (dir under artifacts/live/). "
-             "Omit to auto-pick if only one active instance exists.",
+        "--instance",
+        type=str,
+        default=None,
+        help="Instance id (dir under artifacts/live/). Omit to auto-pick if only one active instance exists.",
     )
     parser.add_argument(
-        "--config", type=Path, default=None,
+        "--config",
+        type=Path,
+        default=None,
         help="Explicit config path. Overrides --instance.",
     )
     parser.add_argument(
-        "--skip-replay", action="store_true",
+        "--skip-replay",
+        action="store_true",
         help="Reuse the most recent replay NPZ instead of re-running the backtest.",
     )
     parser.add_argument(
-        "--data-source", type=str, default="dukascopy",
+        "--data-source",
+        type=str,
+        default="dukascopy",
         choices=("dukascopy", "mt5", "both"),
         help="Which data source to backtest against. 'both' runs two "
-             "replays (Duka + MT5) and produces three reconcile reports: "
-             "A=live vs Duka-BT, B=live vs MT5-BT, C=Duka-BT vs MT5-BT.",
+        "replays (Duka + MT5) and produces three reconcile reports: "
+        "A=live vs Duka-BT, B=live vs MT5-BT, C=Duka-BT vs MT5-BT.",
     )
     args = parser.parse_args()
     args.config = _resolve_instance_config(args.instance, args.config)
     config = json.loads(args.config.read_text(encoding="utf-8-sig"))
 
-    sources = (["dukascopy", "mt5"] if args.data_source == "both"
-               else [args.data_source])
+    sources = ["dukascopy", "mt5"] if args.data_source == "both" else [args.data_source]
 
     # Phase 1 — backtest side. One replay per requested source.
     bt_by_source: dict[str, pd.DataFrame] = {}
     stamps: dict[str, str] = {}
     for ds in sources:
         _run_id, stamp, bt_df = _run_or_reuse_replay(
-            args.config, config, ds, skip_replay=args.skip_replay,
+            args.config,
+            config,
+            ds,
+            skip_replay=args.skip_replay,
         )
         bt_by_source[ds] = bt_df
         stamps[ds] = stamp
 
     # Phase 2 — live side.
-    instance_root = args.config.parent if args.config.parent != LIVE_DIR \
-        else LIVE_DIR
+    instance_root = args.config.parent if args.config.parent != LIVE_DIR else LIVE_DIR
     plans = _load_plans(instance_root / "plans")
     tickets = _read_jsonl(instance_root / "tickets.jsonl")
     deals = _read_jsonl(instance_root / "deals.jsonl")
-    print(f"[reconcile] live inputs from {instance_root}: "
-          f"plans={len(plans)} tickets={len(tickets)} deals={len(deals)}")
+    print(f"[reconcile] live inputs from {instance_root}: plans={len(plans)} tickets={len(tickets)} deals={len(deals)}")
     live_df = _reconcile.build_live_df(plans, tickets, deals)
     print(f"[reconcile] live df: {len(live_df)} rows")
 
@@ -250,27 +257,39 @@ def main() -> int:
     if args.data_source == "both":
         # A: live vs Duka-BT  — the parity question.
         all_counts["A_live_vs_duka"] = _run_pass(
-            "A_live_vs_duka", bt_by_source["dukascopy"], live_df,
-            reconcile_out, stamp_base,
+            "A_live_vs_duka",
+            bt_by_source["dukascopy"],
+            live_df,
+            reconcile_out,
+            stamp_base,
         )
         # B: live vs MT5-BT  — sanity cross-check (different data source).
         all_counts["B_live_vs_mt5"] = _run_pass(
-            "B_live_vs_mt5", bt_by_source["mt5"], live_df,
-            reconcile_out, stamp_base,
+            "B_live_vs_mt5",
+            bt_by_source["mt5"],
+            live_df,
+            reconcile_out,
+            stamp_base,
         )
         # C: Duka-BT vs MT5-BT — pure data-source drift, live excluded.
         # Pass MT5 as the "target_df" to reuse the matcher — rows are the
         # same shape as live_df for matching purposes (pair, direction,
         # signal_bar_ts).
         all_counts["C_duka_vs_mt5"] = _run_pass(
-            "C_duka_vs_mt5", bt_by_source["dukascopy"], bt_by_source["mt5"],
-            reconcile_out, stamp_base,
+            "C_duka_vs_mt5",
+            bt_by_source["dukascopy"],
+            bt_by_source["mt5"],
+            reconcile_out,
+            stamp_base,
         )
     else:
         ds = args.data_source
         all_counts[f"live_vs_{ds}"] = _run_pass(
-            f"live_vs_{ds}", bt_by_source[ds], live_df,
-            reconcile_out, stamp_base,
+            f"live_vs_{ds}",
+            bt_by_source[ds],
+            live_df,
+            reconcile_out,
+            stamp_base,
         )
 
     print(f"[reconcile] summary: {all_counts}")

@@ -11,9 +11,9 @@ Runs four checks on a loaded DataFrame:
 
 Returns a structured report with a roll-up summary ``ok | warn | fail``.
 """
+
 from __future__ import annotations
 
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -21,10 +21,8 @@ import pandas as pd
 
 from ff import harness
 
-
 # Expected bar duration per timeframe, in minutes.
-_TF_MINUTES = {"M1": 1, "M5": 5, "M15": 15, "M30": 30,
-               "H1": 60, "H4": 240, "D": 1440, "W": 10080}
+_TF_MINUTES = {"M1": 1, "M5": 5, "M15": 15, "M30": 30, "H1": 60, "H4": 240, "D": 1440, "W": 10080}
 
 
 def _ns(index: pd.DatetimeIndex) -> np.ndarray:
@@ -93,11 +91,13 @@ def _gap_samples(index: pd.DatetimeIndex, tf: str, limit: int = 20) -> list[dict
     real = big[~weekend]
     out: list[dict[str, Any]] = []
     for i in real[:limit]:
-        out.append({
-            "from": pd.Timestamp(ns[i], tz="UTC").isoformat(),
-            "to": pd.Timestamp(ns[i + 1], tz="UTC").isoformat(),
-            "gap_minutes": int((ns[i + 1] - ns[i]) / 60_000_000_000),
-        })
+        out.append(
+            {
+                "from": pd.Timestamp(ns[i], tz="UTC").isoformat(),
+                "to": pd.Timestamp(ns[i + 1], tz="UTC").isoformat(),
+                "gap_minutes": int((ns[i + 1] - ns[i]) / 60_000_000_000),
+            }
+        )
     return out + ([{"_more": int(real.size - limit)}] if real.size > limit else [])
 
 
@@ -112,15 +112,18 @@ def _spread_sanity(df: pd.DataFrame) -> dict[str, Any]:
     }
 
 
-def _roll_up(counts: dict[str, int], ts: dict[str, int],
-             gaps: list[dict[str, Any]], ohlc: dict[str, int],
-             spread: dict[str, Any]) -> str:
+def _roll_up(
+    counts: dict[str, int],
+    ts: dict[str, int],
+    gaps: list[dict[str, Any]],
+    ohlc: dict[str, int],
+    spread: dict[str, Any],
+) -> str:
     nan_total = sum(v for v in counts.values())
     ohlc_total = sum(v for v in ohlc.values())
     if ts["non_monotonic"] > 0 or ohlc_total > 0:
         return "fail"
-    if nan_total > 0 or ts["duplicates"] > 0 or len(gaps) > 0 or \
-       (spread.get("present") and spread.get("negatives", 0) > 0):
+    if nan_total > 0 or ts["duplicates"] > 0 or len(gaps) > 0 or (spread.get("present") and spread.get("negatives", 0) > 0):
         return "warn"
     return "ok"
 
@@ -129,8 +132,7 @@ def check(pair: str, tf: str) -> dict[str, Any]:
     """Run health checks on the parquet file for ``pair`` / ``tf``."""
     path = harness.DATA_ROOT / f"{pair}_{tf}.parquet"
     if not path.exists():
-        return {"pair": pair, "tf": tf, "summary": "missing",
-                "error": f"file not found: {path}"}
+        return {"pair": pair, "tf": tf, "summary": "missing", "error": f"file not found: {path}"}
 
     df = harness.load_parquet(path)
     nans = _nan_counts(df)

@@ -13,6 +13,7 @@ Knobs that are inherently scale-free (risk:reward ratio, ATR multipliers,
 EMA periods, hour-of-day) do NOT need an entry here — they live in the
 scale-free / TF-based blocks at the bottom of ``derive_ranges``.
 """
+
 from __future__ import annotations
 
 import json
@@ -22,7 +23,6 @@ from typing import Any
 
 import numpy as np
 import pandas as pd
-
 
 # ── Data discovery ────────────────────────────────────────────────────
 
@@ -69,6 +69,7 @@ def _save_cache() -> None:
 
 
 # ── ATR in pips ───────────────────────────────────────────────────────
+
 
 def _pip_value(pair: str) -> float:
     return 0.01 if "JPY" in pair else 0.0001
@@ -120,12 +121,13 @@ def get_atr_pips(pair: str, tf: str, *, force: bool = False) -> float | None:
 
 # ── Tidy number helpers ───────────────────────────────────────────────
 
+
 def _nice_round(x: float) -> float:
     """Round to a tidy 1/2/5 × 10^k."""
     if x <= 0:
         return 0.1
     k = math.floor(math.log10(x))
-    base = x / (10 ** k)
+    base = x / (10**k)
     if base < 1.5:
         nice = 1
     elif base < 3.5:
@@ -134,7 +136,7 @@ def _nice_round(x: float) -> float:
         nice = 5
     else:
         nice = 10
-    return nice * (10 ** k)
+    return nice * (10**k)
 
 
 # ── Rules ── one entry per pair-aware knob ────────────────────────────
@@ -142,18 +144,24 @@ def _nice_round(x: float) -> float:
 # Each entry: (lo_multiplier, hi_multiplier) applied to median-ATR-in-pips.
 # Adding a new pair-aware knob is one line here.
 ATR_RULES: dict[str, tuple[float, float]] = {
-    "fixed_sl_pips":          (0.3, 6.0),
-    "fixed_tp_pips":          (0.5, 10.0),
-    "trail_activation_pips":  (0.3, 8.0),
+    "fixed_sl_pips": (0.3, 6.0),
+    "fixed_tp_pips": (0.5, 10.0),
+    "trail_activation_pips": (0.3, 8.0),
 }
 
 
 # ── Scale-free blocks ─────────────────────────────────────────────────
 
+
 def _tf_ema_fast(main_tf: str) -> dict[str, int]:
     bands = {
-        "M1":  (3, 50),  "M5":  (3, 40), "M15": (3, 35), "M30": (3, 30),
-        "H1":  (5, 30),  "H4":  (3, 25), "D":   (3, 20),
+        "M1": (3, 50),
+        "M5": (3, 40),
+        "M15": (3, 35),
+        "M30": (3, 30),
+        "H1": (5, 30),
+        "H4": (3, 25),
+        "D": (3, 20),
     }
     lo, hi = bands.get(main_tf, (5, 30))
     return {"min": lo, "max": hi}
@@ -161,8 +169,13 @@ def _tf_ema_fast(main_tf: str) -> dict[str, int]:
 
 def _tf_ema_slow(main_tf: str) -> dict[str, int]:
     bands = {
-        "M1":  (20, 300), "M5":  (20, 250), "M15": (20, 220), "M30": (20, 200),
-        "H1":  (20, 200), "H4":  (15, 150), "D":   (10, 120),
+        "M1": (20, 300),
+        "M5": (20, 250),
+        "M15": (20, 220),
+        "M30": (20, 200),
+        "H1": (20, 200),
+        "H4": (15, 150),
+        "D": (10, 120),
     }
     lo, hi = bands.get(main_tf, (20, 200))
     return {"min": lo, "max": hi}
@@ -173,6 +186,7 @@ def _sub_tf_default(main_tf: str) -> str:
 
 
 # ── Main entry ────────────────────────────────────────────────────────
+
 
 def derive_ranges(pair: str, main_tf: str) -> dict[str, Any] | None:
     """Data-driven default ranges for (pair, main_tf). None if data missing."""
@@ -189,30 +203,32 @@ def derive_ranges(pair: str, main_tf: str) -> dict[str, Any] | None:
         out[key] = {"min": lo, "max": hi}
 
     # Scale-free (same ranges regardless of pair / TF)
-    out["rr_ratio"]       = {"min": 0.5, "max": 5.0}
-    out["atr_mult_sl"]    = {"min": 0.5, "max": 6.0}
-    out["atr_mult_tp"]    = {"min": 0.5, "max": 10.0}
+    out["rr_ratio"] = {"min": 0.5, "max": 5.0}
+    out["atr_mult_sl"] = {"min": 0.5, "max": 6.0}
+    out["atr_mult_tp"] = {"min": 0.5, "max": 10.0}
     out["trail_atr_mult"] = {"min": 0.3, "max": 3.0}
 
     # TF-aware
     out["ema_fast"] = _tf_ema_fast(main_tf)
     out["ema_slow"] = _tf_ema_slow(main_tf)
-    out["sub_tf"]   = _sub_tf_default(main_tf)
+    out["sub_tf"] = _sub_tf_default(main_tf)
 
     out["__atr_pips"] = float(atr)
-    out["__source"]   = "data"
+    out["__source"] = "data"
     return out
 
 
 if __name__ == "__main__":  # pragma: no cover
     import sys
+
     pair = sys.argv[1] if len(sys.argv) > 1 else "EUR_USD"
-    tf   = sys.argv[2] if len(sys.argv) > 2 else "H1"
+    tf = sys.argv[2] if len(sys.argv) > 2 else "H1"
     r = derive_ranges(pair, tf)
     if r is None:
         print(f"no data for {pair}/{tf}")
     else:
         print(f"{pair}/{tf}  median ATR = {r['__atr_pips']:.2f} pips")
         for k, v in r.items():
-            if k.startswith("__"): continue
+            if k.startswith("__"):
+                continue
             print(f"  {k}: {v}")
