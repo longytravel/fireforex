@@ -199,199 +199,254 @@ _Mermaid diagram lands in Phase F. Stages 1–6 below._
 **Flows down to Stage 4** by emitting HTML reports under `artifacts/live/reconcile/` that the UI links to from the run page.
 
 ## Appendix A — Documentation (`docs/`)
-_Lands in Phase C._
 
-- `docs/2026-04-19-adding-the-chandelier-knob.md`
-- `docs/2026-04-19-the-breakeven-offset-bug.md`
-- `docs/2026-04-19-the-exec-basic-bug.md`
-- `docs/2026-04-19-the-partial-close-bug.md`
-- `docs/2026-04-19-the-signal-filter-bugs.md`
-- `docs/2026-04-19-the-trailing-bug.md`
-- `docs/ARCHITECTURE.md`
-- `docs/CHANGES.md`
-- `docs/REVIEW.md`
-- `docs/ROADMAP.md`
-- `docs/bug-hunting-research-brief.md`
-- `docs/builds/2026-04-19-chandelier-stop/01-mechanics-brief.md`
-- `docs/builds/2026-04-19-chandelier-stop/02-slot-map.md`
-- `docs/builds/2026-04-19-chandelier-stop/03-reference-scenarios.md`
-- `docs/builds/2026-04-19-chandelier-stop/04-build-log.md`
-- `docs/builds/2026-04-19-chandelier-stop/05-smoke-results.md`
-- `docs/builds/2026-04-19-chandelier-stop/06-audit-link.md`
-- `docs/exec-full-fix-plan.md`
-- `docs/knob-explanations.md`
-- `docs/live/ARCHITECTURE-multi-instance.md`
-- `docs/live/BUG-variant-id-not-stable-2026-04-22.md`
-- `docs/live/HANDOVER-2026-04-22-day.md`
-- `docs/live/HANDOVER-parity-status.md`
-- `docs/live/HOW-TO-DEPLOY.md`
-- `docs/live/LIVE-TRADE-ELEMENT.md`
-- `docs/live/README.md`
-- `docs/live/RECONCILE.md`
-- `docs/live/SESSION-2026-04-21-end.md`
-- `docs/live/SESSION-2026-04-21-evening.md`
-- `docs/live/SESSION-2026-04-21-night-handover.md`
-- `docs/live/SESSION-2026-04-21.md`
-- `docs/live/SESSION-RESUME.md`
-- `docs/live/VPS-HANDOVER.md`
-- `docs/live/WAKE-UP-2026-04-22.md`
-- `docs/live/parity-plan-2026-04-24.md`
-- `docs/metrics.md`
-- `docs/next-session-handover.md`
-- `docs/rust-wishlist.md`
-- `docs/superpowers/plans/2026-04-25-architecture-stocktake.md`
-- `docs/superpowers/specs/2026-04-25-architecture-stocktake-design.md`
-- `docs/validation/2026-04-19-breakeven-offset/01-mechanics-brief.md`
-- `docs/validation/2026-04-19-breakeven-offset/02-code-trace.md`
-- `docs/validation/2026-04-19-breakeven-offset/03-behaviour-table.md`
-- `docs/validation/2026-04-19-breakeven-offset/04-micro-test.py`
-- `docs/validation/2026-04-19-breakeven-offset/05-sensitivity-results.md`
-- `docs/validation/2026-04-19-breakeven-offset/06-verdict.md`
-- `docs/validation/2026-04-19-breakeven-offset/_sensitivity_runner.py`
-- `docs/validation/2026-04-19-chandelier-stop/01-mechanics-brief.md`
-- `docs/validation/2026-04-19-chandelier-stop/02-code-trace.md`
-- `docs/validation/2026-04-19-chandelier-stop/03-behaviour-table.md`
-- `docs/validation/2026-04-19-chandelier-stop/04-micro-test.py`
-- `docs/validation/2026-04-19-chandelier-stop/05-sensitivity-results.md`
-- `docs/validation/2026-04-19-chandelier-stop/06-verdict.md`
-- `docs/validation/2026-04-19-partial-close/01-mechanics-brief.md`
-- `docs/validation/2026-04-19-partial-close/02-code-trace.md`
-- `docs/validation/2026-04-19-partial-close/03-behaviour-table.md`
-- `docs/validation/2026-04-19-partial-close/04-micro-test.py`
-- `docs/validation/2026-04-19-partial-close/05-sensitivity-results.md`
-- `docs/validation/2026-04-19-partial-close/06-verdict.md`
-- `docs/validation/2026-04-19-signal-filters/01-mechanics-brief.md`
-- `docs/validation/2026-04-19-signal-filters/02-code-trace.md`
-- `docs/validation/2026-04-19-signal-filters/03-behaviour-table.md`
-- `docs/validation/2026-04-19-signal-filters/04-micro-test.py`
-- `docs/validation/2026-04-19-signal-filters/05-sensitivity-results.md`
-- `docs/validation/2026-04-19-signal-filters/06-verdict.md`
-- `docs/validation/2026-04-19-stale-exit/01-mechanics-brief.md`
-- `docs/validation/2026-04-19-stale-exit/02-code-trace.md`
-- `docs/validation/2026-04-19-stale-exit/03-behaviour-table.md`
-- `docs/validation/2026-04-19-stale-exit/04-micro-test.py`
-- `docs/validation/2026-04-19-stale-exit/05-sensitivity-results.md`
-- `docs/validation/2026-04-19-stale-exit/06-verdict.md`
-- `docs/validation/2026-04-19-trailing/01-mechanics-brief.md`
-- `docs/validation/2026-04-19-trailing/02-code-trace.md`
-- `docs/validation/2026-04-19-trailing/03-behaviour-table.md`
-- `docs/validation/2026-04-19-trailing/04-micro-test.py`
-- `docs/validation/2026-04-19-trailing/05-sensitivity-results.md`
-- `docs/validation/2026-04-19-trailing/06-verdict.md`
-- `docs/validation/2026-04-19-trailing/_sensitivity_runner.py`
+**Scope:** every tracked file under `docs/` (the `ARCHITECTURE_MAP.md` deliverable itself + this stocktake's plan/spec are listed in Appendix G or are this audit's source). 75 files audited; 5 flagged for cleanup.
+
+| File | What it covers | Verdict | Notes |
+|---|---|---|---|
+| `docs/ARCHITECTURE.md` | Deep system tour | ✅ | Canonical entry point per CLAUDE.md. |
+| `docs/ROADMAP.md` | Feature roadmap | ✅ | Canonical reference. |
+| `docs/CHANGES.md` | 2026-04-19 changelog | ✅ | Versioned log of removals/additions; current snapshot. |
+| `docs/REVIEW.md` | Code review summary (2026-04-19) | ✅ | Canonical review artifact; pinned to build date. |
+| `docs/metrics.md` | 25-column metric catalogue | ✅ | Reference for trial/sweep outputs; stable. |
+| `docs/knob-explanations.md` | UI control ranges & semantics | ✅ | Canonical knob reference for operators. |
+| `docs/bug-hunting-research-brief.md` | Bug-hunting toolchain brief | ✅ | Useful research context. |
+| `docs/next-session-handover.md` | Handover template for new Claude sessions | ✅ | Reusable handover scaffold. |
+| `docs/exec-full-fix-plan.md` | Plan to remove EXEC_BASIC/EXEC_FULL modes | ✅ | Approved 2026-04-19; current. |
+| `docs/rust-wishlist.md` | `ff_core` engine wishlist | ✅ | Long-term planning artifact. |
+| `docs/superpowers/plans/2026-04-25-architecture-stocktake.md` | This stocktake's plan | ✅ | Active. |
+| `docs/superpowers/specs/2026-04-25-architecture-stocktake-design.md` | This stocktake's spec | ✅ | Approved. |
+| `docs/2026-04-19-adding-the-chandelier-knob.md` | Chandelier stop knob narrative | ✅ | Feature implementation narrative for 2026-04-19 build. |
+| `docs/2026-04-19-the-breakeven-offset-bug.md` | Post-mortem: 78% win-rate anomaly | ⚠️ | Historical bug-hunt narrative; useful for future patterns. |
+| `docs/2026-04-19-the-exec-basic-bug.md` | Post-mortem: EXEC_BASIC mode issue | ⚠️ | Historical context; related to planned mode removal. |
+| `docs/2026-04-19-the-partial-close-bug.md` | Post-mortem: partial-close logic | ⚠️ | Historical reference. |
+| `docs/2026-04-19-the-signal-filter-bugs.md` | Post-mortem: signal-filter anomalies | ⚠️ | Useful for regression prevention. |
+| `docs/2026-04-19-the-trailing-bug.md` | Post-mortem: trailing-stop logic | ⚠️ | Historical context. |
+| `docs/builds/2026-04-19-chandelier-stop/*` (6 files) | Chandelier-stop golden-path build evidence | ✅ | Per CLAUDE.md `add-forex-knob` skill. |
+| `docs/validation/2026-04-19-*/` (28 files across 5 bugs) | Micro-test + sensitivity validation evidence | ✅ | Per CLAUDE.md golden-path validation. |
+| `docs/live/README.md` | Live-parity VPS operator guide | ✅ | Canonical reference for live deployment. |
+| `docs/live/HOW-TO-DEPLOY.md` | Deploy checklist (short form) | ✅ | Canonical quick-reference. |
+| `docs/live/RECONCILE.md` | Live ↔ backtest 3-way parity loop | ✅ | Canonical reconciliation reference. |
+| `docs/live/ARCHITECTURE-multi-instance.md` | Multi-instance runner design | ✅ | Canonical live architecture reference. |
+| `docs/live/LIVE-TRADE-ELEMENT.md` | Live trade element (context) | ✅ | Operational reference. |
+| `docs/live/SESSION-RESUME.md` | Session state scaffolding | ✅ | Reusable handover template. |
+| `docs/live/VPS-HANDOVER.md` | VPS operator handover | ✅ | Operational reference. |
+| `docs/live/HANDOVER-parity-status.md` | Parity status summary | ✅ | Operational reference. |
+| `docs/live/SESSION-2026-04-21.md` | Session state (2026-04-21 EOD) | ⚠️ | Dated session journal; long-term value as 04-21 reference. |
+| `docs/live/SESSION-2026-04-21-end.md` | Session state (2026-04-21 evening, parity-v2) | ❌ | Superseded by later handovers. |
+| `docs/live/SESSION-2026-04-21-evening.md` | Session state (2026-04-21 evening) | ❌ | Cleanup candidate. |
+| `docs/live/SESSION-2026-04-21-night-handover.md` | Session state (2026-04-21 night) | ❌ | Cleanup candidate. |
+| `docs/live/HANDOVER-2026-04-22-day.md` | Day-watch handover (2026-04-22) | ⚠️ | Documents multi-instance shipped state. |
+| `docs/live/WAKE-UP-2026-04-22.md` | Wake-up handover (2026-04-22 morning) | ❌ | Cleanup candidate. |
+| `docs/live/BUG-variant-id-not-stable-2026-04-22.md` | Variant-id stability bug report | ⚠️ | Useful for regression tracking. |
+| `docs/live/parity-plan-2026-04-24.md` | Parity plan status (2026-04-24) | ❌ | Superseded by current Pillar 5 work. |
+
+**Cleanup candidates** (move to Section 7 in Phase D):
+
+- `docs/live/SESSION-2026-04-21-end.md` — dated session journal, content captured in later handovers
+- `docs/live/SESSION-2026-04-21-evening.md` — dated session journal
+- `docs/live/SESSION-2026-04-21-night-handover.md` — dated session journal
+- `docs/live/WAKE-UP-2026-04-22.md` — dated wake-up handover
+- `docs/live/parity-plan-2026-04-24.md` — dated plan from 2026-04-24, superseded by current work
 
 ## Appendix B — PRs & GitHub issues
-_Lands in Phase C._
+
+**Snapshot date:** 2026-04-25.
+
+### Open issues
+
+| # | Title | Maps to | Verdict | Notes |
+|---|---|---|---|---|
+| #12 | Path-traversal: validate user-supplied path components in `app/routes.py` | Stage 4 | ⚠️ | Security bug — path traversal in routes; not yet fixed. |
+| #13 | Out-of-bounds risk: validate `sig_bar_index` before indexing price/spread arrays | Stage 3 | ⚠️ | Rust validation issue in core trade logic; queued. |
+| #14 | Metric key mismatch: `win_rate` vs `win_rate_pct` between engine, harness, and UI | Stages 3, 4 | ⚠️ | Inconsistent naming across Python harness, Rust engine, and UI layer. |
+
+### Open PRs (non-dependabot)
+
+No non-dependabot PRs are currently open (other than this PR if you're reading it pre-merge). Phase A + B merges (PRs #16, #18) are complete; Phase C is in flight.
+
+### Dependabot PRs (open, batch)
+
+10 open dependabot PRs as of snapshot — batch-mergeable after `pytest` run. Packages bumped: dukascopy-python (≥4.0.1), fastapi (≥0.136.1), pytest (≥9.0.3), maturin (≥1.13.1,<2.0), httpx (≥0.28.1), pyyaml (≥6.0.3), rayon, actions/cache@5, actions/checkout@6, codeql-action@4. Verdict 🔘 (queued for CI).
+
+### Recently merged (context)
+
+| # | Title | Merged |
+|---|---|---|
+| #18 | docs(stocktake): Phase B — all 6 stage audit tables | 2026-04-25 |
+| #16 | docs(stocktake): Phase A — inventory skeleton | 2026-04-25 |
+| #15 | chore: paperwork refresh + GitHub issue tracking via SessionStart hook | 2026-04-25 |
+| #11 | ci: bootstrap CI to green (ruff config, format-the-world, dependabot skip) | 2026-04-25 |
 
 ## Appendix C — Tests (`tests/`)
-_Lands in Phase C._
 
-- `tests/golden/complex01_seed42_500trials.json`
-- `tests/test_broker_mt5_submit.py`
-- `tests/test_complexity.py`
-- `tests/test_data_health.py`
-- `tests/test_data_inventory.py`
-- `tests/test_date_slice.py`
-- `tests/test_exit_manager.py`
-- `tests/test_frozen_signal.py`
-- `tests/test_golden_baseline.py`
-- `tests/test_groups.py`
-- `tests/test_knob_sensitivity.py`
-- `tests/test_live_runner_synthetic.py`
-- `tests/test_math_correctness.py`
-- `tests/test_new_metrics.py`
-- `tests/test_parity_guard.py`
-- `tests/test_reconcile.py`
-- `tests/test_replay.py`
-- `tests/test_resample.py`
-- `tests/test_routes_data.py`
-- `tests/test_runner_service_multi_instance.py`
-- `tests/test_signal_cache.py`
-- `tests/test_state_sync.py`
-- `tests/test_tick_to_m1.py`
-- `tests/test_trade_log_roundtrip.py`
-- `tests/test_variant_fingerprint.py`
-- `tests/validation/test_breakeven_offset_mechanics.py`
-- `tests/validation/test_chandelier_mechanics.py`
-- `tests/validation/test_partial_close_mechanics.py`
-- `tests/validation/test_signal_filters_mechanics.py`
-- `tests/validation/test_stale_exit_mechanics.py`
-- `tests/validation/test_trailing_mechanics.py`
+**Coverage at a glance:** 30 test files + 1 golden fixture across 9 categories. Suite is green per recent CI on `main` (PRs #16, #18 merged with `python` + `rust` jobs passing). Two test files have conditional skips tied to artifact availability.
+
+| File | What it covers | Verdict | Notes |
+|---|---|---|---|
+| `tests/golden/complex01_seed42_500trials.json` | Pinned 500-trial sweep result for regression baseline | ✅ | Fixture, not a test; consumed by `test_golden_baseline.py`. |
+| `tests/test_golden_baseline.py` | Full backtest regression on baseline EA (500 trials, seed=42) | ⚠️ | `@pytest.mark.slow`; skipped if golden missing. Single most important guardrail. |
+| `tests/test_knob_sensitivity.py` | Per-knob (trailing, BE, partial, stale, max-bars) regression floor | ✅ | Guards against silent-ignore regressions; critical after 2026-04 EXEC_BASIC discovery. |
+| `tests/test_math_correctness.py` | Hand-verified signal math (EMA, ATR, crosses, ranges) | ✅ | Tiny inputs with paper-computed expected outputs. |
+| `tests/validation/test_breakeven_offset_mechanics.py` | Break-even offset entry/exit logic (9 scenarios) | ✅ | Parametrized; covers documented signal-side defects. |
+| `tests/validation/test_chandelier_mechanics.py` | Chandelier stop advance logic | ✅ | Validates dynamic trailing stop on synthetic trades. |
+| `tests/validation/test_partial_close_mechanics.py` | Partial close logic (split-exit rules) | ✅ | Parametrized; covers slicing and accumulation. |
+| `tests/validation/test_signal_filters_mechanics.py` | Signal filter gates (variant ID, buy/sell scopes) | ⚠️ | Pins 4 known engine defects (D2, D4, D5, D6) as expected values; assertions will flip on fix. |
+| `tests/validation/test_stale_exit_mechanics.py` | Stale exit guard (timeout + closure) | ✅ | Validates closed-trade-blocking after bars-since-entry threshold. |
+| `tests/validation/test_trailing_mechanics.py` | Trailing stop Rust implementation | ✅ | Thin wrapper; Rust engine already proven by golden. |
+| `tests/test_new_metrics.py` | 14-metric suite (Expectancy, SQN, Omega, Recovery, UPI…) | ⚠️ | `pytest.skip()` if no fresh run with full metric schema in `artifacts/runs/`. Brittle on CI. |
+| `tests/test_parity_guard.py` | Live→backtest portability (un-portable knob detection) | ✅ | Guards live instance configs against non-portable engine knobs. |
+| `tests/test_live_runner_synthetic.py` | Live runner M1→H1 buffering + rollup (mock broker) | ✅ | Hermetic; no MT5 or network. Data plumbing only. |
+| `tests/test_reconcile.py` | Trade reconciliation (matched, missing, extra, mismatched PnL) | ✅ | Hand-built DataFrames; no broker dependency. |
+| `tests/test_replay.py` | Replay orchestrator (monkeypatched harness + downloader) | ✅ | Hermetic. |
+| `tests/test_state_sync.py` | Live state snapshot and git push (mocked subprocess) | ✅ | Hermetic; no git repo or credentials. |
+| `tests/test_broker_mt5_submit.py` | MT5 order submission logic | ✅ | Validates trade struct → MT5 API schema conversion. |
+| `tests/test_exit_manager.py` | Live exit manager (partial coverage of stale/session/max_bars) | ⚠️ | Per Stage 5 audit — `parity_guard`-gated subset only. |
+| `tests/test_frozen_signal.py` | Frozen signal-variant identity across runs | ✅ | Guards variant-ID stability (BUG-2026-04-22). |
+| `tests/test_variant_fingerprint.py` | Signal family + params fingerprint round-trip | ✅ | Companion to `frozen_signal`; deploy/live config-time check. |
+| `tests/test_trade_log_roundtrip.py` | Numpy struct array → JSON/parquet round-trip | ⚠️ | `@pytest.mark.skipif` — skipped on CI if trade-log fixture missing. |
+| `tests/test_complexity.py` | Knob complexity scoring (override application, flattening) | ✅ | UI knob → Rust row flatten pipeline. |
+| `tests/test_signal_cache.py` | Signal variant cache + lazy-load memoization | ✅ | Validates load-once-reuse pattern. |
+| `tests/test_tick_to_m1.py` | Tick→M1 aggregation (forex-correct OHLCV, JPY scale) | ✅ | End-to-end tick unpacking and resampling. |
+| `tests/test_resample.py` | M1→M5/H1/D resampling (OHLCV merge, partial handling) | ✅ | Atomic `.partial` writes; multi-TF aggregation. |
+| `tests/test_date_slice.py` | UTC date clipping with end-of-day expansion | ✅ | Pure utility; pandas-version aware. |
+| `tests/test_data_health.py` | Parquet NaN/OHLC sanity, gaps, FX weekend masking | ✅ | Roll-up `ok/warn/fail`; pandas 3.0 hardened. |
+| `tests/test_data_inventory.py` | Parquet headers-only scan with TTL cache | ✅ | Drives Data tab list. |
+| `tests/test_routes_data.py` | Web API data routes (list, health, inventory) | ✅ | FastAPI route serialization + response schemas. |
+| `tests/test_groups.py` | Pair group headings (Majors, Crosses, Metals…) | ✅ | Static data source of truth for Data tab. |
+| `tests/test_runner_service_multi_instance.py` | Multi-instance deploy pipeline (active.json, deactivation) | ✅ | Covers instance distribution, filename/ID reconciliation. |
+
+**Coverage gaps** (worth flagging for Pillars 2 + 3):
+
+- **Tick unpacking edge cases** — off-by-one in LZMA decompression / malformed `.bi5` headers not exercised.
+- **Volatility cache invalidation** — when data is appended or rolled forward, stale ATR defaults are not refreshed.
+- **MT5 pair-watch mismatch** — MT5 downloader silently skips pairs not in market-watch (memory `project_mt5_replay_pair_coverage.md`).
+- **Live order rejection / slippage** — order submission is mocked; real broker errors and partial fills not exercised. Lands in Pillar 5 (live parity).
 
 ## Appendix D — CI / GitHub workflows (`.github/`)
-_Lands in Phase C._
 
-- `.github/CODEOWNERS`
-- `.github/ISSUE_TEMPLATE/bug.md`
-- `.github/ISSUE_TEMPLATE/feature.md`
-- `.github/dependabot.yml`
-- `.github/pull_request_template.md`
-- `.github/workflows/ci.yml`
-- `.github/workflows/codeql.yml`
-- `.github/workflows/gitleaks.yml`
-- `.github/workflows/pr-checklist.yml`
+**Status:** All workflows green on `main` as of 2026-04-25 (PRs #16, #18 merged with full CI green).
+
+| File | What it runs | Verdict | Notes |
+|---|---|---|---|
+| `.github/workflows/ci.yml` | Python (pytest, ruff lint/format) + Rust (cargo fmt, clippy, test) on `push:main` and `pull_request` | ✅ | Skips 4 data-dependent tests (MT5-touching, golden_baseline, trade_log_roundtrip). ~45s python, ~30s rust per run. Cache on pip/cargo/Rust build artifacts. |
+| `.github/workflows/codeql.yml` | Python CodeQL security analysis on `push:main`, `pull_request`, weekly schedule (Mon 6am UTC) | ✅ | `fail-fast: false`. No issues surfaced in recent merges. |
+| `.github/workflows/gitleaks.yml` | Secret scanning via gitleaks on `push:main` and `pull_request` | ✅ | Full fetch depth. No leaks on PRs #16, #18. |
+| `.github/workflows/pr-checklist.yml` | Validates PR body has filled Summary, Review outputs, and Self-review checklist | ✅ | Skips dependabot[bot] and draft PRs. Fired on PRs #16, #17, #18 — all passed. |
+| `.github/dependabot.yml` | Version updates: pip (weekly, limit 5), cargo (weekly, limit 5), github-actions (monthly, limit 3) | ✅ | Assigns to `longytravel`. Recently opened 10 PRs. |
+| `.github/pull_request_template.md` | Template with Summary, Self-review checklist (10 items), Review outputs sections | ✅ | Drives `pr-checklist.yml` gate. |
+| `.github/CODEOWNERS` | Empty (no pattern-based owners) | ⚠️ | All changes require owner review, but no per-path ownership rules. Fine for small team; consider adding as repo scales. |
+| `.github/ISSUE_TEMPLATE/bug.md` | Bug report template | ✅ | Standard. |
+| `.github/ISSUE_TEMPLATE/feature.md` | Feature request template | ✅ | Standard. |
 
 ## Appendix E — `.claude/` rules and hooks
-_Lands in Phase C._
 
-- `.claude/commands/handoff.md`
-- `.claude/hooks/session-start.sh`
-- `.claude/hooks/update-paperwork.sh`
-- `.claude/rules/python-style.md`
-- `.claude/rules/rust-style.md`
-- `.claude/rules/testing.md`
-- `.claude/rules/trading.md`
-- `.claude/rules/workflow.md`
-- `.claude/settings.json`
+**Scope:** Project-level Claude Code workspace — 5 rules + 2 hooks + 1 command + settings.
+
+### Rules
+
+| File | Discipline | Verdict | Notes |
+|---|---|---|---|
+| `.claude/rules/python-style.md` | Python style guide (no bare floats in assertions, snake_case, ruff imports, project venv) | ✅ | Enforced in pre-commit; hard rules are CI-checked. |
+| `.claude/rules/rust-style.md` | Rust style guide (`ff_core` patterns, idioms, performance notes) | ✅ | Active during Rust work. |
+| `.claude/rules/testing.md` | Test discipline (approx for floats, signal fixtures, pytest-first, knob validation via skills) | ✅ | Knob changes require `add-forex-knob` + `validate-forex-knob`. |
+| `.claude/rules/trading.md` | Live-trading discipline (no uvicorn spawn, signal-ID migration, MT5 reconciliation, no creds) | ✅ | Hard blocks in `settings.json` prevent accidental uvicorn spawn. |
+| `.claude/rules/workflow.md` | PR cycle + paperwork (branches, pre-PR ritual, PROGRESS/HANDOFF tickbox, GitHub issue tracking) | ✅ | Stop hook blocks session end if paperwork stale. |
+
+### Hooks
+
+| File | Fires on | Action | Verdict | Notes |
+|---|---|---|---|---|
+| `.claude/hooks/session-start.sh` | SessionStart (startup, resume, clear, compact) | Load HANDOFF + PROGRESS; show git log, branch, status, open issues | ✅ | Gracefully degrades if files missing or git unavailable; logs firings to `.claude/hooks/log.txt`. |
+| `.claude/hooks/update-paperwork.sh` | Stop (session end) | HARD BLOCK if HANDOFF stale vs HEAD or real work uncommitted; SOFT WARN if commits landed but PROGRESS untouched | ✅ | Reentry guard avoids re-trigger on same stop event. |
+| `.claude/hooks/check-architecture-map.sh` | _(not yet created — Phase G of this stocktake)_ | Stop-hook nag if mapped-dir code changed but `ARCHITECTURE_MAP.md` didn't | 🔘 | Lands in Phase G alongside `scripts/check_map.py`. |
+
+### Commands
+
+| File | Purpose | Verdict | Notes |
+|---|---|---|---|
+| `.claude/commands/handoff.md` | `/handoff` skill — rewrite HANDOFF.md with session summary | ✅ | Structured template; enforces plain English + PR-number discipline. |
+
+### Settings
+
+| File | Purpose | Verdict | Notes |
+|---|---|---|---|
+| `.claude/settings.json` | Register SessionStart + Stop hooks; grant Bash/PowerShell perms (git/gh/pytest/python/maturin/cargo/rustfmt/clippy/pre-commit/ruff); deny force-push, `git --no-verify`, uvicorn spawn, dangerous `rm` | ✅ | Hard deny list actively prevents `trading.md` violations. |
 
 ## Appendix F — Scripts (`scripts/`)
-_Lands in Phase C._
 
-- `scripts/desktop/Check Fire Forex.bat`
-- `scripts/desktop/Deploy Fire Forex.bat`
-- `scripts/desktop/Diagnose Fire Forex.bat`
-- `scripts/desktop/Reset Live Day (VPS).bat`
-- `scripts/desktop/Restart Fire Forex (laptop).bat`
-- `scripts/ff_kill_server.bat`
-- `scripts/ff_kill_server.ps1`
-- `scripts/ff_restart_server.bat`
-- `scripts/ff_restart_server.ps1`
-- `scripts/ff_start_server.ps1`
-- `scripts/migrate_best_trial_fingerprint.py`
-- `scripts/pre-pr.ps1`
+**Scope:** 12 scripts not already routed to Stage 1/5/6. Operational scripts ✅, dev/release helpers ✅, cleanup candidates ❌. Stage-routed scripts (`fetch_mt5_history.py`, `diagnose_vps.py`, `runner_launcher.bat`, `vps_bootstrap.ps1`, `build_*_report.py`, `build_trade_comparison.py`, `calibrate_for_parity.py`, `reconcile_live.py`, `reset_live_day.py`) are audited under their respective stages.
+
+| File | What it does | Verdict | Notes |
+|---|---|---|---|
+| `scripts/ff_restart_server.ps1` | Restart the FastAPI web UI (the only sanctioned way to start uvicorn) | ✅ | Per CLAUDE.md "Don't" rule — kills :8000/:8001, clears `__pycache__`, starts fresh uvicorn. |
+| `scripts/ff_restart_server.bat` | Wrapper batch entry-point to `ff_restart_server.ps1` | ✅ | Desktop shortcuts target this. |
+| `scripts/ff_kill_server.ps1` | Kill listeners on :8000/:8001 without restart | ✅ | Used interactively when server cleanup is needed alone. |
+| `scripts/ff_kill_server.bat` | Wrapper batch entry-point to `ff_kill_server.ps1` | ✅ | Desktop shortcut wrapper. |
+| `scripts/ff_start_server.ps1` | Start uvicorn directly (discouraged) | ❌ | Superseded by `ff_restart_server.ps1`; CLAUDE.md forbids direct use. Cleanup candidate. |
+| `scripts/pre-pr.ps1` | Pre-PR review ritual: run Codex mini as read-only reviewer on diff vs main | ✅ | Part of sanctioned workflow. Output to `artifacts/` for pasting into PR. |
+| `scripts/migrate_best_trial_fingerprint.py` | Backfill `signal_family` + `signal_params` into old `deploy/live` configs | ✅ | Idempotent one-shot migration (BUG-variant-id-not-stable-2026-04-22); safe to re-run. |
+| `scripts/desktop/Check Fire Forex.bat` | Status check — see if live runner is alive and what it's doing | ✅ | Desktop shortcut for VPS; read-only. |
+| `scripts/desktop/Deploy Fire Forex.bat` | Deploy & kick off trading (orchestrates git pull, runner restart, trial setup) | ✅ | Primary laptop→VPS deployment button. |
+| `scripts/desktop/Diagnose Fire Forex.bat` | Full diagnostic dump (MT5 positions, task state, config shape, git HEAD, logs) | ✅ | Read-only debug tool; safe any time. |
+| `scripts/desktop/Reset Live Day (VPS).bat` | STOP trading, clear state, reset to origin/main, flatten positions | ✅ | Orchestrates: kill task, git reset --hard, clear plans/tickets, wipe crashes/errors JSONLs. |
+| `scripts/desktop/Restart Fire Forex (laptop).bat` | Restart web UI via PowerShell wrapper | ✅ | Convenience desktop shortcut; delegates to `ff_restart_server.ps1`. |
+
+**Cleanup candidates** (move to Section 7 in Phase D):
+
+- `scripts/ff_start_server.ps1` — superseded by `ff_restart_server.ps1`; CLAUDE.md forbids direct use.
 
 ## Appendix G — Root files
-_Lands in Phase C._
 
-- `CLAUDE.md`
-- `HANDOFF.md`
-- `PROGRESS.md`
-- `README.md`
-- `demo_speed.py`
-- `ff/VERSION.py`
-- `ff/__init__.py`
-- `launch_fire_forex.bat`
-- `run.py`
-- `snapshot-home.md`
+**Scope:** Tracked files at the repository root (no slash in path). `ff/__init__.py` and `ff/VERSION.py` were placed here in Phase A but are package files under `ff/`; flagged for re-routing in Phase D.
+
+| File | Purpose | Verdict | Notes |
+|---|---|---|---|
+| `README.md` | Top-level project intro | ✅ | Describes Fire Forex as local optimisation workbench for forex strategies. |
+| `CLAUDE.md` | Operating manual for Claude (≤150 lines discipline) | ⚠️ | Current line count: **181**. Exceeds the 150-line discipline it sets for itself. Trim candidate. |
+| `HANDOFF.md` | Session-end state — refreshed by Stop hook | ✅ | Last updated 2026-04-25. |
+| `PROGRESS.md` | Milestone register (tick-only, never rewrite) | ✅ | Last updated 2026-04-25. |
+| `run.py` | CLI entry — `web` for UI, positional EA path for sweep | ✅ | Per CLAUDE.md run-commands section. |
+| `pyproject.toml` | Python deps + ruff config (config aspect in Appendix H) | ✅ | Cross-referenced. |
+| `demo_speed.py` | Multi-timeframe speed demo (H1 entries, M1 fills) | ✅ | 20-year EUR/USD backtest demo; reference. |
+| `launch_fire_forex.bat` | FastAPI server launcher + browser opener (Windows) | ✅ | Convenience entry-point; delegates to `scripts/ff_restart_server.ps1` indirectly. |
+| `snapshot-home.md` | Home page DOM snapshot (accessibility tree) | ⚠️ | Stores UI structure for testing/reference; consider whether still load-bearing. |
+| `ff/__init__.py` | Python package marker for `ff/` | ✅ | Re-route to Stage 2/3 grouping in Phase D (not a root file). |
+| `ff/VERSION.py` | `ff` package version constant | ✅ | Re-route to Stage 2/3 grouping in Phase D (not a root file). |
+| `.gitignore` | git ignore rules (also Appendix H aspect) | ✅ | Standard; expanded recently for laptop-side VPS staging. |
+| `.coderabbit.yaml` | CodeRabbit review config (also Appendix H) | ✅ | "chill" profile; cross-referenced. |
+| `.pre-commit-config.yaml` | Pre-commit hooks (also Appendix H) | ✅ | Check-only — auto-fixers removed per Failed-approaches note. |
+| `requirements-web.txt` | Web UI deps (FastAPI, uvicorn, pyyaml…) | ✅ | Lightweight supplemental file; pinned alongside `pyproject.toml`. |
 
 ## Appendix H — Configs
-_Lands in Phase C._
 
-- `.coderabbit.yaml`
-- `.gitignore`
-- `.pre-commit-config.yaml`
-- `core/Cargo.lock`
-- `core/Cargo.toml`
-- `pyproject.toml`
-- `requirements-web.txt`
+**Scope:** Configuration files across the repo. Cross-references avoid duplicating Appendix G (root files), Appendix D (CI/dependabot), Appendix E (.claude settings), and Stages 2/5 (EA/deploy configs).
+
+| File | What it configures | Verdict | Notes |
+|---|---|---|---|
+| `pyproject.toml` | Python deps (FastAPI, NumPy, Pandas, PyArrow, PyYAML) + maturin build backend + ruff (line-length=140, E741 ignore, per-file F841/E402/E701/E702) + pytest markers | ⚠️ | Codex mini flagged broad ruff ignores in earlier review (PR #11); tracked. (Also Appendix G.) |
+| `core/Cargo.toml` | `ff_core` crate (cdylib) + PyO3 (0.24), NumPy (0.24), Rayon (1.10) deps; LTO + codegen-unit=1 release profile | ✅ | Versions pinned, features correct (extension-module for PyO3). |
+| `core/Cargo.lock` | Pinned dep versions for Rust ecosystem | ✅ | Tracked in git for reproducible builds. |
+| `.pre-commit-config.yaml` | Check-only hooks: ruff v0.15.12 (check + format --check), pre-commit-hooks v5.0.0 (YAML/TOML check, large-file 500KB, merge-conflict), cargo fmt --check; clippy excluded (Windows PATH issue) | ✅ | Design rule: zero auto-fixers to prevent stash-conflict oscillation on Windows (HANDOFF Failed-approaches note). Clippy runs in CI only. |
+| `.coderabbit.yaml` | CodeRabbit profile (chill), auto-review on `main`, high-level summary + review status | ✅ | Low-friction review mode; also tracked in Appendix D. |
+| `requirements-web.txt` | Web UI deps: FastAPI, Uvicorn, PyYAML, pytest, httpx, dukascopy-python | ✅ | Lightweight supplemental file. |
+| `.gitignore` | git ignore rules (root housekeeping) | ✅ | Audit aspect in Appendix G. |
+| `eas/baseline.json`, `eas/complex01.json` | EA schemas (consumed by UI) | ↗ | Audited in Stage 2. |
+| `ff/defaults/pair_tf.yaml` | Per-(pair, main_tf) knob ranges fallback | ↗ | Audited in Stage 2. |
+| `deploy/live_config.json`, `deploy/live_config.json.example` | Live-runner active-instance config | ↗ | Audited in Stage 5. |
+| `.claude/settings.json` | Hook + permission registration | ↗ | Audited in Appendix E. |
+| `.github/dependabot.yml` | Version-update cadence | ↗ | Audited in Appendix D. |
 
 ## Appendix I — Artifacts (`artifacts/`)
-_Lands in Phase C._
 
-- `artifacts/baseline.json`
-- `artifacts/demo_speed.html`
-- `artifacts/history.csv`
-- `artifacts/system_audit_report_2026-04-19.md`
+**Scope:** Only tracked files. The `artifacts/` directory is mostly gitignored runtime output (per-run NPZs, volatility cache, pytest cache, pre-PR diff staging); those aren't audited here.
+
+| File | Purpose | Verdict | Notes |
+|---|---|---|---|
+| `artifacts/baseline.json` | Pinned golden baseline EA (complexity L10, EUR/USD H1) for regression + UI baseline comparison | ✅ | Per CLAUDE.md `artifacts/` directory map. Fixture for `add-forex-knob` flows. |
+| `artifacts/demo_speed.html` | Speed roadmap phases 1–3 measurement report (disk cache, parallel build, parquet warm) | ✅ | Frozen snapshot of measured improvements per memory `project_speed_phases_1_2_3.md`. |
+| `artifacts/history.csv` | Runtime transaction log appended during backtests | ⚠️ | Tracked (would be unusual to ship empty); 2026-04-19 audit flagged race conditions in `harness.py` append + lock-released-too-early in `jobs.py`. Pre-existing — Pillar 3 work. |
+| `artifacts/system_audit_report_2026-04-19.md` | Full system audit snapshot: Python/Rust test counts, Codex parameter review, prioritised actions | ✅ | Frozen reference; precursor to this stocktake. |
 
 ## Section 7 — Cleanup punch list
 _Lands in Phase D._
