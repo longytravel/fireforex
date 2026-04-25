@@ -36,7 +36,7 @@ def signals_cfg() -> dict:
     }
 
 
-def _write_parquet(df: pd.DataFrame, tmp_path) -> "Path":
+def _write_parquet(df: pd.DataFrame, tmp_path) -> Path:
     p = tmp_path / "EUR_USD_H1.parquet"
     df.to_parquet(p)
     return p

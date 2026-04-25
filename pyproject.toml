@@ -30,15 +30,23 @@ extend-exclude = [
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "W"]
-# E741: `o,h,l,c` (open/high/low/close) is domain-standard in forex code.
-# E402: imports below module-level setup are sometimes required for Rust log levels etc.
-# E701/E702: single-line statements are tolerated in tight numeric helpers.
-# F841: scripts often capture subprocess results for clarity even if unread.
-ignore = ["E741", "E402", "E701", "E702", "F841"]
+# E741 is the only codebase-wide ignore: `o,h,l,c` (open/high/low/close) is
+# domain-standard in forex code and renaming would obscure intent.
+ignore = ["E741"]
 
 [tool.ruff.lint.per-file-ignores]
+# Scripts often capture subprocess results in named variables for clarity
+# even when the value isn't consumed; that's intentional in operational code.
+"scripts/*.py"   = ["F841", "E402"]
+"app/live_*.py"  = ["F841"]
+# Tight numeric helpers in the engine sometimes use one-line conditional /
+# semicolon-separated statements where a layout aids readability.
+"ff/encoding.py" = ["E701", "E702"]
 # HTML template strings — wrapping would break the rendered report.
-"scripts/build_forensic_report.py" = ["E501"]
+"scripts/build_forensic_report.py" = ["E501", "F841", "E402"]
+# Validation micro-scripts run at module-import to print results, so imports
+# below module-level setup are intentional.
+"docs/validation/**/*.py" = ["E402"]
 
 [tool.ruff.format]
 quote-style = "double"
