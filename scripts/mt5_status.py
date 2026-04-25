@@ -33,14 +33,26 @@ ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_OUT = ROOT / "artifacts" / "live" / "incoming"
 
 
-def _connect_mt5() -> Any:
+def _connect_mt5() -> tuple[Any, int]:
+    """Connect to MT5; return (mt5 module, broker-to-UTC offset in seconds).
+
+    Same pattern as `ff/live/broker_mt5.py` — MT5 timestamps are broker-local
+    (e.g. IC Markets = GMT+2/+3); always apply the offset before formatting.
+    """
     try:
         import MetaTrader5 as mt5
     except ImportError as e:
         raise RuntimeError("MetaTrader5 not installed (`pip install MetaTrader5`).") from e
     if not mt5.initialize():
         raise RuntimeError(f"MT5 initialize() failed: {mt5.last_error()}")
-    return mt5
+
+    import time as _time
+
+    broker_to_utc_sec = 0
+    tick = mt5.symbol_info_tick("EURUSD")
+    if tick is not None and tick.time:
+        broker_to_utc_sec = -(int(tick.time) - int(_time.time()))
+    return mt5, broker_to_utc_sec
 
 
 def _format_account(info: Any) -> str:
@@ -55,17 +67,17 @@ def _format_account(info: Any) -> str:
     )
 
 
-def _format_positions(positions: tuple, mt5: Any) -> str:
+def _format_positions(positions: tuple, mt5: Any, offset_sec: int) -> str:
     if not positions:
         return "Open positions: none."
     lines = [f"Open positions: {len(positions)}"]
     for p in positions:
         side = "BUY " if p.type == mt5.POSITION_TYPE_BUY else "SELL"
-        opened = datetime.fromtimestamp(p.time, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        opened = datetime.fromtimestamp(p.time + offset_sec, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
         lines.append(
             f"  {side} {p.symbol:<8} vol={p.volume:.2f} @ {p.price_open:.5f}"
             f" -> cur {p.price_current:.5f}  P&L {p.profit:+.2f}"
-            f"  SL={p.sl or '-':<8} TP={p.tp or '-':<8}  opened {opened}  ({p.comment or 'no comment'})"
+            f"  SL={p.sl or '-':<8} TP={p.tp or '-':<8}  opened {opened} UTC  ({p.comment or 'no comment'})"
         )
     return "\n".join(lines)
 
@@ -95,7 +107,10 @@ def _format_spreads(symbols: list[str], mt5: Any) -> str:
         if info is None or tick is None:
             lines.append(f"  {sym:<8} (no data — symbol not in market-watch?)")
             continue
-        spread_pips = (tick.ask - tick.bid) / info.point / 10
+        # 5-digit / 3-digit FX brokers quote in fractional pips (1 pip = 10 points);
+        # 4-digit / 2-digit symbols (some Gold / Index) quote whole pips (1 pip = 1 point).
+        pip_factor = 10 if info.digits in (3, 5) else 1
+        spread_pips = (tick.ask - tick.bid) / info.point / pip_factor
         lines.append(
             f"  {sym:<8} bid={tick.bid:.5f} ask={tick.ask:.5f} spread={spread_pips:.1f} pips  "
             f"swap_long={info.swap_long:+.2f} swap_short={info.swap_short:+.2f}"
@@ -119,7 +134,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
-        mt5 = _connect_mt5()
+        mt5, offset_sec = _connect_mt5()
     except RuntimeError as e:
         print(f"ERROR: {e}", file=sys.stderr)
         return 2
@@ -139,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
             "",
             _format_account(info),
             "",
-            _format_positions(positions, mt5),
+            _format_positions(positions, mt5, offset_sec),
             "",
             _format_orders(orders, mt5),
             "",
@@ -177,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
                         "tp": p.tp,
                         "profit": p.profit,
                         "comment": p.comment,
-                        "time_open": datetime.fromtimestamp(p.time, tz=timezone.utc).isoformat(),
+                        "time_open": datetime.fromtimestamp(p.time + offset_sec, tz=timezone.utc).isoformat(),
                     }
                     for p in positions
                 ],

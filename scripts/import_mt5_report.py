@@ -61,8 +61,13 @@ _DATE_RE = re.compile(r"^\d{4}\.\d{2}\.\d{2}")
 # ───────────────────────────── direct MT5 path ─────────────────────────────
 
 
-def _connect_mt5() -> Any:
-    """Attach to the running MT5 terminal. Returns the imported module."""
+def _connect_mt5() -> tuple[Any, int]:
+    """Attach to MT5; return (mt5 module, broker-to-UTC offset in seconds).
+
+    MT5 timestamps are broker-local (e.g. IC Markets = GMT+2/+3). Always
+    apply the offset before formatting / comparing against backtest UTC.
+    Same pattern as `ff/live/broker_mt5.py`.
+    """
     try:
         import MetaTrader5 as mt5
     except ImportError as e:
@@ -74,16 +79,31 @@ def _connect_mt5() -> Any:
     if not mt5.initialize():
         err = mt5.last_error()
         raise RuntimeError(f"MT5 initialize() failed: {err}. Open MetaTrader 5 terminal and ensure it's logged in, then retry.")
-    return mt5
+
+    import time as _time
+
+    broker_to_utc_sec = 0
+    tick = mt5.symbol_info_tick("EURUSD")
+    if tick is not None and tick.time:
+        broker_to_utc_sec = -(int(tick.time) - int(_time.time()))
+    return mt5, broker_to_utc_sec
+
+
+def _to_utc_str(broker_ts: int, broker_to_utc_sec: int) -> str:
+    return datetime.fromtimestamp(broker_ts + broker_to_utc_sec, tz=timezone.utc).strftime("%Y.%m.%d %H:%M:%S")
 
 
 def fetch_from_mt5(days_back: int) -> list[dict[str, str]]:
     """Pull closed positions from MT5 for the last ``days_back`` days."""
-    mt5 = _connect_mt5()
+    mt5, offset = _connect_mt5()
     try:
         date_to = datetime.now(timezone.utc)
         date_from = date_to - timedelta(days=days_back)
         deals = mt5.history_deals_get(date_from, date_to) or ()
+        # Order map for SL/TP enrichment — deals don't carry SL/TP, but the
+        # entry order does. One round-trip beats N per-position lookups.
+        orders = mt5.history_orders_get(date_from, date_to) or ()
+        order_by_id = {o.ticket: o for o in orders}
 
         # Group deals by position_id; ENTRY=in (entry leg), OUT=out (closing leg).
         by_position: dict[int, list[Any]] = defaultdict(list)
@@ -102,21 +122,22 @@ def fetch_from_mt5(days_back: int) -> list[dict[str, str]]:
             net_profit = sum(d.profit for d in leg_sorted)
             net_commission = sum(d.commission for d in leg_sorted)
             net_swap = sum(d.swap for d in leg_sorted)
-            t_open = datetime.fromtimestamp(entry.time, tz=timezone.utc).strftime("%Y.%m.%d %H:%M:%S")
-            t_close = datetime.fromtimestamp(exit_.time, tz=timezone.utc).strftime("%Y.%m.%d %H:%M:%S")
+            entry_order = order_by_id.get(entry.order)
+            sl = f"{entry_order.sl:.5f}" if entry_order and entry_order.sl else ""
+            tp = f"{entry_order.tp:.5f}" if entry_order and entry_order.tp else ""
             side = "buy" if entry.type == mt5.DEAL_TYPE_BUY else "sell"
             positions.append(
                 {
-                    "time_open": t_open,
+                    "time_open": _to_utc_str(entry.time, offset),
                     "position": str(pos_id),
                     "symbol": entry.symbol,
                     "type": side,
                     "comment": entry.comment or "",
                     "volume": f"{entry.volume:.2f}",
                     "price_open": f"{entry.price:.5f}",
-                    "sl": "",
-                    "tp": "",
-                    "time_close": t_close,
+                    "sl": sl,
+                    "tp": tp,
+                    "time_close": _to_utc_str(exit_.time, offset),
                     "price_close": f"{exit_.price:.5f}",
                     "commission": f"{net_commission:.2f}",
                     "swap": f"{net_swap:.2f}",
