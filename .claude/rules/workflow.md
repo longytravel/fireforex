@@ -27,6 +27,13 @@ description: PR workflow and PROGRESS.md maintenance — keeps the user out of t
 - **Rule of thumb:** if multiple phases touch the same file, are all docs-only, or are all under ~300 added lines, bundle them. Split when the diff exceeds ~500 lines or crosses a clear boundary (docs ↔ code, code ↔ infra).
 - Stacked PRs (one branch on top of another) are fragile — when the base branch merges via squash, GitHub auto-closes the stacked PR. Prefer a fresh branch off `main` after each merge.
 
+## MT5 trade history — auto-import convention
+- The user exports MT5 trade history from the terminal as `ReportHistory-*.html` (UTF-16 LE, MT5 standard).
+- They drop it on the Desktop. **They should never have to "flag" the file or move it manually.**
+- I run `scripts/import_mt5_report.py` (or the user clicks `scripts/desktop/Import MT5 Report.bat`) to ingest it. The script picks up the newest `ReportHistory*.html` on the Desktop by default.
+- Output lands in `artifacts/live/incoming/mt5_history_<stamp>.csv` (+ `.json`). The directory is gitignored — these are runtime artifacts, not committed.
+- After import, the next step is reconcile against backtest replay (Pillar 5 work). For now the script prints a per-symbol summary so I can spot obvious gaps (e.g. 17/18 losses on 2026-04-23/24 surfaced the current parity gap).
+
 ## PROGRESS.md — I keep it current so the user doesn't have to
 - When a PR merges to main: if the work matches an unchecked item in `PROGRESS.md`, tick it in the same session.
 - When a new milestone emerges worth tracking, add a line and tick it once shipped.
