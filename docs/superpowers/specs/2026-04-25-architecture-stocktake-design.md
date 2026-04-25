@@ -34,7 +34,7 @@ Plus one stop-hook entry that calls the checker before session end.
 
 ### Header — the 6-stage flow (Mermaid)
 
-```
+```text
 DATA → EA → SWEEP → INSPECT → DEPLOY → RECONCILE
   ↑                                         |
   └── MT5 broker data round-trip from VPS ──┘
