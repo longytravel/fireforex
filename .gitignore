@@ -19,6 +19,9 @@ artifacts/data_inventory.json
 # Playwright cache
 .playwright-mcp/
 
+# Superpowers brainstorm visual companion (mockup HTML, server state)
+.superpowers/
+
 # Editor / OS
 .idea/
 .vscode/
