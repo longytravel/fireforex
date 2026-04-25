@@ -19,12 +19,12 @@ Output:
   artifacts/live/reconcile/<stamp>_forensic.html
   artifacts/live/reconcile/forensic.html       (mirror for UI)
 """
+
 from __future__ import annotations
 
 import argparse
 import html
 import json
-import math
 import re
 import sys
 from collections import defaultdict
@@ -35,8 +35,7 @@ ROOT = Path(__file__).resolve().parent.parent
 LIVE = ROOT / "artifacts" / "live"
 RECONCILE = LIVE / "reconcile"
 
-JPY = {"USD_JPY", "EUR_JPY", "GBP_JPY", "AUD_JPY", "NZD_JPY",
-       "CAD_JPY", "CHF_JPY"}
+JPY = {"USD_JPY", "EUR_JPY", "GBP_JPY", "AUD_JPY", "NZD_JPY", "CAD_JPY", "CHF_JPY"}
 
 
 def _pip(pair: str) -> float:
@@ -79,8 +78,14 @@ def _load_instance(inst: Path) -> dict:
         plans.extend(_read_jsonl(pf))
     cfg_path = inst / "config.json"
     cfg = json.loads(cfg_path.read_text(encoding="utf-8-sig")) if cfg_path.exists() else {}
-    return {"name": inst.name, "dir": inst,
-            "tickets": tickets, "deals": deals, "plans": plans, "cfg": cfg}
+    return {
+        "name": inst.name,
+        "dir": inst,
+        "tickets": tickets,
+        "deals": deals,
+        "plans": plans,
+        "cfg": cfg,
+    }
 
 
 def _signal_from_comment(comment: str) -> str:
@@ -110,6 +115,7 @@ def _sl_price_from_close_comment(comment: str) -> float | None:
 def _load_replay_df(inst_dir: Path, source: str):
     import numpy as np
     import pandas as pd
+
     cfg_path = inst_dir / "config.json"
     if not cfg_path.exists():
         return None
@@ -141,6 +147,7 @@ def _match_bt(bt_df, pair: str, direction: int, sig_bar_dt: datetime):
     if bt_df is None or len(bt_df) == 0:
         return None
     import pandas as pd
+
     sig_dt = pd.Timestamp(sig_bar_dt.astimezone(timezone.utc))
     cand = bt_df[
         (bt_df["pair"] == pair)
@@ -166,14 +173,12 @@ def _ea_summary(cfg: dict) -> dict:
         stops.append(f"SL: fixed {sl['fixed']['pips']:.1f} pips")
     if tp.get("selector") == "rr":
         stops.append(f"TP: RR × {tp['rr']['ratio']:.1f}")
-    for name in ("trailing", "chandelier", "breakeven", "partial",
-                 "stale", "session", "max_bars"):
+    for name in ("trailing", "chandelier", "breakeven", "partial", "stale", "session", "max_bars"):
         blk = engine.get(name, {}) or {}
         if blk.get("test"):
             on = blk.get("when_on") or {}
             if on:
-                params = ", ".join(f"{k}={v:.2f}" if isinstance(v, float) else f"{k}={v}"
-                                   for k, v in on.items())
+                params = ", ".join(f"{k}={v:.2f}" if isinstance(v, float) else f"{k}={v}" for k, v in on.items())
                 stops.append(f"{name}: ON ({params})")
             else:
                 stops.append(f"{name}: ON")
@@ -185,8 +190,7 @@ def _ea_summary(cfg: dict) -> dict:
     }
 
 
-def _build_trade(inst: dict, ticket: dict, plan: dict,
-                 deals: list[dict], bt_duka, bt_mt5) -> dict:
+def _build_trade(inst: dict, ticket: dict, plan: dict, deals: list[dict], bt_duka, bt_mt5) -> dict:
     pair = plan["pair"]
     direction = int(plan["direction"])
     pip = _pip(pair)
@@ -226,12 +230,15 @@ def _build_trade(inst: dict, ticket: dict, plan: dict,
         entry_delta = (live_open - ent) / pip * direction
         exit_delta = (live_close - xt) / pip * direction
         pnl_delta = pnl_pips_live - float(bt_row["pnl_pips"])
-        exit_delta_sec = ((live_close_dt - xit_ts).total_seconds()
-                          if (live_close_dt and xit_ts) else None)
+        exit_delta_sec = (live_close_dt - xit_ts).total_seconds() if (live_close_dt and xit_ts) else None
         return {
-            "label": label, "matched": True,
-            "bt_entry": ent, "bt_exit": xt, "bt_pnl": float(bt_row["pnl_pips"]),
-            "bt_reason": reason, "bt_exit_ts": xit_ts,
+            "label": label,
+            "matched": True,
+            "bt_entry": ent,
+            "bt_exit": xt,
+            "bt_pnl": float(bt_row["pnl_pips"]),
+            "bt_reason": reason,
+            "bt_exit_ts": xit_ts,
             "bt_spread_pips": spread,
             "entry_delta_pips": round(entry_delta, 2),
             "exit_delta_pips": round(exit_delta, 2),
@@ -242,24 +249,34 @@ def _build_trade(inst: dict, ticket: dict, plan: dict,
 
     return {
         "position_id": ticket["ticket"],
-        "pair": pair, "direction": dir_word, "direction_int": direction,
+        "pair": pair,
+        "direction": dir_word,
+        "direction_int": direction,
         "instance": inst["name"],
         "signal": _signal_from_comment(open_d.get("comment", "")),
-        "signal_bar": sig_bar, "bar_close": bar_close,
-        "fired_at": fired_at, "filled_at": filled_at,
-        "live_open_ts": _iso(open_d.get("time")), "live_close_ts": live_close_dt,
-        "plan_entry": plan_entry, "plan_sl": plan_sl, "plan_tp": plan_tp,
-        "fill_px": fill_px, "live_open": live_open, "live_close": live_close,
+        "signal_bar": sig_bar,
+        "bar_close": bar_close,
+        "fired_at": fired_at,
+        "filled_at": filled_at,
+        "live_open_ts": _iso(open_d.get("time")),
+        "live_close_ts": live_close_dt,
+        "plan_entry": plan_entry,
+        "plan_sl": plan_sl,
+        "plan_tp": plan_tp,
+        "fill_px": fill_px,
+        "live_open": live_open,
+        "live_close": live_close,
         "live_sl_hit_price": live_sl,
         "live_pnl_pips": round(pnl_pips_live, 2),
-        "profit_gbp": round(float(close_d.get("profit", 0.0))
-                            + float(open_d.get("commission", 0.0))
-                            + float(close_d.get("commission", 0.0)), 2),
+        "profit_gbp": round(
+            float(close_d.get("profit", 0.0)) + float(open_d.get("commission", 0.0)) + float(close_d.get("commission", 0.0)),
+            2,
+        ),
         "slippage_entry_pips": slippage_entry_pips,
         "fire_latency_sec": round(fire_latency_sec, 1) if fire_latency_sec is not None else None,
         "exec_latency_ms": exec_latency_ms,
         "duka": _bt_block(bt_duka, "Dukascopy"),
-        "mt5":  _bt_block(bt_mt5,  "MT5"),
+        "mt5": _bt_block(bt_mt5, "MT5"),
     }
 
 
@@ -303,9 +320,7 @@ def _narrative(t: dict) -> list[str]:
                 "(pre-forming-candle fix)."
             )
         elif fls < 30:
-            bits.append(
-                f"🕑 <b>Fire timing:</b> fired {fls:.1f}s after bar close — healthy."
-            )
+            bits.append(f"🕑 <b>Fire timing:</b> fired {fls:.1f}s after bar close — healthy.")
         else:
             bits.append(f"🕑 <b>Fire timing:</b> {fls:.0f}s after bar close.")
     el = t.get("exec_latency_ms")
@@ -326,15 +341,12 @@ def _narrative(t: dict) -> list[str]:
         slp = t["live_sl_hit_price"]
         diff = (slp - t["plan_sl"]) / _pip(t["pair"])
         bits.append(
-            f"🛑 <b>Live SL hit:</b> broker closed at {slp:.5f} "
-            f"(plan SL was {t['plan_sl']:.5f}, "
-            f"{'+' if diff > 0 else ''}{diff:.1f} pips)."
+            f"🛑 <b>Live SL hit:</b> broker closed at {slp:.5f} (plan SL was {t['plan_sl']:.5f}, {'+' if diff > 0 else ''}{diff:.1f} pips)."
         )
 
     for blk in (t["duka"], t["mt5"]):
         if not blk.get("matched"):
-            bits.append(f"❓ <b>{blk['label']} replay:</b> no matching trade "
-                        "in backtest (cannot reproduce this signal).")
+            bits.append(f"❓ <b>{blk['label']} replay:</b> no matching trade in backtest (cannot reproduce this signal).")
             continue
 
         # Entry deltas — explained by spread assumption
@@ -355,8 +367,7 @@ def _narrative(t: dict) -> list[str]:
         xsec = blk.get("exit_delta_sec")
         reason = "both hit SL" if rs == "SL" else f"BT exit reason: {rs}"
         if xsec is None:
-            bits.append(f"🔴 <b>{blk['label']} exit:</b> {reason}; "
-                        f"Δprice {abs(xds):.1f} pips.")
+            bits.append(f"🔴 <b>{blk['label']} exit:</b> {reason}; Δprice {abs(xds):.1f} pips.")
         elif abs(xsec) < 90:
             bits.append(
                 f"🔴 <b>{blk['label']} exit:</b> {reason}. Live closed "
@@ -403,21 +414,21 @@ def _render_html(trades: list[dict], instances: list[dict], stamp: str) -> str:
     total_gbp = sum(t["profit_gbp"] for t in trades)
     duka_ok = sum(1 for t in trades if t["duka"].get("matched"))
     mt5_ok = sum(1 for t in trades if t["mt5"].get("matched"))
-    avg_slip = (sum(abs(t["slippage_entry_pips"]) for t in trades
-                    if t["slippage_entry_pips"] is not None)
-                / max(1, sum(1 for t in trades
-                             if t["slippage_entry_pips"] is not None)))
+    avg_slip = sum(abs(t["slippage_entry_pips"]) for t in trades if t["slippage_entry_pips"] is not None) / max(
+        1, sum(1 for t in trades if t["slippage_entry_pips"] is not None)
+    )
     cards = [
         ("Closed trades", f"{len(trades)}", "good"),
         ("Total P&L", f"£{total_gbp:+.2f}", "good" if total_gbp >= 0 else "bad"),
-        ("Dukascopy BT match", f"{duka_ok}/{len(trades)}", "good" if duka_ok == len(trades) else "warn"),
+        (
+            "Dukascopy BT match",
+            f"{duka_ok}/{len(trades)}",
+            "good" if duka_ok == len(trades) else "warn",
+        ),
         ("MT5 BT match", f"{mt5_ok}/{len(trades)}", "good" if mt5_ok == len(trades) else "warn"),
         ("Avg entry slippage", f"{avg_slip:.2f} pips", "warn" if avg_slip > 1 else "good"),
     ]
-    card_html = "".join(
-        f'<div class="card {cls}"><div>{esc(lbl)}</div><strong>{esc(val)}</strong></div>'
-        for lbl, val, cls in cards
-    )
+    card_html = "".join(f'<div class="card {cls}"><div>{esc(lbl)}</div><strong>{esc(val)}</strong></div>' for lbl, val, cls in cards)
 
     # EA knob summary per instance
     ea_html = []
@@ -430,7 +441,7 @@ def _render_html(trades: list[dict], instances: list[dict], stamp: str) -> str:
         ea_html.append(f"""
           <div class="ea">
             <div class="ea-name">{esc(name)}</div>
-            <div class="ea-detail"><b>{esc(ea['signal_family'])}</b> (variant {esc(ea.get('signal_variant'))}) · {esc(spstr)}</div>
+            <div class="ea-detail"><b>{esc(ea["signal_family"])}</b> (variant {esc(ea.get("signal_variant"))}) · {esc(spstr)}</div>
             <div class="ea-detail">{esc(stops)}</div>
           </div>""")
 
@@ -456,27 +467,25 @@ def _render_html(trades: list[dict], instances: list[dict], stamp: str) -> str:
                 return f'<div class="bt-box nomatch">{esc(blk["label"])} replay: no match</div>'
             reason_cls = "bad" if blk["bt_reason"] == "NONE" else ""
             xsec = blk.get("exit_delta_sec")
-            xsec_txt = (f"{xsec:+.0f}s" if xsec is not None and abs(xsec) < 120
-                        else f"{xsec/60:+.1f} min" if xsec is not None
-                        else "—")
+            xsec_txt = f"{xsec:+.0f}s" if xsec is not None and abs(xsec) < 120 else f"{xsec / 60:+.1f} min" if xsec is not None else "—"
             return f"""
               <div class="bt-box">
-                <div class="bt-head">{esc(blk['label'])} backtest</div>
-                <div class="kv"><span>BT entry</span><span>{fmt_px(blk['bt_entry'], pair)}</span></div>
-                <div class="kv"><span>BT exit</span><span>{fmt_px(blk['bt_exit'], pair)}</span></div>
-                <div class="kv"><span>BT pnl</span><span>{blk['bt_pnl']:+.1f} pips</span></div>
-                <div class="kv"><span>BT close reason</span><span class="{reason_cls}">{esc(blk['bt_reason'])}</span></div>
-                <div class="kv"><span>BT spread @ entry</span><span>{blk['bt_spread_pips']:.2f} pips</span></div>
+                <div class="bt-head">{esc(blk["label"])} backtest</div>
+                <div class="kv"><span>BT entry</span><span>{fmt_px(blk["bt_entry"], pair)}</span></div>
+                <div class="kv"><span>BT exit</span><span>{fmt_px(blk["bt_exit"], pair)}</span></div>
+                <div class="kv"><span>BT pnl</span><span>{blk["bt_pnl"]:+.1f} pips</span></div>
+                <div class="kv"><span>BT close reason</span><span class="{reason_cls}">{esc(blk["bt_reason"])}</span></div>
+                <div class="kv"><span>BT spread @ entry</span><span>{blk["bt_spread_pips"]:.2f} pips</span></div>
                 <div class="delta">
-                  <div>Δ entry <b>{blk['entry_delta_pips']:+.2f}</b> pips</div>
-                  <div>Δ exit <b>{blk['exit_delta_pips']:+.2f}</b> pips</div>
-                  <div>Δ pnl <b>{blk['pnl_delta_pips']:+.2f}</b> pips</div>
+                  <div>Δ entry <b>{blk["entry_delta_pips"]:+.2f}</b> pips</div>
+                  <div>Δ exit <b>{blk["exit_delta_pips"]:+.2f}</b> pips</div>
+                  <div>Δ pnl <b>{blk["pnl_delta_pips"]:+.2f}</b> pips</div>
                   <div>Δ time <b>{esc(xsec_txt)}</b></div>
                 </div>
               </div>"""
 
         slip = t["slippage_entry_pips"]
-        slip_txt = (f"{slip:+.2f} pips" if slip is not None else "—")
+        slip_txt = f"{slip:+.2f} pips" if slip is not None else "—"
         fls = t["fire_latency_sec"]
         fls_txt = f"{fls:+.1f}s" if fls is not None else "—"
 
@@ -484,14 +493,14 @@ def _render_html(trades: list[dict], instances: list[dict], stamp: str) -> str:
           <section class="trade">
             <header class="trade-head {verdict_cls}">
               <div>
-                <span class="pos">#{esc(t['position_id'])}</span>
-                <span class="pair">{esc(t['pair'])}</span>
-                <span class="signal">{esc(t['signal'])}</span>
-                <span class="dir" style="color:{dir_color}">{dir_sign} {esc(t['direction'])}</span>
+                <span class="pos">#{esc(t["position_id"])}</span>
+                <span class="pair">{esc(t["pair"])}</span>
+                <span class="signal">{esc(t["signal"])}</span>
+                <span class="dir" style="color:{dir_color}">{dir_sign} {esc(t["direction"])}</span>
               </div>
               <div class="pnl">
-                live pnl <b>{t['live_pnl_pips']:+.1f} pips</b>
-                &nbsp;·&nbsp; <b>£{t['profit_gbp']:+.2f}</b>
+                live pnl <b>{t["live_pnl_pips"]:+.1f} pips</b>
+                &nbsp;·&nbsp; <b>£{t["profit_gbp"]:+.2f}</b>
               </div>
             </header>
 
@@ -505,18 +514,18 @@ def _render_html(trades: list[dict], instances: list[dict], stamp: str) -> str:
             <div class="grid">
               <div class="live-box">
                 <div class="box-head">Live trade</div>
-                <div class="kv"><span>plan entry ref</span><span>{fmt_px(t['plan_entry'], t['pair'])}</span></div>
-                <div class="kv"><span>broker fill</span><span>{fmt_px(t['fill_px'], t['pair'])}</span></div>
-                <div class="kv"><span>live open</span><span>{fmt_px(t['live_open'], t['pair'])}</span></div>
-                <div class="kv"><span>live close</span><span>{fmt_px(t['live_close'], t['pair'])}</span></div>
-                <div class="kv"><span>plan SL / TP</span><span>{fmt_px(t['plan_sl'], t['pair'])} / {fmt_px(t['plan_tp'], t['pair'])}</span></div>
-                <div class="kv"><span>live SL hit price</span><span>{fmt_px(t['live_sl_hit_price'], t['pair'])}</span></div>
+                <div class="kv"><span>plan entry ref</span><span>{fmt_px(t["plan_entry"], t["pair"])}</span></div>
+                <div class="kv"><span>broker fill</span><span>{fmt_px(t["fill_px"], t["pair"])}</span></div>
+                <div class="kv"><span>live open</span><span>{fmt_px(t["live_open"], t["pair"])}</span></div>
+                <div class="kv"><span>live close</span><span>{fmt_px(t["live_close"], t["pair"])}</span></div>
+                <div class="kv"><span>plan SL / TP</span><span>{fmt_px(t["plan_sl"], t["pair"])} / {fmt_px(t["plan_tp"], t["pair"])}</span></div>
+                <div class="kv"><span>live SL hit price</span><span>{fmt_px(t["live_sl_hit_price"], t["pair"])}</span></div>
                 <div class="kv"><span>entry slippage</span><span>{esc(slip_txt)}</span></div>
                 <div class="kv"><span>fire latency</span><span>{esc(fls_txt)}</span></div>
-                <div class="kv"><span>exec latency</span><span>{t['exec_latency_ms'] if t['exec_latency_ms'] is not None else '—'} ms</span></div>
+                <div class="kv"><span>exec latency</span><span>{t["exec_latency_ms"] if t["exec_latency_ms"] is not None else "—"} ms</span></div>
               </div>
-              {_bt_box(duka, t['pair'])}
-              {_bt_box(mt5, t['pair'])}
+              {_bt_box(duka, t["pair"])}
+              {_bt_box(mt5, t["pair"])}
             </div>
 
             <ul class="narrative">{nar}</ul>

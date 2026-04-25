@@ -4,6 +4,7 @@ A baseline is a snapshot of a previously-completed run that we compare new
 runs against. Persisted at ``artifacts/baseline.json`` so it survives
 restarts.
 """
+
 from __future__ import annotations
 
 import json
@@ -11,14 +12,19 @@ import threading
 from pathlib import Path
 from typing import Any
 
-
 BASELINE_PATH = Path(__file__).resolve().parent.parent / "artifacts" / "baseline.json"
 
 _WRITE_LOCK = threading.Lock()
 
 _KPI_KEYS = (
-    "trades", "win_rate_pct", "total_pips", "expectancy_pips",
-    "max_dd_pct", "profit_factor", "sharpe", "return_pct",
+    "trades",
+    "win_rate_pct",
+    "total_pips",
+    "expectancy_pips",
+    "max_dd_pct",
+    "profit_factor",
+    "sharpe",
+    "return_pct",
 )
 
 
@@ -40,8 +46,12 @@ def save(baseline: dict[str, Any]) -> None:
         tmp.replace(BASELINE_PATH)
 
 
-def pin_from_job(job_result: dict[str, Any], recipe: dict[str, Any],
-                  overrides: dict[str, Any] | None, layer: str | None) -> dict[str, Any]:
+def pin_from_job(
+    job_result: dict[str, Any],
+    recipe: dict[str, Any],
+    overrides: dict[str, Any] | None,
+    layer: str | None,
+) -> dict[str, Any]:
     kpis = job_result.get("kpis") or {}
     baseline = {
         "layer": layer,
@@ -57,6 +67,7 @@ def pin_from_job(job_result: dict[str, Any], recipe: dict[str, Any],
 
 def pin_from_history_row(row: dict[str, Any]) -> dict[str, Any]:
     """Pin a past run directly from a history.csv row."""
+
     def _num(k: str) -> float | None:
         v = row.get(k)
         if v in (None, ""):
@@ -69,9 +80,9 @@ def pin_from_history_row(row: dict[str, Any]) -> dict[str, Any]:
     baseline = {
         "layer": row.get("layer"),
         "recipe": {
-            "pair":    row.get("pair"),
+            "pair": row.get("pair"),
             "main_tf": row.get("main_tf"),
-            "sub_tf":  row.get("sub_tf"),
+            "sub_tf": row.get("sub_tf"),
         },
         "overrides": {},
         "kpis": {k: _num(k) for k in _KPI_KEYS},

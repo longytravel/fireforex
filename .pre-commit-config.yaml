@@ -27,9 +27,6 @@ repos:
         language: system
         files: ^core/.*\.rs$
         pass_filenames: false
-      - id: cargo-clippy
-        name: cargo clippy
-        entry: bash -c 'cd core && cargo clippy --all-targets -- -D warnings'
-        language: system
-        files: ^core/.*\.rs$
-        pass_filenames: false
+      # cargo-clippy intentionally NOT in pre-commit: pyo3's build.rs requires
+      # a Python interpreter on PATH which isn't always present in pre-commit's
+      # bash environment on Windows. Clippy still runs in CI.

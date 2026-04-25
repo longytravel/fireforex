@@ -9,6 +9,7 @@ The runner is deliberately NOT hosted in a subprocess. A subprocess would
 survive uvicorn reloads at the cost of a second credential-loading path and
 a harder stop protocol; the trade-off isn't worth it until v2.
 """
+
 from __future__ import annotations
 
 import json
@@ -18,7 +19,6 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
-
 
 LOG = logging.getLogger(__name__)
 
@@ -62,7 +62,8 @@ class LiveRunnerHost:
             if self._state.status in ("starting", "running"):
                 return self._state
 
-            from ff.live.runner import BrokerCfg, LiveConfig, run as runner_run
+            from ff.live.runner import BrokerCfg, LiveConfig
+            from ff.live.runner import run as runner_run
 
             # LiveRunnerHost is the laptop-side in-process runner (UI
             # trigger). Each start gets its own instance_id scoped to
@@ -127,11 +128,7 @@ class LiveRunnerHost:
     # ----------------------------------------------------------------- status
     def status(self) -> dict[str, Any]:
         with self._lock:
-            uptime = (
-                time.time() - self._state.started_at
-                if self._state.started_at is not None and self._state.status == "running"
-                else 0.0
-            )
+            uptime = time.time() - self._state.started_at if self._state.started_at is not None and self._state.status == "running" else 0.0
             return {
                 "status": self._state.status,
                 "uptime_sec": round(uptime, 1),
@@ -152,6 +149,7 @@ def get_host() -> LiveRunnerHost:
 
 
 # ── Read helpers — exposed for the status endpoint ─────────────────────
+
 
 def _instance_roots() -> list[tuple[str, Any]]:
     """Active instance dirs under artifacts/live/ plus the legacy flat
@@ -218,8 +216,7 @@ def _count_plans_today() -> int:
     return total
 
 
-def tail_plans(since_ts: str | None = None, pair: str | None = None,
-                limit: int = 100) -> list[dict]:
+def tail_plans(since_ts: str | None = None, pair: str | None = None, limit: int = 100) -> list[dict]:
     """Return today's plans across every instance (newest last),
     optionally filtered. Each row is tagged with ``instance_id``.
     """

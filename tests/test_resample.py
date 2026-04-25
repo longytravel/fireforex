@@ -1,8 +1,8 @@
 """Resample: OHLC aggregation, weekend gaps, spread averaging."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -24,15 +24,17 @@ def _m1_frame(start: datetime, minutes: int) -> pd.DataFrame:
     """Deterministic walking price — open=1+i*1e-5, high=open+1e-5, low=open-1e-5."""
     ts = pd.date_range(start, periods=minutes, freq="1min", tz="UTC")
     base = 1.0 + pd.Series(range(minutes)) * 1e-5
-    return pd.DataFrame({
-        "timestamp": ts,
-        "open":  base.values,
-        "high":  (base + 1e-5).values,
-        "low":   (base - 1e-5).values,
-        "close": base.values,
-        "volume": 1.0,
-        "spread": 0.0002,
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": ts,
+            "open": base.values,
+            "high": (base + 1e-5).values,
+            "low": (base - 1e-5).values,
+            "close": base.values,
+            "volume": 1.0,
+            "spread": 0.0002,
+        }
+    )
 
 
 def test_60_m1_bars_roll_into_one_h1_row(tmp_root):
@@ -45,12 +47,12 @@ def test_60_m1_bars_roll_into_one_h1_row(tmp_root):
     assert len(h1) == 1
 
     row = h1.iloc[0]
-    assert row["open"] == pytest.approx(1.0)                    # first of 60
-    assert row["close"] == pytest.approx(1.0 + 59 * 1e-5)       # last of 60
-    assert row["high"] == pytest.approx(1.0 + 59 * 1e-5 + 1e-5) # max
-    assert row["low"] == pytest.approx(1.0 - 1e-5)              # min
-    assert row["volume"] == pytest.approx(60.0)                 # sum
-    assert row["spread"] == pytest.approx(0.0002)               # mean
+    assert row["open"] == pytest.approx(1.0)  # first of 60
+    assert row["close"] == pytest.approx(1.0 + 59 * 1e-5)  # last of 60
+    assert row["high"] == pytest.approx(1.0 + 59 * 1e-5 + 1e-5)  # max
+    assert row["low"] == pytest.approx(1.0 - 1e-5)  # min
+    assert row["volume"] == pytest.approx(60.0)  # sum
+    assert row["spread"] == pytest.approx(0.0002)  # mean
 
 
 def test_weekend_gap_produces_no_empty_rows(tmp_root):

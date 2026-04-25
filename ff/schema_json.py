@@ -17,6 +17,7 @@ Node JSON shape:
 - ``Group``      → ``{"type": "Group",      "test": <node>, "on_value": .., "when_on": <subtree>}``
 - ``Branch``     → ``{"type": "Branch",     "selector": <node>, "arms": {name: <subtree>}}``
 """
+
 from __future__ import annotations
 
 import json
@@ -25,13 +26,13 @@ from typing import Any
 
 from .schema import Branch, Choice, FloatRange, Group, IntRange
 
-
 _NODE_TYPES = (FloatRange, IntRange, Choice, Group, Branch)
 _NODE_TYPE_NAMES = {"FloatRange", "IntRange", "Choice", "Group", "Branch"}
 _SERIALISABLE_TOP_KEYS = ("name", "data", "execution", "signals", "engine_schema")
 
 
 # ── Node ↔ dict ────────────────────────────────────────────────────────
+
 
 def schema_node_to_dict(node: Any) -> dict:
     if isinstance(node, FloatRange):
@@ -88,6 +89,7 @@ def dict_to_schema_node(d: dict) -> Any:
 
 # ── Sub-tree (nested dict of nodes) ────────────────────────────────────
 
+
 def _subtree_to_dict(tree: dict) -> dict:
     out: dict[str, Any] = {}
     for k, v in tree.items():
@@ -113,6 +115,7 @@ def _subtree_from_dict(tree: dict) -> dict:
 
 
 # ── EA top-level ───────────────────────────────────────────────────────
+
 
 def ea_to_dict(ea: dict) -> dict:
     """Serialise the user-visible parts of an EA. ``engine_mapping`` is skipped."""
@@ -150,6 +153,7 @@ def dict_to_ea(d: dict, *, engine_mapping: list | None = None) -> dict:
 
 
 # ── File helpers ───────────────────────────────────────────────────────
+
 
 def save_ea(ea: dict, path: str | Path) -> None:
     Path(path).write_text(json.dumps(ea_to_dict(ea), indent=2), encoding="utf-8")

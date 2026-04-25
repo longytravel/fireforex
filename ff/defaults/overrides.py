@@ -17,6 +17,7 @@ Paths are dotted routes through ``engine_schema`` and ``signals``. Inside a
 Branch, the path segment is the arm name (``stop_loss.atr.mult``). Inside a
 Group, use ``when_on`` as a segment (``session.when_on.hours_start``).
 """
+
 from __future__ import annotations
 
 from dataclasses import fields, replace
@@ -24,11 +25,11 @@ from typing import Any
 
 from ff.schema import Branch, Choice, FloatRange, Group, IntRange
 
-
 _LEAF_TYPES = (FloatRange, IntRange, Choice)
 
 
 # ── Public entry ───────────────────────────────────────────────────────
+
 
 def apply_overrides(ea: dict, overrides: dict | None) -> dict:
     """Return a new EA with overrides applied. Original is left untouched."""
@@ -64,6 +65,7 @@ def apply_overrides(ea: dict, overrides: dict | None) -> dict:
 
 # ── Clone ──────────────────────────────────────────────────────────────
 
+
 def _clone_ea(ea: dict) -> dict:
     """Deep-copy the mutable parts; the engine_mapping list is left by reference."""
     out = dict(ea)
@@ -78,12 +80,12 @@ def _clone_tree(tree: Any) -> Any:
     if isinstance(tree, (FloatRange, IntRange, Choice)):
         return _shallow_dataclass(tree)
     if isinstance(tree, Group):
-        return Group(test=_clone_tree(tree.test),
-                      when_on=_clone_tree(tree.when_on),
-                      on_value=tree.on_value)
+        return Group(test=_clone_tree(tree.test), when_on=_clone_tree(tree.when_on), on_value=tree.on_value)
     if isinstance(tree, Branch):
-        return Branch(selector=_clone_tree(tree.selector),
-                       arms={k: _clone_tree(v) for k, v in tree.arms.items()})
+        return Branch(
+            selector=_clone_tree(tree.selector),
+            arms={k: _clone_tree(v) for k, v in tree.arms.items()},
+        )
     return tree
 
 
@@ -93,6 +95,7 @@ def _shallow_dataclass(obj: Any) -> Any:
 
 
 # ── Global step multiplier ─────────────────────────────────────────────
+
 
 def _scale_steps(tree: Any, mult: float) -> None:
     if isinstance(tree, dict):
@@ -121,6 +124,7 @@ def _snap(x: float) -> float:
 
 # ── Group on/off ───────────────────────────────────────────────────────
 
+
 def _set_group_enabled(tree: dict, path: list[str], enabled: bool) -> None:
     """Force a Group on or off by rewriting its ``test.values``.
 
@@ -133,9 +137,7 @@ def _set_group_enabled(tree: dict, path: list[str], enabled: bool) -> None:
         return
     existing = list(node.test.values)
     off_candidates = [v for v in existing if v != node.on_value]
-    off_val = off_candidates[0] if off_candidates else (
-        (not node.on_value) if isinstance(node.on_value, bool) else False
-    )
+    off_val = off_candidates[0] if off_candidates else ((not node.on_value) if isinstance(node.on_value, bool) else False)
     if enabled:
         if node.on_value not in existing:
             existing.append(node.on_value)
@@ -147,6 +149,7 @@ def _set_group_enabled(tree: dict, path: list[str], enabled: bool) -> None:
 
 
 # ── Per-knob override ──────────────────────────────────────────────────
+
 
 def _apply_knob(ea: dict, path: list[str], spec: dict) -> None:
     # search both engine_schema and signals
@@ -206,6 +209,7 @@ def _opt_float(v: Any) -> float | None:
 
 
 # ── Path walking through Group/Branch/dict ─────────────────────────────
+
 
 def _walk_get(tree: Any, path: list[str]) -> Any:
     node: Any = tree
@@ -268,6 +272,7 @@ def _set_child(parent: Any, key: str, value: Any) -> None:
 
 # ── Schema flattener for the UI ────────────────────────────────────────
 
+
 def flatten_schema(tree: dict, prefix: str = "") -> list[dict]:
     """Return a flat list of dicts describing every knob & group for the UI.
 
@@ -289,23 +294,35 @@ def flatten_schema(tree: dict, prefix: str = "") -> list[dict]:
 def _flatten_node(path: str, node: Any) -> list[dict]:
     out: list[dict] = []
     if isinstance(node, FloatRange):
-        out.append({"path": path, "kind": "float", "min": node.min, "max": node.max,
-                    "step": node.step, "scale": node.scale})
+        out.append(
+            {
+                "path": path,
+                "kind": "float",
+                "min": node.min,
+                "max": node.max,
+                "step": node.step,
+                "scale": node.scale,
+            }
+        )
     elif isinstance(node, IntRange):
-        out.append({"path": path, "kind": "int", "min": node.min, "max": node.max,
-                    "step": node.step})
+        out.append({"path": path, "kind": "int", "min": node.min, "max": node.max, "step": node.step})
     elif isinstance(node, Choice):
         out.append({"path": path, "kind": "choice", "values": list(node.values)})
     elif isinstance(node, Group):
         test_values = list(node.test.values)
         enabled = node.on_value in test_values and len(test_values) > 1
-        out.append({"path": path, "kind": "group",
-                    "test_values": test_values, "on_value": node.on_value,
-                    "enabled": enabled})
+        out.append(
+            {
+                "path": path,
+                "kind": "group",
+                "test_values": test_values,
+                "on_value": node.on_value,
+                "enabled": enabled,
+            }
+        )
         out.extend(flatten_schema(node.when_on, f"{path}.when_on"))
     elif isinstance(node, Branch):
-        out.append({"path": path, "kind": "branch",
-                    "selector_values": list(node.selector.values)})
+        out.append({"path": path, "kind": "branch", "selector_values": list(node.selector.values)})
         for arm_name, arm in node.arms.items():
             out.extend(flatten_schema(arm, f"{path}.{arm_name}"))
     elif isinstance(node, dict):

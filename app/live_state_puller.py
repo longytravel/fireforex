@@ -14,13 +14,13 @@ Design notes:
 - Swallows every failure — this is telemetry, must never take the UI down.
 - Disabled by env var ``FF_DISABLE_LIVE_STATE_PULL=1`` for local dev.
 """
+
 from __future__ import annotations
 
 import logging
 import os
 import subprocess
 import threading
-import time
 from pathlib import Path
 
 LOG = logging.getLogger(__name__)
@@ -33,8 +33,11 @@ BRANCH = "live-state"
 
 def _git(*args: str, timeout: int = 30) -> subprocess.CompletedProcess:
     return subprocess.run(
-        ["git", *args], cwd=str(REPO_ROOT),
-        timeout=timeout, capture_output=True, text=True,
+        ["git", *args],
+        cwd=str(REPO_ROOT),
+        timeout=timeout,
+        capture_output=True,
+        text=True,
     )
 
 
@@ -60,11 +63,13 @@ def pull_once() -> bool:
     archive = subprocess.Popen(
         ["git", "archive", "--format=tar", f"{REMOTE}/{BRANCH}"],
         cwd=str(REPO_ROOT),
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
     )
     tar = subprocess.Popen(
         ["tar", "-xf", "-", "-C", str(LIVE_DIR)],
-        stdin=archive.stdout, stderr=subprocess.PIPE,
+        stdin=archive.stdout,
+        stderr=subprocess.PIPE,
     )
     if archive.stdout is not None:
         archive.stdout.close()
@@ -77,9 +82,12 @@ def pull_once() -> bool:
         return False
 
     if tar.returncode != 0 or archive.returncode != 0:
-        LOG.warning("[live_pull] tar failed rc=%s archive_rc=%s tar_err=%s",
-                    tar.returncode, archive.returncode,
-                    tar_err.decode(errors="ignore").strip() if tar_err else "")
+        LOG.warning(
+            "[live_pull] tar failed rc=%s archive_rc=%s tar_err=%s",
+            tar.returncode,
+            archive.returncode,
+            tar_err.decode(errors="ignore").strip() if tar_err else "",
+        )
         return False
     return True
 

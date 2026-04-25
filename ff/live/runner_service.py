@@ -7,6 +7,7 @@ exits non-zero; the Scheduled Task restarts on failure every 60s.
 
 Not imported by tests — Windows-only and depends on ``MetaTrader5``.
 """
+
 from __future__ import annotations
 
 import json
@@ -19,7 +20,6 @@ from threading import Event
 from typing import Any
 
 import pandas as pd
-
 
 LOG = logging.getLogger(__name__)
 
@@ -37,6 +37,7 @@ def _read_json(path: Path) -> Any:
 
 def _log_crash(exc: BaseException) -> None:
     import traceback
+
     import pandas as pd
 
     row = {
@@ -88,12 +89,10 @@ def _distribute_deploy_configs() -> None:
             manifest = _read_json(active_manifest)
             active_ids = set(manifest.get("active") or [])
         except (json.JSONDecodeError, TypeError):
-            LOG.warning("[svc] deploy/instances/active.json unparseable; "
-                        "treating as empty")
+            LOG.warning("[svc] deploy/instances/active.json unparseable; treating as empty")
             active_ids = set()
     else:
-        LOG.warning("[svc] deploy/instances/active.json missing — "
-                    "distributing every config file (legacy behaviour)")
+        LOG.warning("[svc] deploy/instances/active.json missing — distributing every config file (legacy behaviour)")
         active_ids = None  # None means "no filter"
 
     index_file = _LIVE_DIR / "instances.json"
@@ -128,21 +127,20 @@ def _distribute_deploy_configs() -> None:
         cfg_id = cfg.get("instance_id")
         if cfg_id and cfg_id != instance_id_from_filename:
             LOG.warning(
-                "[svc] deploy file %s has instance_id=%r mismatch — "
-                "forcing to filename stem %r",
-                deploy_cfg.name, cfg_id, instance_id_from_filename,
+                "[svc] deploy file %s has instance_id=%r mismatch — forcing to filename stem %r",
+                deploy_cfg.name,
+                cfg_id,
+                instance_id_from_filename,
             )
         cfg["instance_id"] = instance_id_from_filename
 
         inst_dir.mkdir(parents=True, exist_ok=True)
-        live_cfg.write_text(
-            json.dumps(cfg, indent=2, default=str), encoding="utf-8")
+        live_cfg.write_text(json.dumps(cfg, indent=2, default=str), encoding="utf-8")
 
         # pinned_run.json for the auto-reconciler.
         run_id = cfg.get("source_run_id")
         if run_id:
-            (inst_dir / "pinned_run.json").write_text(
-                json.dumps({"run_id": run_id}, indent=2), encoding="utf-8")
+            (inst_dir / "pinned_run.json").write_text(json.dumps({"run_id": run_id}, indent=2), encoding="utf-8")
 
         index["instances"][instance_id_from_filename] = {
             "active": True,
@@ -167,8 +165,7 @@ def _distribute_deploy_configs() -> None:
                 meta["active"] = False
                 meta["deactivated_at"] = pd.Timestamp.now("UTC").isoformat()
                 deactivated += 1
-                LOG.info("[svc] deactivated instance %s "
-                         "(removed from deploy/instances/active.json)", iid)
+                LOG.info("[svc] deactivated instance %s (removed from deploy/instances/active.json)", iid)
 
     if added or deactivated:
         index_file.write_text(json.dumps(index, indent=2), encoding="utf-8")
@@ -222,8 +219,10 @@ def _auto_migrate_legacy() -> Path | None:
     if not _SERVICE_CONFIG.exists():
         return None
     if list(_LIVE_DIR.glob("*/config.json")):
-        LOG.warning("[svc] legacy %s exists alongside instance subdirs "
-                    "— ignoring; archive it manually", _SERVICE_CONFIG)
+        LOG.warning(
+            "[svc] legacy %s exists alongside instance subdirs — ignoring; archive it manually",
+            _SERVICE_CONFIG,
+        )
         return None
 
     import shutil
@@ -238,10 +237,12 @@ def _auto_migrate_legacy() -> Path | None:
     embedded_id = cfg.get("instance_id")
     deploy_dir = _ROOT / "deploy" / "instances"
     if embedded_id and (deploy_dir / f"{embedded_id}.json").exists():
-        LOG.info("[svc] legacy service_config.json has instance_id=%r "
-                 "already in deploy/instances — skipping migrate; "
-                 "distribute_deploy_configs will handle it.",
-                 embedded_id)
+        LOG.info(
+            "[svc] legacy service_config.json has instance_id=%r "
+            "already in deploy/instances — skipping migrate; "
+            "distribute_deploy_configs will handle it.",
+            embedded_id,
+        )
         return None
 
     stamp = time.strftime("%Y%m%d_%H%M%S")
@@ -251,11 +252,16 @@ def _auto_migrate_legacy() -> Path | None:
 
     inst_dir = _LIVE_DIR / instance_id
     inst_dir.mkdir(parents=True, exist_ok=True)
-    (inst_dir / "config.json").write_text(
-        json.dumps(cfg, indent=2), encoding="utf-8")
+    (inst_dir / "config.json").write_text(json.dumps(cfg, indent=2), encoding="utf-8")
 
-    for name in ("plans", "tickets.jsonl", "state.json", "errors.jsonl",
-                 "pinned_run.json", "reconcile"):
+    for name in (
+        "plans",
+        "tickets.jsonl",
+        "state.json",
+        "errors.jsonl",
+        "pinned_run.json",
+        "reconcile",
+    ):
         src = _LIVE_DIR / name
         if src.exists():
             shutil.move(str(src), str(inst_dir / name))
@@ -269,8 +275,7 @@ def _auto_migrate_legacy() -> Path | None:
 
     # Register in instances.json.
     index_file = _LIVE_DIR / "instances.json"
-    idx: dict[str, Any] = {"magic_counter": int(cfg["magic_number"]) + 1,
-                            "instances": {}}
+    idx: dict[str, Any] = {"magic_counter": int(cfg["magic_number"]) + 1, "instances": {}}
     if index_file.exists():
         try:
             idx = _read_json(index_file)
@@ -288,13 +293,11 @@ def _auto_migrate_legacy() -> Path | None:
     }
     index_file.write_text(json.dumps(idx, indent=2), encoding="utf-8")
 
-    LOG.info("[svc] MIGRATED legacy service_config.json -> %s",
-             inst_dir / "config.json")
+    LOG.info("[svc] MIGRATED legacy service_config.json -> %s", inst_dir / "config.json")
     return inst_dir / "config.json"
 
 
-def _build_live_config(config_path: Path,
-                       creds: dict[str, Any]) -> "Any":
+def _build_live_config(config_path: Path, creds: dict[str, Any]) -> "Any":
     """Read one instance config.json -> LiveConfig."""
     from ff.live import runner
 
@@ -345,14 +348,15 @@ def main() -> int:
 
         config_paths = _discover_instance_configs()
         if not config_paths:
-            LOG.error("[svc] no active instance configs under %s — "
-                      "deploy one via the web UI first", _LIVE_DIR)
+            LOG.error(
+                "[svc] no active instance configs under %s — deploy one via the web UI first",
+                _LIVE_DIR,
+            )
             return 2
 
         creds = broker_mt5.load_broker_cfg_from_env(_ENV_FILE)
         instances = [_build_live_config(cp, creds) for cp in config_paths]
-        LOG.info("[svc] loaded %d instance(s): %s",
-                 len(instances), [c.instance_id for c in instances])
+        LOG.info("[svc] loaded %d instance(s): %s", len(instances), [c.instance_id for c in instances])
 
         stop_event = Event()
         _install_signal_handlers(stop_event)
@@ -362,8 +366,6 @@ def main() -> int:
         LOG.exception("[svc] crash")
         _log_crash(exc)
         return 1
-
-
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ With the v2 guard landed, C and D should be indistinguishable from A
 (guard rejects every tight-distance move). B and E should move
 outcomes legitimately.
 """
+
 from __future__ import annotations
 
 import sys
@@ -20,9 +21,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 
+import ff_core as bc
 import numpy as np
 import pandas as pd
-import ff_core as bc
+
 from ff import signal_lib as sl
 
 
@@ -50,9 +52,16 @@ def _build_data():
     ss = sl.ema_cross(df, fast=5, slow=20, atr_period=14, pip_value=0.0001)
     n_sig = ss.bar_index.size
     return dict(
-        h_h=h_h, h_l=h_l, h_c=h_c, h_s=h_s,
-        m_h=m_h, m_l=m_l, m_c=m_c, m_s=m_s,
-        map_start=map_start, map_end=map_end,
+        h_h=h_h,
+        h_l=h_l,
+        h_c=h_c,
+        h_s=h_s,
+        m_h=m_h,
+        m_l=m_l,
+        m_c=m_c,
+        m_s=m_s,
+        map_start=map_start,
+        map_end=map_end,
         bar_index=ss.bar_index.astype(np.int64),
         direction=ss.direction.astype(np.int64),
         entry_price=ss.entry_price.astype(np.float64),
@@ -88,11 +97,11 @@ def _row(trail_mode, activate, distance, atr_mult):
 def main():
     d = _build_data()
     configs = [
-        ("A: trail off",                  _row(0, 0.0,  0.0, 0.0)),
-        ("B: fixed act=20 dist=20",       _row(1, 20.0, 20.0, 0.0)),
-        ("C: fixed act=5  dist=1 (bug)",  _row(1, 5.0,  1.0,  0.0)),
-        ("D: ATR   act=5  mult=0.3(bug)", _row(2, 5.0,  0.0,  0.3)),
-        ("E: ATR   act=20 mult=2.0",      _row(2, 20.0, 0.0,  2.0)),
+        ("A: trail off", _row(0, 0.0, 0.0, 0.0)),
+        ("B: fixed act=20 dist=20", _row(1, 20.0, 20.0, 0.0)),
+        ("C: fixed act=5  dist=1 (bug)", _row(1, 5.0, 1.0, 0.0)),
+        ("D: ATR   act=5  mult=0.3(bug)", _row(2, 5.0, 0.0, 0.3)),
+        ("E: ATR   act=20 mult=2.0", _row(2, 20.0, 0.0, 2.0)),
     ]
     pm = np.stack([c[1] for c in configs])
     n_trials = pm.shape[0]
@@ -101,17 +110,35 @@ def main():
     param_layout = np.arange(bc.NUM_PL, dtype=np.int64)
 
     bc.batch_evaluate(
-        d["h_h"], d["h_l"], d["h_c"], d["h_s"], 0.0001, 0.0,
-        d["bar_index"], d["direction"], d["entry_price"],
-        d["hour"], d["day"], d["atr_pips"],
-        d["swing_sl"], d["filter_value"], d["variant"],
+        d["h_h"],
+        d["h_l"],
+        d["h_c"],
+        d["h_s"],
+        0.0001,
+        0.0,
+        d["bar_index"],
+        d["direction"],
+        d["entry_price"],
+        d["hour"],
+        d["day"],
+        d["atr_pips"],
+        d["swing_sl"],
+        d["filter_value"],
+        d["variant"],
         d["sig_filters"],
-        pm, param_layout,
+        pm,
+        param_layout,
         metrics,
-        d["n_sig"], 365.0 * 24.0,
-        0.0, 999.0,
-        d["m_h"], d["m_l"], d["m_c"], d["m_s"],
-        d["map_start"], d["map_end"],
+        d["n_sig"],
+        365.0 * 24.0,
+        0.0,
+        999.0,
+        d["m_h"],
+        d["m_l"],
+        d["m_c"],
+        d["m_s"],
+        d["map_start"],
+        d["map_end"],
         pnl,
     )
 

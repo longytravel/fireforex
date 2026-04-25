@@ -1,4 +1,5 @@
 """HTTP surface for the Data tab: tick download, derive, tick-to-m1."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -26,31 +27,38 @@ def client(tmp_path, monkeypatch):
 
 
 def _m1(tmp_path: Path, pair: str = "EUR_USD", n: int = 60) -> None:
-    ts = pd.date_range(datetime(2024, 1, 2, 10, 0, tzinfo=timezone.utc),
-                       periods=n, freq="1min")
-    df = pd.DataFrame({
-        "timestamp": ts,
-        "open": 1.0, "high": 1.0001, "low": 0.9999, "close": 1.0,
-        "volume": 1.0, "spread": 0.0002,
-    })
+    ts = pd.date_range(datetime(2024, 1, 2, 10, 0, tzinfo=timezone.utc), periods=n, freq="1min")
+    df = pd.DataFrame(
+        {
+            "timestamp": ts,
+            "open": 1.0,
+            "high": 1.0001,
+            "low": 0.9999,
+            "close": 1.0,
+            "volume": 1.0,
+            "spread": 0.0002,
+        }
+    )
     df.to_parquet(tmp_path / f"{pair}_M1.parquet", index=False)
 
 
 def _tick(tmp_path: Path, pair: str = "EUR_USD") -> None:
     start = datetime(2024, 1, 2, 10, 0, tzinfo=timezone.utc)
     rows = [
-        (0,      1.2000, 1.2002),
+        (0, 1.2000, 1.2002),
         (30_000, 1.2001, 1.2003),
-        (60_000, 1.2002, 1.2004),   # next minute
+        (60_000, 1.2002, 1.2004),  # next minute
         (90_000, 1.2003, 1.2005),
     ]
-    df = pd.DataFrame({
-        "timestamp":  [start + pd.Timedelta(ms, unit="ms") for ms, _, _ in rows],
-        "bid":        [b for _, b, _ in rows],
-        "ask":        [a for _, _, a in rows],
-        "bid_volume": [0.5] * len(rows),
-        "ask_volume": [0.5] * len(rows),
-    })
+    df = pd.DataFrame(
+        {
+            "timestamp": [start + pd.Timedelta(ms, unit="ms") for ms, _, _ in rows],
+            "bid": [b for _, b, _ in rows],
+            "ask": [a for _, _, a in rows],
+            "bid_volume": [0.5] * len(rows),
+            "ask_volume": [0.5] * len(rows),
+        }
+    )
     df.to_parquet(tmp_path / f"{pair}_TICK.parquet", index=False)
 
 
@@ -97,22 +105,33 @@ def test_tick_download_route_validates_and_queues(client, monkeypatch):
 
     def _fake_download(pair, start, end, *, append, log_cb, cancel_cb):
         log_cb and log_cb("fake tick fetch ok")
-        return {"path": str(tmp / f"{pair}_TICK.parquet"),
-                "appended": False, "new_rows": 0, "total_rows": 0,
-                "start_ts": None, "end_ts": None}
+        return {
+            "path": str(tmp / f"{pair}_TICK.parquet"),
+            "appended": False,
+            "new_rows": 0,
+            "total_rows": 0,
+            "start_ts": None,
+            "end_ts": None,
+        }
 
     monkeypatch.setattr(_tdl, "download", _fake_download)
 
-    r = c.post("/api/data/download/tick", json={
-        "pair": "EUR_USD", "start": "2024-01-02", "end": "2024-01-02",
-        "append": False,
-    })
+    r = c.post(
+        "/api/data/download/tick",
+        json={
+            "pair": "EUR_USD",
+            "start": "2024-01-02",
+            "end": "2024-01-02",
+            "append": False,
+        },
+    )
     assert r.status_code == 200
     job_id = r.json()["job_id"]
     assert job_id
 
     # Drain the job thread — sync-poll until it leaves running.
     import time
+
     for _ in range(100):
         j = jobs.get_tick_download(job_id)
         if j is None:
@@ -127,17 +146,27 @@ def test_tick_download_route_validates_and_queues(client, monkeypatch):
 
 def test_tick_download_route_rejects_bad_pair(client):
     c, _ = client
-    r = c.post("/api/data/download/tick", json={
-        "pair": "bad", "start": "2024-01-02", "end": "2024-01-02",
-    })
+    r = c.post(
+        "/api/data/download/tick",
+        json={
+            "pair": "bad",
+            "start": "2024-01-02",
+            "end": "2024-01-02",
+        },
+    )
     assert r.status_code == 400
 
 
 def test_tick_download_route_rejects_reversed_dates(client):
     c, _ = client
-    r = c.post("/api/data/download/tick", json={
-        "pair": "EUR_USD", "start": "2024-01-05", "end": "2024-01-02",
-    })
+    r = c.post(
+        "/api/data/download/tick",
+        json={
+            "pair": "EUR_USD",
+            "start": "2024-01-05",
+            "end": "2024-01-02",
+        },
+    )
     assert r.status_code == 400
 
 

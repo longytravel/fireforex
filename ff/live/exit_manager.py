@@ -18,11 +18,11 @@ tests in ``tests/test_exit_manager.py`` drive the same scenarios
 through both ``ff_core.batch_evaluate`` and this module and assert
 ``exit_reason + exit_price`` match.
 """
+
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Iterable
-
 
 # Constants mirror core/src/constants.rs. Kept local so the live process
 # does not import ff_core (Rust wheel) at runtime.
@@ -102,6 +102,7 @@ class Action:
 
 
 # ── Inner: one sub-bar advance ─────────────────────────────────────────
+
 
 def _step_sub_bar(
     params: MgmtParams,
@@ -208,9 +209,7 @@ def _step_sub_bar(
                     has_pending_update = True
 
     # ── Chandelier stop (trade_full.rs:321-392) ────────────────────────
-    if (params.chandelier_enabled != 0
-            and params.chandelier_atr_mult > 0.0
-            and params.chandelier_activate_pips >= 0.0):
+    if params.chandelier_enabled != 0 and params.chandelier_atr_mult > 0.0 and params.chandelier_activate_pips >= 0.0:
         # Track peak/trough every sub-bar regardless of arming.
         if is_buy:
             if sb_high > state.chandelier_peak_high:
@@ -219,9 +218,7 @@ def _step_sub_bar(
             if sb_low < state.chandelier_trough_low:
                 state.chandelier_trough_low = sb_low
 
-        armed_now = (state.chandelier_active
-                     or pending_chandelier_active
-                     or float_pnl_pips >= params.chandelier_activate_pips)
+        armed_now = state.chandelier_active or pending_chandelier_active or float_pnl_pips >= params.chandelier_activate_pips
         if armed_now:
             chand_dist = params.chandelier_atr_mult * params.atr_pips * pv
             if is_buy:
@@ -235,8 +232,9 @@ def _step_sub_bar(
                     pending_chandelier_active = True
                     has_pending_update = True
                 elif not has_pending_update:
-                    pending_chandelier_active = (pending_chandelier_active or state.chandelier_active
-                                                  or float_pnl_pips >= params.chandelier_activate_pips)
+                    pending_chandelier_active = (
+                        pending_chandelier_active or state.chandelier_active or float_pnl_pips >= params.chandelier_activate_pips
+                    )
                     if pending_chandelier_active:
                         pending_be_locked = state.be_locked
                         pending_trailing_active = state.trailing_active
@@ -254,8 +252,9 @@ def _step_sub_bar(
                     pending_chandelier_active = True
                     has_pending_update = True
                 elif not has_pending_update:
-                    pending_chandelier_active = (pending_chandelier_active or state.chandelier_active
-                                                  or float_pnl_pips >= params.chandelier_activate_pips)
+                    pending_chandelier_active = (
+                        pending_chandelier_active or state.chandelier_active or float_pnl_pips >= params.chandelier_activate_pips
+                    )
                     if pending_chandelier_active:
                         pending_be_locked = state.be_locked
                         pending_trailing_active = state.trailing_active
@@ -281,19 +280,15 @@ def _step_sub_bar(
     if is_buy:
         if sb_low <= state.current_sl:
             reason = _sl_exit_reason(state)
-            return Action(kind="close", exit_reason=reason,
-                          exit_price=state.current_sl)
+            return Action(kind="close", exit_reason=reason, exit_price=state.current_sl)
         if sb_high >= params.tp_price:
-            return Action(kind="close", exit_reason=EXIT_TP,
-                          exit_price=params.tp_price)
+            return Action(kind="close", exit_reason=EXIT_TP, exit_price=params.tp_price)
     else:
         if sb_high >= state.current_sl:
             reason = _sl_exit_reason(state)
-            return Action(kind="close", exit_reason=reason,
-                          exit_price=state.current_sl)
+            return Action(kind="close", exit_reason=reason, exit_price=state.current_sl)
         if sb_low <= params.tp_price:
-            return Action(kind="close", exit_reason=EXIT_TP,
-                          exit_price=params.tp_price)
+            return Action(kind="close", exit_reason=EXIT_TP, exit_price=params.tp_price)
 
     # Commit pending at end of sub-bar. In Rust this happens at the top
     # of the next iteration; equivalent because the SL check above runs
@@ -320,6 +315,7 @@ def _sl_exit_reason(state: MgmtState) -> int:
 
 
 # ── Outer: replay since entry, return single action ────────────────────
+
 
 def compute_action(
     params: MgmtParams,
@@ -349,7 +345,7 @@ def compute_action(
         chandelier_trough_low=params.actual_entry,
     )
 
-    for (h, l, c, s) in m1_bars:
+    for h, l, c, s in m1_bars:
         terminal = _step_sub_bar(params, state, h, l, c, s)
         if terminal is not None:
             return terminal, state
@@ -357,8 +353,7 @@ def compute_action(
     # No terminal exit. Resolve to at most one non-terminal action.
     if state.partial_done and not partial_done:
         return (
-            Action(kind="partial_close",
-                   partial_pct=params.partial_pct / 100.0),
+            Action(kind="partial_close", partial_pct=params.partial_pct / 100.0),
             state,
         )
     if abs(state.current_sl - last_known_sl) > 1e-9:
@@ -367,6 +362,7 @@ def compute_action(
 
 
 # ── Trial → MgmtParams glue ────────────────────────────────────────────
+
 
 def params_from_trial(
     trial: dict,
@@ -414,10 +410,10 @@ def params_from_trial(
     """
     eng = (trial or {}).get("engine", {}) or {}
 
-    trailing = (eng.get("trailing") or {})
-    breakeven = (eng.get("breakeven") or {})
-    partial = (eng.get("partial") or {})
-    chandelier = (eng.get("chandelier") or {})
+    trailing = eng.get("trailing") or {}
+    breakeven = eng.get("breakeven") or {}
+    partial = eng.get("partial") or {}
+    chandelier = eng.get("chandelier") or {}
 
     trail_on = bool(trailing.get("test", False))
     be_on = bool(breakeven.get("test", False))

@@ -9,6 +9,7 @@ Usage:
     python run.py replay                  # replay artifacts/live/service_config.json
     python run.py replay path/to/config.json
 """
+
 from __future__ import annotations
 
 import argparse
@@ -52,24 +53,25 @@ def run_web(argv: list[str]) -> int:
     # and the common friction point is editing a Python file (VERSION bump,
     # new route, UI fix) and not seeing it because the old process is
     # still serving. Pass --no-reload for a steady-state run.
-    ap.add_argument("--no-reload", action="store_true",
-                    help="disable auto-reload on code changes")
-    ap.add_argument("--no-browser", action="store_true",
-                    help="don't open the browser automatically")
+    ap.add_argument("--no-reload", action="store_true", help="disable auto-reload on code changes")
+    ap.add_argument("--no-browser", action="store_true", help="don't open the browser automatically")
     args = ap.parse_args(argv)
     reload_enabled = not args.no_reload
 
     try:
         import uvicorn  # type: ignore
     except ModuleNotFoundError:
-        print("uvicorn is not installed. Run:\n    .venv\\Scripts\\python.exe -m pip install -r requirements-web.txt",
-              file=sys.stderr)
+        print(
+            "uvicorn is not installed. Run:\n    .venv\\Scripts\\python.exe -m pip install -r requirements-web.txt",
+            file=sys.stderr,
+        )
         return 1
 
     # Port-in-use guard. Stacking a second uvicorn on top of a stale
     # one is how the M1-download-serves-retired-code bug recurred.
     # Fail loud instead.
     import socket
+
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as _probe:
         _probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
         try:
@@ -91,18 +93,22 @@ def run_web(argv: list[str]) -> int:
         import threading
         import time
         import webbrowser
+
         def _open() -> None:
             time.sleep(1.2)
             try:
                 webbrowser.open(url)
             except Exception:
                 pass
+
         threading.Thread(target=_open, daemon=True).start()
 
     if reload_enabled:
-        print("Auto-reload: ON (pass --no-reload to disable). Python file "
-              "changes reload automatically. Rust engine edits still need "
-              "'maturin develop --release' + a manual Ctrl-C restart.")
+        print(
+            "Auto-reload: ON (pass --no-reload to disable). Python file "
+            "changes reload automatically. Rust engine edits still need "
+            "'maturin develop --release' + a manual Ctrl-C restart."
+        )
     uvicorn.run(
         "app.api:api",
         host=args.host,
@@ -125,8 +131,10 @@ def run_replay(argv: list[str]) -> int:
     args = ap.parse_args(argv)
 
     import logging as _logging
+
     _logging.basicConfig(
-        level=_logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
+        level=_logging.INFO,
+        format="%(asctime)s %(levelname)s %(message)s",
     )
 
     from ff import replay as _replay
@@ -135,15 +143,12 @@ def run_replay(argv: list[str]) -> int:
     summary = _replay.replay_service_config(config_path)
 
     print()
-    print(f"replay complete — {summary['n_trades_total']} trades, "
-          f"{summary['total_pips_all']:+.1f} pips "
-          f"in {summary['elapsed_sec']}s")
+    print(f"replay complete — {summary['n_trades_total']} trades, {summary['total_pips_all']:+.1f} pips in {summary['elapsed_sec']}s")
     print(f"output → artifacts/replay/{summary['source_run_id']}/{summary['stamp']}/")
     for row in summary["pairs"]:
         status = row["status"]
         if status == "ok":
-            print(f"  {row['pair']:<10} {row['n_trades']:>4} trades  "
-                  f"{row['total_pips']:>+8.1f} pips")
+            print(f"  {row['pair']:<10} {row['n_trades']:>4} trades  {row['total_pips']:>+8.1f} pips")
         else:
             print(f"  {row['pair']:<10} [{status}] {row.get('error', '')}")
     return 0
@@ -159,19 +164,26 @@ def main() -> int:
 
     ap = argparse.ArgumentParser()
     ap.add_argument("ea_path", help="path to EA module (e.g. eas/complex01.py)")
-    ap.add_argument("--layer", default=None,
-                    help="layer label for history.csv; defaults to '{ea_name}_random'")
+    ap.add_argument("--layer", default=None, help="layer label for history.csv; defaults to '{ea_name}_random'")
     ap.add_argument("--optimizer", default="random", choices=["random"])
     ap.add_argument("--seed", type=int, default=42)
     ap.add_argument("--trials", type=int, default=2000)
-    ap.add_argument("--no-preflight", action="store_true",
-                    help="skip the preflight report (no interactive pause)")
-    ap.add_argument("--no-pause", action="store_true",
-                    help="print preflight but don't wait for Enter")
-    ap.add_argument("--no-browser", action="store_true",
-                    help="don't open comparison.html in the browser on finish")
-    ap.add_argument("--inspect", action="store_true",
-                    help="just print every parameter in the EA and exit (no run)")
+    ap.add_argument(
+        "--no-preflight",
+        action="store_true",
+        help="skip the preflight report (no interactive pause)",
+    )
+    ap.add_argument("--no-pause", action="store_true", help="print preflight but don't wait for Enter")
+    ap.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="don't open comparison.html in the browser on finish",
+    )
+    ap.add_argument(
+        "--inspect",
+        action="store_true",
+        help="just print every parameter in the EA and exit (no run)",
+    )
     args = ap.parse_args()
 
     ea = load_ea_module(args.ea_path)
@@ -179,6 +191,7 @@ def main() -> int:
 
     if args.inspect:
         from ff import inspect as insp
+
         print(insp.inspect_report(ea, ea_path=args.ea_path))
         return 0
 

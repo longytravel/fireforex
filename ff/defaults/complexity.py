@@ -9,17 +9,17 @@ The resulting ``engine_mapping`` is generated from the ``engine_schema`` via
 ``build_standard_mapping`` so that any (pair, tf, level) combination produces
 a structurally-valid EA whose mapping is a strict subset of complex01's.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
 
-import yaml
 import ff_core as bc
+import yaml
 
 from ff import encoding as enc
 from ff.schema import Branch, Choice, FloatRange, Group, IntRange
-
 
 # ── YAML loader (cached) ───────────────────────────────────────────────
 
@@ -43,6 +43,7 @@ def _resolve_ranges(pair: str, main_tf: str) -> dict[str, Any]:
     """
     try:
         from . import volatility
+
         derived = volatility.derive_ranges(pair, main_tf)
     except Exception:
         derived = None
@@ -58,12 +59,11 @@ def _resolve_ranges(pair: str, main_tf: str) -> dict[str, Any]:
         return pair_block[first_tf]
     if "_default" in y:
         return y["_default"]
-    raise ValueError(
-        f"no volatility data and no pair_tf.yaml entry for {pair!r}/{main_tf!r}"
-    )
+    raise ValueError(f"no volatility data and no pair_tf.yaml entry for {pair!r}/{main_tf!r}")
 
 
 # ── Leaf-builder helpers (step granularity per complexity level) ───────
+
 
 def _float_step(level: int, lo: float, hi: float) -> float:
     """Return a step size for numeric knobs.
@@ -87,10 +87,11 @@ def _float_step(level: int, lo: float, hi: float) -> float:
     step = span / n
     # round to a tidy 1/2/5 × 10^k
     import math
+
     if step <= 0:
         return 1.0
     k = math.floor(math.log10(step))
-    base = step / (10 ** k)
+    base = step / (10**k)
     if base < 1.5:
         nice = 1
     elif base < 3.5:
@@ -99,20 +100,20 @@ def _float_step(level: int, lo: float, hi: float) -> float:
         nice = 5
     else:
         nice = 10
-    return nice * (10 ** k)
+    return nice * (10**k)
 
 
 def _int_step(level: int, span: int) -> int:
     """Step granularity for IntRange knobs: coarser at low levels."""
     if level <= 2:
-        return max(1, span // 6)     # ~6 grid points
+        return max(1, span // 6)  # ~6 grid points
     if level <= 4:
-        return max(1, span // 10)    # ~10
+        return max(1, span // 10)  # ~10
     if level <= 6:
-        return max(1, span // 15)    # ~15
+        return max(1, span // 15)  # ~15
     if level <= 8:
-        return max(1, span // 20)    # ~20
-    return max(1, span // 30)        # fine
+        return max(1, span // 20)  # ~20
+    return max(1, span // 30)  # fine
 
 
 def _fr(ranges_entry: dict, scale: str = "linear", level: int = 6) -> FloatRange:
@@ -126,6 +127,7 @@ def _ir(lo: int, hi: int, level: int) -> IntRange:
 
 
 # ── Engine-schema builders (one per group) ─────────────────────────────
+
 
 def _build_stop_loss(level: int, r: dict) -> Any:
     """Level 1–2: Choice[fixed] only. Level 3+: Branch fixed/atr."""
@@ -181,8 +183,7 @@ def _build_trailing(level: int, r: dict) -> Group:
             "mode": Branch(
                 selector=Choice(["fixed", "atr"]),
                 arms={
-                    "fixed": {"distance": FloatRange(dist_lo, dist_hi, scale="log",
-                                                       step=_float_step(level, dist_lo, dist_hi))},
+                    "fixed": {"distance": FloatRange(dist_lo, dist_hi, scale="log", step=_float_step(level, dist_lo, dist_hi))},
                     "atr": {"mult": _fr(r["trail_atr_mult"], scale="linear")},
                 },
             ),
@@ -197,10 +198,8 @@ def _build_breakeven(level: int, r: dict) -> Group:
         test=Choice([True, False]),
         on_value=True,
         when_on={
-            "trigger": FloatRange(5.0, trig_hi, scale="log",
-                                  step=_float_step(level, 5.0, trig_hi)),
-            "offset": FloatRange(-2.0, 10.0, scale="linear",
-                                 step=_float_step(level, -2.0, 10.0)),
+            "trigger": FloatRange(5.0, trig_hi, scale="log", step=_float_step(level, 5.0, trig_hi)),
+            "offset": FloatRange(-2.0, 10.0, scale="linear", step=_float_step(level, -2.0, 10.0)),
         },
     )
 
@@ -211,10 +210,8 @@ def _build_partial(level: int, r: dict) -> Group:
         test=Choice([True, False]),
         on_value=True,
         when_on={
-            "pct": FloatRange(20.0, 75.0, scale="linear",
-                              step=_float_step(level, 20.0, 75.0)),
-            "trigger": FloatRange(5.0, trig_hi, scale="log",
-                                  step=_float_step(level, 5.0, trig_hi)),
+            "pct": FloatRange(20.0, 75.0, scale="linear", step=_float_step(level, 20.0, 75.0)),
+            "trigger": FloatRange(5.0, trig_hi, scale="log", step=_float_step(level, 5.0, trig_hi)),
         },
     )
 
@@ -224,10 +221,8 @@ def _build_chandelier(level: int, r: dict) -> Group:
         test=Choice([True, False]),
         on_value=True,
         when_on={
-            "activate": FloatRange(5.0, 25.0, scale="log",
-                                   step=_float_step(level, 5.0, 25.0)),
-            "atr_mult": FloatRange(2.0, 4.0, scale="linear",
-                                   step=_float_step(level, 2.0, 4.0)),
+            "activate": FloatRange(5.0, 25.0, scale="log", step=_float_step(level, 5.0, 25.0)),
+            "atr_mult": FloatRange(2.0, 4.0, scale="linear", step=_float_step(level, 2.0, 4.0)),
         },
     )
 
@@ -239,8 +234,7 @@ def _build_stale(level: int, r: dict) -> Group:
         on_value=True,
         when_on={
             "bars": IntRange(20, 200, step=step),
-            "atr_thresh": FloatRange(0.3, 2.5, scale="linear",
-                                     step=_float_step(level, 0.3, 2.5)),
+            "atr_thresh": FloatRange(0.3, 2.5, scale="linear", step=_float_step(level, 0.3, 2.5)),
         },
     )
 
@@ -276,6 +270,7 @@ def _build_days(level: int) -> Choice:
 
 # ── Signals (ema_cross / macd_cross / donchian) ────────────────────────
 
+
 def _build_signals(level: int, r: dict) -> dict:
     ema_fast = r["ema_fast"]
     ema_slow = r["ema_slow"]
@@ -300,6 +295,7 @@ def _build_signals(level: int, r: dict) -> dict:
 
 
 # ── Optional-group gating per complexity level ─────────────────────────
+
 
 def _optional_keys_for_level(level: int) -> set[str]:
     """Which optional groups are present in engine_schema at this level."""
@@ -347,6 +343,7 @@ def _build_engine_schema(level: int, r: dict) -> dict:
 
 # ── Mapping builder (data-driven, matches complex01 exactly) ───────────
 
+
 def build_standard_mapping(engine_schema: dict) -> list:
     """Emit the (PL_*, encoder) tuples for every knob present in schema.
 
@@ -363,166 +360,305 @@ def build_standard_mapping(engine_schema: dict) -> list:
     if isinstance(sl, Branch):
         arms = set(sl.arms.keys())
         if arms == {"fixed"}:
-            mapping.append((bc.PL_SL_MODE, enc.slot_categorical(
-                ("engine", "stop_loss", "selector"), {"fixed": 0}
-            )))
-            mapping.append((bc.PL_SL_FIXED_PIPS, enc.slot_branch_field(
-                ("engine", "stop_loss", "selector"), "fixed",
-                ("engine", "stop_loss", "fixed", "pips"),
-            )))
+            mapping.append(
+                (
+                    bc.PL_SL_MODE,
+                    enc.slot_categorical(("engine", "stop_loss", "selector"), {"fixed": 0}),
+                )
+            )
+            mapping.append(
+                (
+                    bc.PL_SL_FIXED_PIPS,
+                    enc.slot_branch_field(
+                        ("engine", "stop_loss", "selector"),
+                        "fixed",
+                        ("engine", "stop_loss", "fixed", "pips"),
+                    ),
+                )
+            )
         else:
-            mapping.append((bc.PL_SL_MODE, enc.slot_categorical(
-                ("engine", "stop_loss", "selector"), {"fixed": 0, "atr": 1}
-            )))
-            mapping.append((bc.PL_SL_FIXED_PIPS, enc.slot_branch_field(
-                ("engine", "stop_loss", "selector"), "fixed",
-                ("engine", "stop_loss", "fixed", "pips"),
-            )))
-            mapping.append((bc.PL_SL_ATR_MULT, enc.slot_branch_field(
-                ("engine", "stop_loss", "selector"), "atr",
-                ("engine", "stop_loss", "atr", "mult"),
-            )))
+            mapping.append(
+                (
+                    bc.PL_SL_MODE,
+                    enc.slot_categorical(("engine", "stop_loss", "selector"), {"fixed": 0, "atr": 1}),
+                )
+            )
+            mapping.append(
+                (
+                    bc.PL_SL_FIXED_PIPS,
+                    enc.slot_branch_field(
+                        ("engine", "stop_loss", "selector"),
+                        "fixed",
+                        ("engine", "stop_loss", "fixed", "pips"),
+                    ),
+                )
+            )
+            mapping.append(
+                (
+                    bc.PL_SL_ATR_MULT,
+                    enc.slot_branch_field(
+                        ("engine", "stop_loss", "selector"),
+                        "atr",
+                        ("engine", "stop_loss", "atr", "mult"),
+                    ),
+                )
+            )
 
     # Take-profit: Branch with arms rr/atr/fixed, rr only, or fixed only.
     tp = engine_schema["take_profit"]
     if isinstance(tp, Branch):
         arms = set(tp.arms.keys())
         if arms == {"rr"}:
-            mapping.append((bc.PL_TP_MODE, enc.slot_categorical(
-                ("engine", "take_profit", "selector"), {"rr": 0}
-            )))
-            mapping.append((bc.PL_TP_RR_RATIO, enc.slot_branch_field(
-                ("engine", "take_profit", "selector"), "rr",
-                ("engine", "take_profit", "rr", "ratio"),
-            )))
+            mapping.append(
+                (
+                    bc.PL_TP_MODE,
+                    enc.slot_categorical(("engine", "take_profit", "selector"), {"rr": 0}),
+                )
+            )
+            mapping.append(
+                (
+                    bc.PL_TP_RR_RATIO,
+                    enc.slot_branch_field(
+                        ("engine", "take_profit", "selector"),
+                        "rr",
+                        ("engine", "take_profit", "rr", "ratio"),
+                    ),
+                )
+            )
         elif arms == {"fixed"}:
-            mapping.append((bc.PL_TP_MODE, enc.slot_categorical(
-                ("engine", "take_profit", "selector"), {"fixed": 2}
-            )))
-            mapping.append((bc.PL_TP_FIXED_PIPS, enc.slot_branch_field(
-                ("engine", "take_profit", "selector"), "fixed",
-                ("engine", "take_profit", "fixed", "pips"),
-            )))
+            mapping.append(
+                (
+                    bc.PL_TP_MODE,
+                    enc.slot_categorical(("engine", "take_profit", "selector"), {"fixed": 2}),
+                )
+            )
+            mapping.append(
+                (
+                    bc.PL_TP_FIXED_PIPS,
+                    enc.slot_branch_field(
+                        ("engine", "take_profit", "selector"),
+                        "fixed",
+                        ("engine", "take_profit", "fixed", "pips"),
+                    ),
+                )
+            )
         else:
-            mapping.append((bc.PL_TP_MODE, enc.slot_categorical(
-                ("engine", "take_profit", "selector"),
-                {"rr": 0, "atr": 1, "fixed": 2},
-            )))
-            mapping.append((bc.PL_TP_RR_RATIO, enc.slot_branch_field(
-                ("engine", "take_profit", "selector"), "rr",
-                ("engine", "take_profit", "rr", "ratio"),
-            )))
-            mapping.append((bc.PL_TP_ATR_MULT, enc.slot_branch_field(
-                ("engine", "take_profit", "selector"), "atr",
-                ("engine", "take_profit", "atr", "mult"),
-            )))
-            mapping.append((bc.PL_TP_FIXED_PIPS, enc.slot_branch_field(
-                ("engine", "take_profit", "selector"), "fixed",
-                ("engine", "take_profit", "fixed", "pips"),
-            )))
+            mapping.append(
+                (
+                    bc.PL_TP_MODE,
+                    enc.slot_categorical(
+                        ("engine", "take_profit", "selector"),
+                        {"rr": 0, "atr": 1, "fixed": 2},
+                    ),
+                )
+            )
+            mapping.append(
+                (
+                    bc.PL_TP_RR_RATIO,
+                    enc.slot_branch_field(
+                        ("engine", "take_profit", "selector"),
+                        "rr",
+                        ("engine", "take_profit", "rr", "ratio"),
+                    ),
+                )
+            )
+            mapping.append(
+                (
+                    bc.PL_TP_ATR_MULT,
+                    enc.slot_branch_field(
+                        ("engine", "take_profit", "selector"),
+                        "atr",
+                        ("engine", "take_profit", "atr", "mult"),
+                    ),
+                )
+            )
+            mapping.append(
+                (
+                    bc.PL_TP_FIXED_PIPS,
+                    enc.slot_branch_field(
+                        ("engine", "take_profit", "selector"),
+                        "fixed",
+                        ("engine", "take_profit", "fixed", "pips"),
+                    ),
+                )
+            )
 
     # Session (optional) — when absent, engine gets hours_start=0, hours_end=23.
     if "session" in engine_schema:
-        mapping.append((bc.PL_HOURS_START, enc.slot_if_on(
-            ("engine", "session", "test"),
-            ("engine", "session", "when_on", "hours_start"),
-            default=0,
-        )))
-        mapping.append((bc.PL_HOURS_END, enc.slot_if_on(
-            ("engine", "session", "test"),
-            ("engine", "session", "when_on", "hours_end"),
-            default=23,
-        )))
+        mapping.append(
+            (
+                bc.PL_HOURS_START,
+                enc.slot_if_on(
+                    ("engine", "session", "test"),
+                    ("engine", "session", "when_on", "hours_start"),
+                    default=0,
+                ),
+            )
+        )
+        mapping.append(
+            (
+                bc.PL_HOURS_END,
+                enc.slot_if_on(
+                    ("engine", "session", "test"),
+                    ("engine", "session", "when_on", "hours_end"),
+                    default=23,
+                ),
+            )
+        )
 
     # Days bitmask — always present.
     mapping.append((bc.PL_DAYS_BITMASK, enc.slot_int(("engine", "days"))))
 
     # Trailing (optional).
     if "trailing" in engine_schema:
-        mapping.append((bc.PL_TRAILING_MODE, enc.slot_mode_or_off(
-            test_path=("engine", "trailing", "test"),
-            mode_path=("engine", "trailing", "when_on", "mode", "selector"),
-            mode_map={"fixed": 1, "atr": 2},
-        )))
-        mapping.append((bc.PL_TRAIL_ACTIVATE, enc.slot_if_on(
-            ("engine", "trailing", "test"),
-            ("engine", "trailing", "when_on", "activate"),
-        )))
-        mapping.append((bc.PL_TRAIL_DISTANCE, enc.slot_branch_field(
-            ("engine", "trailing", "when_on", "mode", "selector"), "fixed",
-            ("engine", "trailing", "when_on", "mode", "fixed", "distance"),
-        )))
-        mapping.append((bc.PL_TRAIL_ATR_MULT, enc.slot_branch_field(
-            ("engine", "trailing", "when_on", "mode", "selector"), "atr",
-            ("engine", "trailing", "when_on", "mode", "atr", "mult"),
-        )))
+        mapping.append(
+            (
+                bc.PL_TRAILING_MODE,
+                enc.slot_mode_or_off(
+                    test_path=("engine", "trailing", "test"),
+                    mode_path=("engine", "trailing", "when_on", "mode", "selector"),
+                    mode_map={"fixed": 1, "atr": 2},
+                ),
+            )
+        )
+        mapping.append(
+            (
+                bc.PL_TRAIL_ACTIVATE,
+                enc.slot_if_on(
+                    ("engine", "trailing", "test"),
+                    ("engine", "trailing", "when_on", "activate"),
+                ),
+            )
+        )
+        mapping.append(
+            (
+                bc.PL_TRAIL_DISTANCE,
+                enc.slot_branch_field(
+                    ("engine", "trailing", "when_on", "mode", "selector"),
+                    "fixed",
+                    ("engine", "trailing", "when_on", "mode", "fixed", "distance"),
+                ),
+            )
+        )
+        mapping.append(
+            (
+                bc.PL_TRAIL_ATR_MULT,
+                enc.slot_branch_field(
+                    ("engine", "trailing", "when_on", "mode", "selector"),
+                    "atr",
+                    ("engine", "trailing", "when_on", "mode", "atr", "mult"),
+                ),
+            )
+        )
 
     # Breakeven (optional).
     if "breakeven" in engine_schema:
-        mapping.append((bc.PL_BREAKEVEN_ENABLED,
-                        enc.slot_bool_to_int(("engine", "breakeven", "test"))))
-        mapping.append((bc.PL_BREAKEVEN_TRIGGER, enc.slot_if_on(
-            ("engine", "breakeven", "test"),
-            ("engine", "breakeven", "when_on", "trigger"),
-        )))
-        mapping.append((bc.PL_BREAKEVEN_OFFSET, enc.slot_if_on(
-            ("engine", "breakeven", "test"),
-            ("engine", "breakeven", "when_on", "offset"),
-        )))
+        mapping.append((bc.PL_BREAKEVEN_ENABLED, enc.slot_bool_to_int(("engine", "breakeven", "test"))))
+        mapping.append(
+            (
+                bc.PL_BREAKEVEN_TRIGGER,
+                enc.slot_if_on(
+                    ("engine", "breakeven", "test"),
+                    ("engine", "breakeven", "when_on", "trigger"),
+                ),
+            )
+        )
+        mapping.append(
+            (
+                bc.PL_BREAKEVEN_OFFSET,
+                enc.slot_if_on(
+                    ("engine", "breakeven", "test"),
+                    ("engine", "breakeven", "when_on", "offset"),
+                ),
+            )
+        )
 
     # Partial (optional).
     if "partial" in engine_schema:
-        mapping.append((bc.PL_PARTIAL_ENABLED,
-                        enc.slot_bool_to_int(("engine", "partial", "test"))))
-        mapping.append((bc.PL_PARTIAL_PCT, enc.slot_if_on(
-            ("engine", "partial", "test"),
-            ("engine", "partial", "when_on", "pct"),
-        )))
-        mapping.append((bc.PL_PARTIAL_TRIGGER, enc.slot_if_on(
-            ("engine", "partial", "test"),
-            ("engine", "partial", "when_on", "trigger"),
-        )))
+        mapping.append((bc.PL_PARTIAL_ENABLED, enc.slot_bool_to_int(("engine", "partial", "test"))))
+        mapping.append(
+            (
+                bc.PL_PARTIAL_PCT,
+                enc.slot_if_on(
+                    ("engine", "partial", "test"),
+                    ("engine", "partial", "when_on", "pct"),
+                ),
+            )
+        )
+        mapping.append(
+            (
+                bc.PL_PARTIAL_TRIGGER,
+                enc.slot_if_on(
+                    ("engine", "partial", "test"),
+                    ("engine", "partial", "when_on", "trigger"),
+                ),
+            )
+        )
 
     # Max bars (optional).
     if "max_bars" in engine_schema:
-        mapping.append((bc.PL_MAX_BARS, enc.slot_if_on(
-            ("engine", "max_bars", "test"),
-            ("engine", "max_bars", "when_on", "bars"),
-            default=0,
-        )))
+        mapping.append(
+            (
+                bc.PL_MAX_BARS,
+                enc.slot_if_on(
+                    ("engine", "max_bars", "test"),
+                    ("engine", "max_bars", "when_on", "bars"),
+                    default=0,
+                ),
+            )
+        )
 
     # Stale (optional).
     if "stale" in engine_schema:
-        mapping.append((bc.PL_STALE_ENABLED,
-                        enc.slot_bool_to_int(("engine", "stale", "test"))))
-        mapping.append((bc.PL_STALE_BARS, enc.slot_if_on(
-            ("engine", "stale", "test"),
-            ("engine", "stale", "when_on", "bars"),
-        )))
-        mapping.append((bc.PL_STALE_ATR_THRESH, enc.slot_if_on(
-            ("engine", "stale", "test"),
-            ("engine", "stale", "when_on", "atr_thresh"),
-        )))
+        mapping.append((bc.PL_STALE_ENABLED, enc.slot_bool_to_int(("engine", "stale", "test"))))
+        mapping.append(
+            (
+                bc.PL_STALE_BARS,
+                enc.slot_if_on(
+                    ("engine", "stale", "test"),
+                    ("engine", "stale", "when_on", "bars"),
+                ),
+            )
+        )
+        mapping.append(
+            (
+                bc.PL_STALE_ATR_THRESH,
+                enc.slot_if_on(
+                    ("engine", "stale", "test"),
+                    ("engine", "stale", "when_on", "atr_thresh"),
+                ),
+            )
+        )
 
     # Chandelier (optional).
     if "chandelier" in engine_schema:
-        mapping.append((bc.PL_CHANDELIER_ENABLED,
-                        enc.slot_bool_to_int(("engine", "chandelier", "test"))))
-        mapping.append((bc.PL_CHANDELIER_ACTIVATE, enc.slot_if_on(
-            ("engine", "chandelier", "test"),
-            ("engine", "chandelier", "when_on", "activate"),
-            default=-1.0,
-        )))
-        mapping.append((bc.PL_CHANDELIER_ATR_MULT, enc.slot_if_on(
-            ("engine", "chandelier", "test"),
-            ("engine", "chandelier", "when_on", "atr_mult"),
-            default=-1.0,
-        )))
+        mapping.append((bc.PL_CHANDELIER_ENABLED, enc.slot_bool_to_int(("engine", "chandelier", "test"))))
+        mapping.append(
+            (
+                bc.PL_CHANDELIER_ACTIVATE,
+                enc.slot_if_on(
+                    ("engine", "chandelier", "test"),
+                    ("engine", "chandelier", "when_on", "activate"),
+                    default=-1.0,
+                ),
+            )
+        )
+        mapping.append(
+            (
+                bc.PL_CHANDELIER_ATR_MULT,
+                enc.slot_if_on(
+                    ("engine", "chandelier", "test"),
+                    ("engine", "chandelier", "when_on", "atr_mult"),
+                    default=-1.0,
+                ),
+            )
+        )
 
     return mapping
 
 
 # ── Public API ─────────────────────────────────────────────────────────
+
 
 def complexity_to_ea(
     level: int,

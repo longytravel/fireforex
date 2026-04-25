@@ -4,6 +4,7 @@ Mirrors `core/src/constants.rs` EXIT_* constants. Used by the trade log
 widener and the live reconciler for string-equality comparison between
 backtest exits and MT5 deal reasons.
 """
+
 from __future__ import annotations
 
 EXIT_REASON_NAMES: dict[int, str] = {

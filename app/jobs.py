@@ -7,6 +7,7 @@ Jobs always (re)generate the EA from a *recipe* (pair, main_tf, sub_tf, level)
 on the server, so engine-mapping callables never need to round-trip through
 JSON.
 """
+
 from __future__ import annotations
 
 import csv
@@ -25,7 +26,6 @@ from ff.defaults.overrides import apply_overrides
 from ff.inspect import inspect_dict
 
 from . import baselines
-
 
 ARTIFACTS_DIR = Path(__file__).resolve().parent.parent / "artifacts"
 HISTORY_CSV = ARTIFACTS_DIR / "history.csv"
@@ -175,8 +175,14 @@ def _jsonable(v: Any) -> bool:
 
 def _kpi_block(result: dict[str, Any]) -> dict[str, Any]:
     keys = (
-        "trades", "win_rate_pct", "total_pips", "expectancy_pips",
-        "max_dd_pct", "profit_factor", "sharpe", "return_pct",
+        "trades",
+        "win_rate_pct",
+        "total_pips",
+        "expectancy_pips",
+        "max_dd_pct",
+        "profit_factor",
+        "sharpe",
+        "return_pct",
     )
     return {k: result.get(k) for k in keys}
 
@@ -236,11 +242,13 @@ def _best_params_english(ea: dict[str, Any], result: dict[str, Any]) -> list[str
                 data = np.load(path, allow_pickle=True)
                 if "best_trial_json" in data.files:
                     import json as _json
+
                     best_trial = _json.loads(str(data["best_trial_json"]))
                     if isinstance(best_trial, dict):
                         best_variant_id = best_trial.get("signal_variant")
                 if "variant_map_json" in data.files:
                     import json as _json
+
                     variant_map = _json.loads(str(data["variant_map_json"]))
             except Exception:
                 pass
@@ -335,8 +343,7 @@ def delete_runs(run_files: list[str]) -> int:
         with HISTORY_CSV.open("r", encoding="utf-8", newline="") as f:
             reader = csv.DictReader(f)
             fieldnames = reader.fieldnames
-            kept = [row for row in reader
-                    if _safe_npz_name(row.get("run_file", "")) not in wanted]
+            kept = [row for row in reader if _safe_npz_name(row.get("run_file", "")) not in wanted]
         if fieldnames:
             with HISTORY_CSV.open("w", encoding="utf-8", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -369,8 +376,8 @@ def delete_all_runs() -> int:
 # Separate lock from backtest runs — a download is network-bound, a sweep is
 # CPU-bound, and we want them to coexist.
 
-from datetime import date as _date  # noqa: E402 — kept near the section it serves
 from collections import deque  # noqa: E402
+from datetime import date as _date  # noqa: E402 — kept near the section it serves
 
 DOWNLOADS_DIR = ARTIFACTS_DIR / "downloads"
 _download_lock = threading.Lock()
@@ -378,8 +385,7 @@ _downloads: dict[str, "DownloadJob"] = {}
 
 
 class DownloadJob:
-    def __init__(self, job_id: str, pair: str, tf: str,
-                 start: _date, end: _date, append: bool) -> None:
+    def __init__(self, job_id: str, pair: str, tf: str, start: _date, end: _date, append: bool) -> None:
         self.id = job_id
         self.pair = pair
         self.tf = tf
@@ -414,11 +420,18 @@ class DownloadJob:
 
     def as_dict(self) -> dict[str, Any]:
         return {
-            "id": self.id, "pair": self.pair, "tf": self.tf,
-            "start": self.start, "end": self.end, "append": self.append,
-            "status": self.status, "message": self.message,
-            "started_at": self.started_at, "finished_at": self.finished_at,
-            "error": self.error, "result": self.result,
+            "id": self.id,
+            "pair": self.pair,
+            "tf": self.tf,
+            "start": self.start,
+            "end": self.end,
+            "append": self.append,
+            "status": self.status,
+            "message": self.message,
+            "started_at": self.started_at,
+            "finished_at": self.finished_at,
+            "error": self.error,
+            "result": self.result,
             "tail_lines": self.tail_lines(),
         }
 
@@ -431,8 +444,7 @@ def list_downloads() -> list[dict[str, Any]]:
     return [d.as_dict() for d in _downloads.values()]
 
 
-def start_download(pair: str, tf: str, start: _date, end: _date,
-                   append: bool = True) -> str:
+def start_download(pair: str, tf: str, start: _date, end: _date, append: bool = True) -> str:
     """Kick off a download thread. Returns job_id."""
     if not _download_lock.acquire(blocking=False):
         raise RuntimeError("another download is already running")
@@ -456,22 +468,13 @@ def start_download(pair: str, tf: str, start: _date, end: _date,
             # come from the rollup chain — do not round-trip the network
             # for anything else.
             if tf != "M1":
-                raise ValueError(
-                    f"only M1 direct download is supported — got tf={tf!r}. "
-                    "Fetch M1, rollup derives M5/M15/M30/H1/H4/D/W."
-                )
+                raise ValueError(f"only M1 direct download is supported — got tf={tf!r}. Fetch M1, rollup derives M5/M15/M30/H1/H4/D/W.")
 
-            result = _m1dl.download(pair, start, end,
-                                    append=append,
-                                    log_cb=_log_cb,
-                                    cancel_cb=state.was_cancelled)
+            result = _m1dl.download(pair, start, end, append=append, log_cb=_log_cb, cancel_cb=state.was_cancelled)
             state.result = result
             state.status = "cancelled" if state.was_cancelled() else "done"
             state.message = state.status
-            state.append_log(
-                f"finished — new_bars={result.get('new_bars')} "
-                f"total_bars={result.get('total_bars')}"
-            )
+            state.append_log(f"finished — new_bars={result.get('new_bars')} total_bars={result.get('total_bars')}")
             # Auto fan-out: derive all higher TFs so the Claude-Backtester
             # invariant (one fetch, every TF on disk) holds. Tick downloads
             # handle their own tick→M1 chain.
@@ -479,9 +482,7 @@ def start_download(pair: str, tf: str, start: _date, end: _date,
                 try:
                     state.append_log("deriving higher TFs from M1 …")
                     written = _rs.derive_higher_tfs(pair)
-                    state.append_log(
-                        f"derived {', '.join(p.stem.split('_')[-1] for p in written)}"
-                    )
+                    state.append_log(f"derived {', '.join(p.stem.split('_')[-1] for p in written)}")
                 except Exception as exc:
                     state.append_log(f"derive error: {exc}")
         except Exception as e:
@@ -517,8 +518,7 @@ class TickDownloadJob(DownloadJob):
     ``as_dict`` / ``full_log`` / ``tail_lines`` surface the frontend already
     polls."""
 
-    def __init__(self, job_id: str, pair: str,
-                 start: _date, end: _date, append: bool) -> None:
+    def __init__(self, job_id: str, pair: str, start: _date, end: _date, append: bool) -> None:
         super().__init__(job_id, pair, "TICK", start, end, append)
 
 
@@ -530,8 +530,7 @@ def list_tick_downloads() -> list[dict[str, Any]]:
     return [d.as_dict() for d in _tick_jobs.values()]
 
 
-def start_tick_download(pair: str, start: _date, end: _date,
-                        append: bool = True) -> str:
+def start_tick_download(pair: str, start: _date, end: _date, append: bool = True) -> str:
     """Kick off a tick download + tick→M1 + M5..W fan-out. Returns job_id."""
     if not _tick_lock.acquire(blocking=False):
         raise RuntimeError("another tick download is already running")
@@ -542,28 +541,22 @@ def start_tick_download(pair: str, start: _date, end: _date,
 
     def _worker() -> None:
         try:
-            from ff.data import tick_downloader as _tdl
             from ff.data import resample as _rs
+            from ff.data import tick_downloader as _tdl
 
             def _log_cb(msg: str) -> None:
                 state.message = msg
                 state.append_log(msg)
 
             state.append_log(f"downloading {pair} TICK  {start} → {end}  append={append}")
-            result = _tdl.download(pair, start, end,
-                                   append=append,
-                                   log_cb=_log_cb,
-                                   cancel_cb=state.was_cancelled)
+            result = _tdl.download(pair, start, end, append=append, log_cb=_log_cb, cancel_cb=state.was_cancelled)
             state.result = result
             if state.was_cancelled():
                 state.status = "cancelled"
                 state.message = "cancelled"
                 state.append_log("cancelled — skipping resample")
                 return
-            state.append_log(
-                f"ticks stored — new_rows={result.get('new_rows')} "
-                f"total_rows={result.get('total_rows')}"
-            )
+            state.append_log(f"ticks stored — new_rows={result.get('new_rows')} total_rows={result.get('total_rows')}")
 
             state.append_log("tick → M1 …")
             m1_path = _rs.tick_to_m1(pair)
@@ -571,9 +564,7 @@ def start_tick_download(pair: str, start: _date, end: _date,
 
             state.append_log("deriving higher TFs from M1 …")
             written = _rs.derive_higher_tfs(pair)
-            state.append_log(
-                f"derived {', '.join(p.stem.split('_')[-1] for p in written)}"
-            )
+            state.append_log(f"derived {', '.join(p.stem.split('_')[-1] for p in written)}")
             state.status = "done"
             state.message = "done"
         except Exception as e:
@@ -600,9 +591,11 @@ def start_tick_download(pair: str, start: _date, end: _date,
 # Manual "Roll up from M1" / "Rebuild from ticks" inventory buttons go through
 # these. No lock — they're fast and safe to run in parallel with downloads.
 
+
 def run_derive_now(pair: str) -> dict[str, Any]:
     """Sync call — returns the list of TFs written plus the durations."""
     from ff.data import resample as _rs
+
     t0 = time.time()
     written = _rs.derive_higher_tfs(pair)
     return {
@@ -615,6 +608,7 @@ def run_derive_now(pair: str) -> dict[str, Any]:
 def run_tick_to_m1_now(pair: str) -> dict[str, Any]:
     """Sync call — returns the written path."""
     from ff.data import resample as _rs
+
     t0 = time.time()
     path = _rs.tick_to_m1(pair)
     return {"pair": pair, "path": str(path), "elapsed_s": round(time.time() - t0, 3)}

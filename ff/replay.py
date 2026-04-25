@@ -23,6 +23,7 @@ Steps:
 No sweep artifacts are touched. The replay tree is orthogonal to
 ``artifacts/runs``.
 """
+
 from __future__ import annotations
 
 import json
@@ -35,10 +36,10 @@ from typing import Any
 
 import numpy as np
 
+from . import harness
 from .defaults.complexity import complexity_to_ea
 from .defaults.overrides import apply_overrides
 from .live.frozen_signal import pin_frozen_signal
-from . import harness
 
 LOG = logging.getLogger(__name__)
 
@@ -122,8 +123,7 @@ def _build_ea_for_pair(config: dict[str, Any], pair: str) -> dict[str, Any]:
     return ea
 
 
-def _ensure_data(pair: str, start: date, end: date,
-                 data_source: str = "dukascopy") -> None:
+def _ensure_data(pair: str, start: date, end: date, data_source: str = "dukascopy") -> None:
     """Top up M1 data + fan out higher TFs for the chosen source. Idempotent.
 
     ``data_source="dukascopy"`` uses the bi5 downloader against
@@ -138,18 +138,24 @@ def _ensure_data(pair: str, start: date, end: date,
 
     if data_source == "dukascopy":
         result = m1_bi5_downloader.download(
-            pair, start, end, append=True, log_cb=_log,
+            pair,
+            start,
+            end,
+            append=True,
+            log_cb=_log,
         )
         root = harness.DATA_ROOT
     elif data_source == "mt5":
         result = mt5_m1_downloader.download(
-            pair, start, end, append=True, log_cb=_log,
+            pair,
+            start,
+            end,
+            append=True,
+            log_cb=_log,
         )
         root = mt5_m1_downloader.MT5_DATA_ROOT
     else:
-        raise ValueError(
-            f"unknown data_source={data_source!r} (expected 'dukascopy' or 'mt5')"
-        )
+        raise ValueError(f"unknown data_source={data_source!r} (expected 'dukascopy' or 'mt5')")
 
     new_bars = int(result.get("new_bars", 0))
     if new_bars > 0:
@@ -173,9 +179,7 @@ def replay_service_config(
     overwrite each other.
     """
     if data_source not in ("dukascopy", "mt5"):
-        raise ValueError(
-            f"unknown data_source={data_source!r} (expected 'dukascopy' or 'mt5')"
-        )
+        raise ValueError(f"unknown data_source={data_source!r} (expected 'dukascopy' or 'mt5')")
     config_path = Path(config_path)
     if not config_path.exists():
         raise FileNotFoundError(f"service_config not found: {config_path}")
@@ -197,8 +201,7 @@ def replay_service_config(
         # Legacy fallback — old flat layout kept plans at the top level.
         plans_dir = LIVE_DIR / "plans"
     window_start, window_end = _resolve_window(plans_dir)
-    LOG.info("[replay] window %s → %s  (%d pairs)",
-             window_start, window_end, len(pairs))
+    LOG.info("[replay] window %s → %s  (%d pairs)", window_start, window_end, len(pairs))
 
     # Stamp the replay output tree. Suffix the data source so MT5 and
     # Dukascopy runs for the same window don't clobber each other when the
@@ -224,10 +227,15 @@ def replay_service_config(
             _ensure_data(pair, window_start, window_end, data_source=data_source)
         except Exception as e:
             LOG.error("[replay] data download failed for %s: %s", pair, e)
-            per_pair_summary.append({
-                "pair": pair, "status": "data_error", "error": str(e),
-                "n_trades": 0, "total_pips": 0.0,
-            })
+            per_pair_summary.append(
+                {
+                    "pair": pair,
+                    "status": "data_error",
+                    "error": str(e),
+                    "n_trades": 0,
+                    "total_pips": 0.0,
+                }
+            )
             continue
 
         try:
@@ -248,10 +256,15 @@ def replay_service_config(
             )
         except Exception as e:
             LOG.error("[replay] harness.run failed for %s: %s", pair, e)
-            per_pair_summary.append({
-                "pair": pair, "status": "run_error", "error": str(e),
-                "n_trades": 0, "total_pips": 0.0,
-            })
+            per_pair_summary.append(
+                {
+                    "pair": pair,
+                    "status": "run_error",
+                    "error": str(e),
+                    "n_trades": 0,
+                    "total_pips": 0.0,
+                }
+            )
             continue
 
         log = result.get("trade_log")
@@ -259,17 +272,20 @@ def replay_service_config(
         total_pips = 0.0 if not n_trades else float(log["pnl_pips"].sum())
         if log is not None and n_trades > 0:
             per_pair_rows.append(log)
-        per_pair_summary.append({
-            "pair": pair, "status": "ok",
-            "n_trades": n_trades, "total_pips": total_pips,
-            "win_rate_pct": result.get("win_rate_pct"),
-            "quality_best": result.get("quality_best"),
-        })
+        per_pair_summary.append(
+            {
+                "pair": pair,
+                "status": "ok",
+                "n_trades": n_trades,
+                "total_pips": total_pips,
+                "win_rate_pct": result.get("win_rate_pct"),
+                "quality_best": result.get("quality_best"),
+            }
+        )
         # Capture per-run execution scalars once — identical across pairs
         # since they come from the same exe_cfg defaults.
         if not exec_scalars:
-            for key in ("commission_pips", "slippage_pips",
-                        "max_spread_pips", "pip_value"):
+            for key in ("commission_pips", "slippage_pips", "max_spread_pips", "pip_value"):
                 if key in result:
                     exec_scalars[key] = float(result[key])
 
@@ -283,9 +299,11 @@ def replay_service_config(
         # Build an empty structured array matching the harness dtype so the
         # downstream reconciler can still load it.
         trades_all = harness._build_best_trade_log(
-            np.zeros(0, dtype=np.float64), 0,
+            np.zeros(0, dtype=np.float64),
+            0,
             # Empty DatetimeIndex — _build_best_trade_log handles n_trades=0.
-            _empty_dt_index(), _empty_dt_index(),
+            _empty_dt_index(),
+            _empty_dt_index(),
         )
 
     npz_path = out_dir / "trades.npz"
@@ -307,30 +325,30 @@ def replay_service_config(
         "config_path": str(config_path),
         "exec_scalars": exec_scalars,
     }
-    (out_dir / "summary.json").write_text(
-        json.dumps(summary, indent=2), encoding="utf-8"
-    )
+    (out_dir / "summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
     # Latest pointer — plain text on Windows, cross-platform safe. One
     # pointer per data source so reconcile can find each independently.
-    (REPLAY_DIR / source_run_id / f"latest_stamp_{data_source}.txt").write_text(
-        f"{stamp}_{data_source}", encoding="utf-8"
-    )
+    (REPLAY_DIR / source_run_id / f"latest_stamp_{data_source}.txt").write_text(f"{stamp}_{data_source}", encoding="utf-8")
     # Legacy pointer (dukascopy only) — kept so older reconcile callers
     # still resolve without a migration step.
     if data_source == "dukascopy":
-        (REPLAY_DIR / source_run_id / "latest_stamp.txt").write_text(
-            f"{stamp}_{data_source}", encoding="utf-8"
-        )
+        (REPLAY_DIR / source_run_id / "latest_stamp.txt").write_text(f"{stamp}_{data_source}", encoding="utf-8")
 
-    LOG.info("[replay] done in %.2fs — %d trades across %d pairs → %s",
-             elapsed, summary["n_trades_total"], len(pairs), npz_path)
+    LOG.info(
+        "[replay] done in %.2fs — %d trades across %d pairs → %s",
+        elapsed,
+        summary["n_trades_total"],
+        len(pairs),
+        npz_path,
+    )
     return summary
 
 
 def _empty_dt_index():
     """Avoid importing pandas at module level for the happy path."""
     import pandas as pd
+
     return pd.DatetimeIndex([], tz="UTC")
 
 

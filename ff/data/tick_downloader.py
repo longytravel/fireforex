@@ -23,6 +23,7 @@ Prices use a pair-dependent scale:
 The module is self-contained — no third-party tick-specific libraries
 are required beyond the stdlib + pandas.
 """
+
 from __future__ import annotations
 
 import lzma
@@ -36,8 +37,8 @@ from urllib.request import Request, urlopen
 import pandas as pd
 
 from ff import harness
-from . import inventory
 
+from . import inventory
 
 LogCallback = Callable[[str], None]
 CancelCallback = Callable[[], bool]
@@ -73,8 +74,7 @@ def _target_path(pair: str) -> Path:
 
 def _hour_url(pair: str, ts: datetime) -> str:
     # Dukascopy months are zero-based in the URL.
-    return (f"{_BASE_URL}/{_symbol(pair)}/{ts.year:04d}/{ts.month - 1:02d}/"
-            f"{ts.day:02d}/{ts.hour:02d}h_ticks.bi5")
+    return f"{_BASE_URL}/{_symbol(pair)}/{ts.year:04d}/{ts.month - 1:02d}/{ts.day:02d}/{ts.hour:02d}h_ticks.bi5"
 
 
 def _fetch_hour(url: str, retries: int = 3, timeout: float = 30.0) -> bytes:
@@ -94,7 +94,7 @@ def _fetch_hour(url: str, retries: int = 3, timeout: float = 30.0) -> bytes:
             if "404" in msg or "not found" in msg:
                 return b""
             last_err = exc
-            time.sleep(2.0 ** attempt)
+            time.sleep(2.0**attempt)
     assert last_err is not None
     raise last_err
 
@@ -136,13 +136,15 @@ def _decode_ticks(raw: bytes, hour_start: datetime, scale: float) -> pd.DataFram
     base = pd.Timestamp(hour_start)
     ts = base + pd.to_timedelta(ms_list, unit="ms")
 
-    return pd.DataFrame({
-        "timestamp": ts,
-        "bid": bid_list,
-        "ask": ask_list,
-        "bid_volume": bid_vol_list,
-        "ask_volume": ask_vol_list,
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": ts,
+            "bid": bid_list,
+            "ask": ask_list,
+            "bid_volume": bid_vol_list,
+            "ask_volume": ask_vol_list,
+        }
+    )
 
 
 def _write_atomic(path: Path, df: pd.DataFrame) -> None:
@@ -177,10 +179,16 @@ def _iter_hours(start_dt: datetime, end_dt: datetime):
 
 # ── entry point ────────────────────────────────────────────────────────────
 
-def download(pair: str, start: date, end: date, *,
-             append: bool = True,
-             log_cb: LogCallback | None = None,
-             cancel_cb: CancelCallback | None = None) -> dict:
+
+def download(
+    pair: str,
+    start: date,
+    end: date,
+    *,
+    append: bool = True,
+    log_cb: LogCallback | None = None,
+    cancel_cb: CancelCallback | None = None,
+) -> dict:
     """Download a window of Dukascopy ticks to ``{pair}_TICK.parquet``.
 
     Returns a summary dict: ``{path, appended, new_rows, total_rows,
@@ -203,14 +211,21 @@ def download(pair: str, start: date, end: date, *,
                 existing.columns = [c.lower() for c in existing.columns]
             except Exception:
                 existing = None
-            _emit(log_cb, f"append — existing max ts {last.isoformat()}; "
-                          f"fetching from {effective_start.isoformat()}")
+            _emit(
+                log_cb,
+                f"append — existing max ts {last.isoformat()}; fetching from {effective_start.isoformat()}",
+            )
 
     if effective_start > end_dt:
         _emit(log_cb, "nothing to fetch — existing ticks already cover the requested end")
-        return {"path": str(path), "appended": True, "new_rows": 0,
-                "total_rows": int(len(existing)) if existing is not None else 0,
-                "start_ts": None, "end_ts": None}
+        return {
+            "path": str(path),
+            "appended": True,
+            "new_rows": 0,
+            "total_rows": int(len(existing)) if existing is not None else 0,
+            "start_ts": None,
+            "end_ts": None,
+        }
 
     _emit(log_cb, f"→ {pair} TICK  {effective_start.isoformat()} → {end_dt.isoformat()}")
 
@@ -246,8 +261,8 @@ def download(pair: str, start: date, end: date, *,
         # Polite pacing so we don't hammer the feed.
         time.sleep(0.05)
 
-    new_df = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(
-        columns=["timestamp", "bid", "ask", "bid_volume", "ask_volume"]
+    new_df = (
+        pd.concat(frames, ignore_index=True) if frames else pd.DataFrame(columns=["timestamp", "bid", "ask", "bid_volume", "ask_volume"])
     )
     new_rows = int(len(new_df))
 
@@ -274,8 +289,6 @@ def download(pair: str, start: date, end: date, *,
         "appended": append and existing is not None,
         "new_rows": new_rows,
         "total_rows": int(len(final_df)),
-        "start_ts": (final_df["timestamp"].iloc[0].isoformat()
-                     if not final_df.empty else None),
-        "end_ts": (final_df["timestamp"].iloc[-1].isoformat()
-                   if not final_df.empty else None),
+        "start_ts": (final_df["timestamp"].iloc[0].isoformat() if not final_df.empty else None),
+        "end_ts": (final_df["timestamp"].iloc[-1].isoformat() if not final_df.empty else None),
     }

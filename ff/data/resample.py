@@ -19,6 +19,7 @@ Aggregation rules (forex-correct OHLCV):
     volume : sum (if column present)
     spread : mean (if column present)
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -27,25 +28,26 @@ from typing import Sequence
 import pandas as pd
 
 from ff import harness
-from . import inventory
 
+from . import inventory
 
 # Map our internal TF tokens to the pandas offset alias used by Grouper.
 _TF_TO_OFFSET: dict[str, str] = {
-    "M1":  "1min",
-    "M5":  "5min",
+    "M1": "1min",
+    "M5": "5min",
     "M15": "15min",
     "M30": "30min",
-    "H1":  "1h",
-    "H4":  "4h",
-    "D":   "1D",
-    "W":   "1W",
+    "H1": "1h",
+    "H4": "4h",
+    "D": "1D",
+    "W": "1W",
 }
 
 _DEFAULT_TARGETS: tuple[str, ...] = ("M5", "M15", "M30", "H1", "H4", "D", "W")
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
+
 
 def _source_path(pair: str, tf: str, root: Path) -> Path:
     return root / f"{pair}_{tf}.parquet"
@@ -128,13 +130,12 @@ def _resample_bars(df: pd.DataFrame, offset: str) -> pd.DataFrame:
         agg["volume"] = "sum"
     if "spread" in idx.columns:
         agg["spread"] = "mean"
-    out = (idx.resample(offset, label="left", closed="left", origin="start_day")
-              .agg(agg)
-              .dropna(subset=["open"]))
+    out = idx.resample(offset, label="left", closed="left", origin="start_day").agg(agg).dropna(subset=["open"])
     return out.reset_index()
 
 
 # ── public API ─────────────────────────────────────────────────────────────
+
 
 def tick_to_m1(pair: str, root: Path | None = None) -> Path:
     """Aggregate ``{pair}_TICK.parquet`` to 1-minute OHLCV.
@@ -171,10 +172,16 @@ def tick_to_m1(pair: str, root: Path | None = None) -> Path:
         agg["volume"] = "sum"
     out = idx.resample("1min", label="left", closed="left", origin="start_day").agg(agg)
     out.columns = ["_".join([c for c in col if c]).strip("_") for col in out.columns.to_flat_index()]
-    out = out.rename(columns={
-        "mid_first": "open", "mid_max": "high", "mid_min": "low", "mid_last": "close",
-        "spread_mean": "spread", "volume_sum": "volume",
-    })
+    out = out.rename(
+        columns={
+            "mid_first": "open",
+            "mid_max": "high",
+            "mid_min": "low",
+            "mid_last": "close",
+            "spread_mean": "spread",
+            "volume_sum": "volume",
+        }
+    )
     out = out.dropna(subset=["open"]).reset_index()
     keep = [c for c in ("timestamp", "open", "high", "low", "close", "volume", "spread") if c in out.columns]
     out = out[keep]

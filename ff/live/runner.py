@@ -14,6 +14,7 @@ MT5 is a Windows-only dependency; imports are lazy so dev boxes can import
 `ff.live.runner` without the `MetaTrader5` package installed. Only `run()`
 requires it.
 """
+
 from __future__ import annotations
 
 import json
@@ -32,7 +33,6 @@ from ff.defaults.complexity import complexity_to_ea
 from ff.defaults.overrides import apply_overrides
 from ff.live.frozen_signal import pin_frozen_signal
 
-
 LOG = logging.getLogger(__name__)
 
 
@@ -48,13 +48,19 @@ def _rollup_main_tf(m1_df: pd.DataFrame, main_tf_minutes: int) -> pd.DataFrame:
     if m1_df.empty:
         return m1_df
     rule = f"{main_tf_minutes}min"
-    agg = m1_df.resample(rule, label="left", closed="left").agg({
-        "open": "first",
-        "high": "max",
-        "low": "min",
-        "close": "last",
-        "spread": "mean",
-    }).dropna()
+    agg = (
+        m1_df.resample(rule, label="left", closed="left")
+        .agg(
+            {
+                "open": "first",
+                "high": "max",
+                "low": "min",
+                "close": "last",
+                "spread": "mean",
+            }
+        )
+        .dropna()
+    )
     # Trim the final bar if its right-edge hasn't been reached yet: require
     # the M1 buffer to extend at least `main_tf_minutes - 1` bars past the
     # start of the last main-TF bar.
@@ -80,6 +86,7 @@ def _read_json(path: Path) -> Any:
 
 
 # ── Config ─────────────────────────────────────────────────────────────
+
 
 @dataclass
 class BrokerCfg:
@@ -170,6 +177,7 @@ class LiveConfig:
 
 # ── Per-pair runtime state ─────────────────────────────────────────────
 
+
 @dataclass
 class OpenPosition:
     plan_id: str
@@ -207,6 +215,7 @@ class PairState:
 
 # ── Persistence ────────────────────────────────────────────────────────
 
+
 def _atomic_write_json(path: Path, obj: Any) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(path.suffix + ".tmp")
@@ -221,15 +230,14 @@ def _append_jsonl(path: Path, row: dict[str, Any]) -> None:
 
 
 def _log_error(cfg: LiveConfig, row: dict[str, Any]) -> None:
-    row = {"ts": pd.Timestamp.utcnow().isoformat(),
-           "instance_id": cfg.instance_id, **row}
+    row = {"ts": pd.Timestamp.utcnow().isoformat(), "instance_id": cfg.instance_id, **row}
     _append_jsonl(cfg.errors_file, row)
 
 
 # ── Plan emission ──────────────────────────────────────────────────────
 
-def _plan_id(instance_id: str, pair: str, signal_bar_ts: pd.Timestamp,
-             direction: int) -> str:
+
+def _plan_id(instance_id: str, pair: str, signal_bar_ts: pd.Timestamp, direction: int) -> str:
     """Include instance_id so two instances on the same pair/bar don't
     collapse under the dedup check."""
     return f"{instance_id}_{pair}_{signal_bar_ts.isoformat()}_{direction:+d}"
@@ -244,6 +252,7 @@ def _emit_plan(cfg: LiveConfig, plan: dict[str, Any]) -> None:
 
 
 # ── Runner skeleton ────────────────────────────────────────────────────
+
 
 def _build_pair_state(pair: str, cfg: LiveConfig) -> PairState:
     recipe = cfg.pair_recipe(pair)
@@ -266,8 +275,7 @@ def _build_pair_state(pair: str, cfg: LiveConfig) -> PairState:
     )
 
 
-def run(instances: "list[LiveConfig] | LiveConfig",
-        stop_event: Event | None = None) -> None:
+def run(instances: "list[LiveConfig] | LiveConfig", stop_event: Event | None = None) -> None:
     """Enter the live loop across N instances. Blocking; returns when
     ``stop_event`` fires.
 
@@ -296,13 +304,11 @@ def run(instances: "list[LiveConfig] | LiveConfig",
     seen_magics: set[int] = set()
     for cfg in instances:
         if cfg.instance_id in seen_ids:
-            raise RuntimeError(
-                f"[live] duplicate instance_id: {cfg.instance_id!r}")
+            raise RuntimeError(f"[live] duplicate instance_id: {cfg.instance_id!r}")
         seen_ids.add(cfg.instance_id)
         m = int(cfg.broker.magic_number)
         if m in seen_magics:
-            raise RuntimeError(
-                f"[live] duplicate magic_number {m} across instances")
+            raise RuntimeError(f"[live] duplicate magic_number {m} across instances")
         seen_magics.add(m)
 
     if stop_event is None:
@@ -317,17 +323,24 @@ def run(instances: "list[LiveConfig] | LiveConfig",
     shared_broker_cfg = instances[0].broker
     broker = MT5Broker(shared_broker_cfg)
     broker.connect()
-    LOG.info("[live] MT5 connected: login=%s server=%s",
-             shared_broker_cfg.login, shared_broker_cfg.server)
+    LOG.info(
+        "[live] MT5 connected: login=%s server=%s",
+        shared_broker_cfg.login,
+        shared_broker_cfg.server,
+    )
 
     all_pair_states: dict[str, dict[str, PairState]] = {}
     for cfg in instances:
         ps = {p: _build_pair_state(p, cfg) for p in cfg.pairs}
         loaded_open = _load_state(cfg, ps)
         all_pair_states[cfg.instance_id] = ps
-        LOG.info("[live] instance=%s initialised %d pair states "
-                 "(loaded_open=%d): %s",
-                 cfg.instance_id, len(ps), loaded_open, cfg.pairs)
+        LOG.info(
+            "[live] instance=%s initialised %d pair states (loaded_open=%d): %s",
+            cfg.instance_id,
+            len(ps),
+            loaded_open,
+            cfg.pairs,
+        )
 
     hb = _spawn_heartbeat(all_pair_states, stop_event)
     ar = _spawn_auto_reconciler(instances, stop_event)
@@ -348,7 +361,8 @@ def run(instances: "list[LiveConfig] | LiveConfig",
 
 
 def _spawn_heartbeat(
-    all_pair_states: dict[str, dict[str, PairState]], stop_event: Event,
+    all_pair_states: dict[str, dict[str, PairState]],
+    stop_event: Event,
 ) -> Thread:
     def _loop() -> None:
         started = time.monotonic()
@@ -356,13 +370,14 @@ def _spawn_heartbeat(
             uptime = time.monotonic() - started
             n_instances = len(all_pair_states)
             total_pairs = sum(len(ps) for ps in all_pair_states.values())
-            open_n = sum(
-                len(state.open_positions)
-                for ps in all_pair_states.values()
-                for state in ps.values()
+            open_n = sum(len(state.open_positions) for ps in all_pair_states.values() for state in ps.values())
+            LOG.info(
+                "[live] tick uptime=%.0fs instances=%d pairs=%d open=%d",
+                uptime,
+                n_instances,
+                total_pairs,
+                open_n,
             )
-            LOG.info("[live] tick uptime=%.0fs instances=%d pairs=%d open=%d",
-                     uptime, n_instances, total_pairs, open_n)
 
     t = Thread(target=_loop, daemon=True, name="live-heartbeat")
     t.start()
@@ -370,7 +385,8 @@ def _spawn_heartbeat(
 
 
 def _spawn_auto_reconciler(
-    instances: "list[LiveConfig]", stop_event: Event,
+    instances: "list[LiveConfig]",
+    stop_event: Event,
 ) -> Thread:
     """Optionally run the legacy VPS-side reconciler.
 
@@ -378,11 +394,11 @@ def _spawn_auto_reconciler(
     ``auto_reconcile_interval_min`` to 0 to keep the VPS focused on
     execution + live artifact capture only.
     """
+
     def _loop() -> None:
         interval_min = _read_auto_reconcile_interval_min()
         if interval_min <= 0:
-            LOG.info("[live] auto-reconcile disabled (interval=%s)",
-                     interval_min)
+            LOG.info("[live] auto-reconcile disabled (interval=%s)", interval_min)
             return
         # Wait a grace period after startup so at least one plan can fire.
         if stop_event.wait(60.0):
@@ -392,8 +408,7 @@ def _spawn_auto_reconciler(
                 try:
                     _run_auto_reconcile(cfg)
                 except Exception as exc:  # noqa: BLE001
-                    LOG.warning("[live] auto-reconcile %s failed: %r",
-                                cfg.instance_id, exc)
+                    LOG.warning("[live] auto-reconcile %s failed: %r", cfg.instance_id, exc)
 
     t = Thread(target=_loop, daemon=True, name="live-auto-reconcile")
     t.start()
@@ -401,7 +416,9 @@ def _spawn_auto_reconciler(
 
 
 def _spawn_deal_sync(
-    instances: "list[LiveConfig]", broker: Any, stop_event: Event,
+    instances: "list[LiveConfig]",
+    broker: Any,
+    stop_event: Event,
 ) -> Thread:
     """Persist MT5 deal history for every active instance.
 
@@ -409,6 +426,7 @@ def _spawn_deal_sync(
     filled and closed. The reconciler needs all three, so keep a small
     per-instance ``deals.jsonl`` snapshot fresh while the runner is alive.
     """
+
     def _loop() -> None:
         # First pass soon after startup, then every minute. This is slow-path
         # evidence capture, not part of order execution.
@@ -419,12 +437,14 @@ def _spawn_deal_sync(
                 try:
                     _refresh_deals(cfg, broker)
                 except Exception as exc:  # noqa: BLE001
-                    _log_error(cfg, {
-                        "stage": "deal_sync",
-                        "error": repr(exc),
-                    })
-                    LOG.warning("[live] deal sync %s failed: %r",
-                                cfg.instance_id, exc)
+                    _log_error(
+                        cfg,
+                        {
+                            "stage": "deal_sync",
+                            "error": repr(exc),
+                        },
+                    )
+                    LOG.warning("[live] deal sync %s failed: %r", cfg.instance_id, exc)
             if stop_event.wait(60.0):
                 return
 
@@ -501,12 +521,15 @@ def _spawn_state_sync(stop_event: Event) -> Thread:
                 LOG.warning("[live] state_sync iteration failed: %r", exc)
                 # Write to a shared state_sync error log at the top level
                 # since it's a process-global concern, not per-instance.
-                _append_jsonl(LIVE_DIR / "state_sync_errors.jsonl", {
-                    "ts": pd.Timestamp.utcnow().isoformat(),
-                    "stage": "state_sync",
-                    "consecutive_failures": consecutive_failures,
-                    "error": repr(exc),
-                })
+                _append_jsonl(
+                    LIVE_DIR / "state_sync_errors.jsonl",
+                    {
+                        "ts": pd.Timestamp.utcnow().isoformat(),
+                        "stage": "state_sync",
+                        "consecutive_failures": consecutive_failures,
+                        "error": repr(exc),
+                    },
+                )
 
     t = Thread(target=_loop, daemon=True, name="live-state-sync")
     t.start()
@@ -526,13 +549,13 @@ def _run_auto_reconcile(cfg: LiveConfig) -> None:
     if not run_id:
         return
 
-    from ff.live import reconcile as _recon
     import numpy as _np
+
+    from ff.live import reconcile as _recon
 
     run_file = _ROOT_RUNS / f"{run_id}.npz"
     if not run_file.exists():
-        LOG.warning("[live] instance=%s pinned run missing: %s",
-                    cfg.instance_id, run_file)
+        LOG.warning("[live] instance=%s pinned run missing: %s", cfg.instance_id, run_file)
         return
 
     z = _np.load(run_file, allow_pickle=True)
@@ -554,8 +577,12 @@ def _run_auto_reconcile(cfg: LiveConfig) -> None:
     cfg.reconcile_dir.mkdir(parents=True, exist_ok=True)
     html_path, _ = _recon.write_report(report, cfg.reconcile_dir, stamp)
     (cfg.reconcile_dir / "latest.html").write_bytes(html_path.read_bytes())
-    LOG.info("[live] instance=%s auto-reconcile wrote %s counts=%s",
-             cfg.instance_id, html_path.name, report.counts)
+    LOG.info(
+        "[live] instance=%s auto-reconcile wrote %s counts=%s",
+        cfg.instance_id,
+        html_path.name,
+        report.counts,
+    )
 
 
 _ROOT_RUNS = Path(__file__).resolve().parent.parent.parent / "artifacts" / "runs"
@@ -625,7 +652,8 @@ def _deal_sync_since(cfg: LiveConfig) -> pd.Timestamp:
 def _refresh_deals(cfg: LiveConfig, broker: Any) -> None:
     since = _deal_sync_since(cfg)
     deals = _with_broker_cfg(
-        broker, cfg,
+        broker,
+        cfg,
         lambda: broker.fetch_recent_deals(since.to_pydatetime()),
     )
     magic = int(cfg.broker.magic_number)
@@ -675,16 +703,14 @@ def _main_loop(
                     _poll_pair(cfg, state, broker, pair_states)
                 except Exception as exc:  # noqa: BLE001 — main loop must not die
                     _log_error(cfg, {"pair": pair, "error": repr(exc)})
-                    LOG.exception("[live] instance=%s %s poll failed",
-                                  cfg.instance_id, pair)
+                    LOG.exception("[live] instance=%s %s poll failed", cfg.instance_id, pair)
         elapsed = time.monotonic() - tick_start
         sleep_for = max(0.5, poll_interval - elapsed)
         if stop_event.wait(sleep_for):
             return
 
 
-def _poll_pair(cfg: LiveConfig, state: PairState, broker: Any,
-               pair_states: dict[str, PairState]) -> None:
+def _poll_pair(cfg: LiveConfig, state: PairState, broker: Any, pair_states: dict[str, PairState]) -> None:
     """One poll for one pair. Ingest bars → evaluate → maybe fire a plan.
 
     ``pair_states`` is the instance's full pair-state dict — passed in so
@@ -705,11 +731,7 @@ def _poll_pair(cfg: LiveConfig, state: PairState, broker: Any,
     if state.m1_buf.empty:
         state.m1_buf = m1_new
     else:
-        state.m1_buf = (
-            pd.concat([state.m1_buf, m1_new])
-              .loc[lambda d: ~d.index.duplicated(keep="last")]
-              .sort_index()
-        )
+        state.m1_buf = pd.concat([state.m1_buf, m1_new]).loc[lambda d: ~d.index.duplicated(keep="last")].sort_index()
     # Trim older than the lookback window we actually need.
     max_keep = cfg.lookback_bars * main_tf_min + main_tf_min * 4
     if len(state.m1_buf) > max_keep:
@@ -745,7 +767,8 @@ def _evaluate_and_fire(
     ea = state.ea
     try:
         lib = _sl.build_signal_library(
-            ea["signals"], state.main_buf,
+            ea["signals"],
+            state.main_buf,
             pip_value=pip_value,
             atr_period=ea.get("execution", {}).get("atr_period", 14),
             use_cache=False,
@@ -774,15 +797,16 @@ def _evaluate_and_fire(
         fam = state.best_trial.get("signal_family")
         params = state.best_trial.get("signal_params")
         if fam:
-            resolved = [i for i, v in enumerate(lib.variant_map)
-                        if v.get("family") == fam and v.get("params") == params]
+            resolved = [i for i, v in enumerate(lib.variant_map) if v.get("family") == fam and v.get("params") == params]
             if not resolved:
-                _log_error(cfg, {
-                    "pair": state.pair,
-                    "stage": "variant_resolve",
-                    "error": f"no match for {fam}{params} in rebuilt lib "
-                             f"(n_variants={lib.n_variants})",
-                })
+                _log_error(
+                    cfg,
+                    {
+                        "pair": state.pair,
+                        "stage": "variant_resolve",
+                        "error": f"no match for {fam}{params} in rebuilt lib (n_variants={lib.n_variants})",
+                    },
+                )
                 return
             frozen_variant = int(resolved[0])
         else:
@@ -799,10 +823,7 @@ def _evaluate_and_fire(
     entry_ref_price = float(lib.entry_price[si])
     atr_pips = float(lib.atr_pips[si])
     variant_id = int(lib.variant[si])
-    variant_info = (
-        lib.variant_map[variant_id]
-        if variant_id < len(lib.variant_map) else {}
-    )
+    variant_info = lib.variant_map[variant_id] if variant_id < len(lib.variant_map) else {}
     signal_family = str(variant_info.get("family", ""))
 
     # Spread at fire time: MT5's rates.spread is in POINTS (integer,
@@ -813,35 +834,44 @@ def _evaluate_and_fire(
     # nonsense in the plan - see 2026-04-21 audit.
     spread_at_fire_pips = 0.0
     try:
-        if state.m1_buf is not None and len(state.m1_buf) > 0 \
-                and "spread" in state.m1_buf.columns:
-            spread_at_fire_pips = float(
-                state.m1_buf["spread"].iloc[-1]
-            ) / 10.0
+        if state.m1_buf is not None and len(state.m1_buf) > 0 and "spread" in state.m1_buf.columns:
+            spread_at_fire_pips = float(state.m1_buf["spread"].iloc[-1]) / 10.0
     except Exception:  # pragma: no cover - defensive: never block a fire on telemetry
         spread_at_fire_pips = 0.0
 
     sl_price, tp_price = _compute_sl_tp_live(
-        ea, direction, entry_ref_price, atr_pips, pip_value,
+        ea,
+        direction,
+        entry_ref_price,
+        atr_pips,
+        pip_value,
         best_trial=state.best_trial,
     )
 
     plan_id = _plan_id(cfg.instance_id, state.pair, signal_bar_ts, direction)
     if _is_duplicate_plan(cfg, plan_id):
-        LOG.info("[live] instance=%s %s duplicate plan_id=%s — skipping",
-                 cfg.instance_id, state.pair, plan_id)
+        LOG.info(
+            "[live] instance=%s %s duplicate plan_id=%s — skipping",
+            cfg.instance_id,
+            state.pair,
+            plan_id,
+        )
         return
 
     # Per-pair open-position cap. Stops the runner from stacking positions
     # on every bar close — the VPS saw 29 concurrent EUR/USD positions in
     # one morning before this guard landed.
     if cfg.max_open_per_pair and len(state.open_positions) >= cfg.max_open_per_pair:
-        _log_error(cfg, {
-            "pair": state.pair, "stage": "cap",
-            "plan_id": plan_id,
-            "open_count": len(state.open_positions),
-            "cap": cfg.max_open_per_pair,
-        })
+        _log_error(
+            cfg,
+            {
+                "pair": state.pair,
+                "stage": "cap",
+                "plan_id": plan_id,
+                "open_count": len(state.open_positions),
+                "cap": cfg.max_open_per_pair,
+            },
+        )
         return
 
     plan = {
@@ -864,30 +894,37 @@ def _evaluate_and_fire(
         "spread_at_fire_pips": spread_at_fire_pips,
     }
     _emit_plan(cfg, plan)
-    LOG.info("[live] instance=%s %s fired %s sl=%.5f tp=%.5f",
-             cfg.instance_id, state.pair, plan_id, sl_price, tp_price)
+    LOG.info(
+        "[live] instance=%s %s fired %s sl=%.5f tp=%.5f",
+        cfg.instance_id,
+        state.pair,
+        plan_id,
+        sl_price,
+        tp_price,
+    )
 
     # Swap broker cfg so this instance's magic_number is attached to the
     # MT5 request. See ``_with_broker_cfg`` for the shared helper used by
     # the management calls too.
     try:
-        ticket = _with_broker_cfg(broker, cfg,
-            lambda: broker.submit_market_order(plan))
+        ticket = _with_broker_cfg(broker, cfg, lambda: broker.submit_market_order(plan))
     except Exception as exc:  # noqa: BLE001
-        _log_error(cfg, {"pair": state.pair, "stage": "submit",
-                         "plan_id": plan_id, "error": repr(exc)})
+        _log_error(cfg, {"pair": state.pair, "stage": "submit", "plan_id": plan_id, "error": repr(exc)})
         return
 
-    _append_jsonl(cfg.tickets_file, {
-        "plan_id": plan_id,
-        "ticket": ticket.ticket,
-        "submitted_at": ticket.submitted_at,
-        "filled_at": ticket.filled_at,
-        "fill_price": ticket.fill_price,
-        "fill_volume": ticket.fill_volume,
-        "retcode": ticket.retcode,
-        "comment": ticket.comment,
-    })
+    _append_jsonl(
+        cfg.tickets_file,
+        {
+            "plan_id": plan_id,
+            "ticket": ticket.ticket,
+            "submitted_at": ticket.submitted_at,
+            "filled_at": ticket.filled_at,
+            "fill_price": ticket.fill_price,
+            "fill_volume": ticket.fill_volume,
+            "retcode": ticket.retcode,
+            "comment": ticket.comment,
+        },
+    )
     state.open_positions[plan_id] = OpenPosition(
         plan_id=plan_id,
         ticket=ticket.ticket,
@@ -949,7 +986,11 @@ def _compute_sl_tp_live(
         return entry_price + sl_pips * pip_value, entry_price - tp_pips * pip_value
 
     return _compute_sl_tp_live_legacy(
-        ea, direction, entry_price, atr_pips, pip_value,
+        ea,
+        direction,
+        entry_price,
+        atr_pips,
+        pip_value,
     )
 
 
@@ -1010,8 +1051,7 @@ def _with_broker_cfg(broker: Any, cfg: LiveConfig, fn):
             broker.cfg = prev
 
 
-def _manage_open_positions(cfg: LiveConfig, state: PairState, broker: Any,
-                            pair_states: dict[str, PairState]) -> None:
+def _manage_open_positions(cfg: LiveConfig, state: PairState, broker: Any, pair_states: dict[str, PairState]) -> None:
     """Replay each open position through ``ff.live.exit_manager`` and
     dispatch at most one broker action per position per poll.
 
@@ -1060,10 +1100,14 @@ def _manage_open_positions(cfg: LiveConfig, state: PairState, broker: Any,
             spread = float(row.get("spread", 0.0))
             if spread != spread:  # NaN guard
                 spread = 0.0
-            m1_iter.append((
-                float(row["high"]), float(row["low"]),
-                float(row["close"]), spread,
-            ))
+            m1_iter.append(
+                (
+                    float(row["high"]),
+                    float(row["low"]),
+                    float(row["close"]),
+                    spread,
+                )
+            )
 
         action, _ = exit_manager.compute_action(
             params,
@@ -1076,41 +1120,73 @@ def _manage_open_positions(cfg: LiveConfig, state: PairState, broker: Any,
             continue
         if action.kind == "modify_sl":
             try:
-                rc = _with_broker_cfg(broker, cfg,
-                    lambda: broker.modify_sl(pos.ticket, action.new_sl))
+                rc = _with_broker_cfg(broker, cfg, lambda: broker.modify_sl(pos.ticket, action.new_sl))
             except Exception as exc:  # noqa: BLE001
-                _log_error(cfg, {"pair": state.pair, "stage": "modify_sl",
-                            "ticket": pos.ticket, "error": repr(exc)})
+                _log_error(
+                    cfg,
+                    {
+                        "pair": state.pair,
+                        "stage": "modify_sl",
+                        "ticket": pos.ticket,
+                        "error": repr(exc),
+                    },
+                )
                 continue
             if rc == 10009:  # MT5 TRADE_RETCODE_DONE
                 pos.last_known_sl = action.new_sl
                 mutated = True
             else:
-                _log_error(cfg, {"pair": state.pair, "stage": "modify_sl",
-                            "ticket": pos.ticket, "retcode": rc,
-                            "new_sl": action.new_sl})
+                _log_error(
+                    cfg,
+                    {
+                        "pair": state.pair,
+                        "stage": "modify_sl",
+                        "ticket": pos.ticket,
+                        "retcode": rc,
+                        "new_sl": action.new_sl,
+                    },
+                )
         elif action.kind == "partial_close":
             try:
-                rc = _with_broker_cfg(broker, cfg,
-                    lambda: broker.partial_close(pos.ticket, action.partial_pct))
+                rc = _with_broker_cfg(broker, cfg, lambda: broker.partial_close(pos.ticket, action.partial_pct))
             except Exception as exc:  # noqa: BLE001
-                _log_error(cfg, {"pair": state.pair, "stage": "partial_close",
-                            "ticket": pos.ticket, "error": repr(exc)})
+                _log_error(
+                    cfg,
+                    {
+                        "pair": state.pair,
+                        "stage": "partial_close",
+                        "ticket": pos.ticket,
+                        "error": repr(exc),
+                    },
+                )
                 continue
             if rc == 10009:
                 pos.partial_done = True
                 mutated = True
             else:
-                _log_error(cfg, {"pair": state.pair, "stage": "partial_close",
-                            "ticket": pos.ticket, "retcode": rc,
-                            "pct": action.partial_pct})
+                _log_error(
+                    cfg,
+                    {
+                        "pair": state.pair,
+                        "stage": "partial_close",
+                        "ticket": pos.ticket,
+                        "retcode": rc,
+                        "pct": action.partial_pct,
+                    },
+                )
         elif action.kind == "close":
             try:
-                rc = _with_broker_cfg(broker, cfg,
-                    lambda: broker.close_position(pos.ticket, reason="engine"))
+                rc = _with_broker_cfg(broker, cfg, lambda: broker.close_position(pos.ticket, reason="engine"))
             except Exception as exc:  # noqa: BLE001
-                _log_error(cfg, {"pair": state.pair, "stage": "close",
-                            "ticket": pos.ticket, "error": repr(exc)})
+                _log_error(
+                    cfg,
+                    {
+                        "pair": state.pair,
+                        "stage": "close",
+                        "ticket": pos.ticket,
+                        "error": repr(exc),
+                    },
+                )
                 continue
             if rc == 10009:
                 closed.append(plan_id)
@@ -1120,16 +1196,30 @@ def _manage_open_positions(cfg: LiveConfig, state: PairState, broker: Any,
                 # order_send returned None. Position no longer exists on
                 # broker side (already closed by SL/TP). Drop from state
                 # to end the retry loop.
-                _log_error(cfg, {"pair": state.pair, "stage": "close",
-                            "ticket": pos.ticket, "retcode": rc,
-                            "exit_reason": action.exit_reason,
-                            "action": "dropped_phantom"})
+                _log_error(
+                    cfg,
+                    {
+                        "pair": state.pair,
+                        "stage": "close",
+                        "ticket": pos.ticket,
+                        "retcode": rc,
+                        "exit_reason": action.exit_reason,
+                        "action": "dropped_phantom",
+                    },
+                )
                 closed.append(plan_id)
                 mutated = True
             else:
-                _log_error(cfg, {"pair": state.pair, "stage": "close",
-                            "ticket": pos.ticket, "retcode": rc,
-                            "exit_reason": action.exit_reason})
+                _log_error(
+                    cfg,
+                    {
+                        "pair": state.pair,
+                        "stage": "close",
+                        "ticket": pos.ticket,
+                        "retcode": rc,
+                        "exit_reason": action.exit_reason,
+                    },
+                )
 
     for plan_id in closed:
         state.open_positions.pop(plan_id, None)
@@ -1145,6 +1235,7 @@ def _is_duplicate_plan(cfg: LiveConfig, plan_id: str) -> bool:
     so two instances firing the same pair on the same bar (distinct
     plan_ids) do not collapse.
     """
+
     def _scan(path: Path) -> bool:
         if not path.exists():
             return False
@@ -1172,13 +1263,8 @@ def _is_duplicate_plan(cfg: LiveConfig, plan_id: str) -> bool:
     return _scan(cfg.tickets_file)
 
 
-def _persist_state(cfg: LiveConfig,
-                   open_positions_by_pair: dict[str, dict[str, OpenPosition]]
-                   ) -> None:
-    payload = {
-        pair: {plan_id: op.__dict__ for plan_id, op in openmap.items()}
-        for pair, openmap in open_positions_by_pair.items()
-    }
+def _persist_state(cfg: LiveConfig, open_positions_by_pair: dict[str, dict[str, OpenPosition]]) -> None:
+    payload = {pair: {plan_id: op.__dict__ for plan_id, op in openmap.items()} for pair, openmap in open_positions_by_pair.items()}
     _atomic_write_json(cfg.state_file, payload)
 
 
@@ -1189,8 +1275,7 @@ def _load_state(cfg: LiveConfig, pair_states: dict[str, PairState]) -> int:
     try:
         payload = _read_json(cfg.state_file)
     except (OSError, json.JSONDecodeError) as exc:
-        LOG.warning("[live] instance=%s state load failed: %r",
-                    cfg.instance_id, exc)
+        LOG.warning("[live] instance=%s state load failed: %r", cfg.instance_id, exc)
         return 0
 
     if not isinstance(payload, dict):
@@ -1210,8 +1295,13 @@ def _load_state(cfg: LiveConfig, pair_states: dict[str, PairState]) -> int:
             try:
                 pos = OpenPosition(**row)
             except TypeError as exc:
-                LOG.warning("[live] instance=%s pair=%s bad state row %s: %r",
-                            cfg.instance_id, pair, plan_id, exc)
+                LOG.warning(
+                    "[live] instance=%s pair=%s bad state row %s: %r",
+                    cfg.instance_id,
+                    pair,
+                    plan_id,
+                    exc,
+                )
                 continue
             state.open_positions[pos.plan_id] = pos
             loaded += 1
@@ -1219,6 +1309,7 @@ def _load_state(cfg: LiveConfig, pair_states: dict[str, PairState]) -> int:
 
 
 # ── Helpers for tests ─────────────────────────────────────────────────
+
 
 def _load_pinned_params(cfg: LiveConfig) -> dict[str, Any] | None:
     path = cfg.params_pinned_file

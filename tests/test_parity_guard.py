@@ -1,4 +1,5 @@
 """Unit tests for ``ff.live.parity_guard``."""
+
 from __future__ import annotations
 
 import pytest

@@ -1,4 +1,4 @@
-from ff.data.groups import group_pairs, PAIR_GROUPS
+from ff.data.groups import PAIR_GROUPS, group_pairs
 
 
 def test_majors_metals_other():

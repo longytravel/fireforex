@@ -22,13 +22,12 @@ Per-bar H1 (H, L, C) is controlled by flooding every sub-bar in the
 bar with the same triple. H1 aggregation then produces the exact
 specified triple at bar level.
 """
+
 from __future__ import annotations
 
+import ff_core as bc
 import numpy as np
 import pytest
-
-import ff_core as bc
-
 
 DIR_BUY = 1
 DIR_SELL = -1
@@ -102,9 +101,7 @@ SCENARIOS = [
         "slippage": 0.0,
         # Every bar has H-L range = 10 pips. Ceiling = 5. max_range ≥ 10 → no fire.
         # End-of-data exit at close[19] = entry → 0 pips.
-        "hlc_per_bar": {
-            i: (_p(+5), _p(-5), _p(0)) for i in range(2, N_H)
-        },
+        "hlc_per_bar": {i: (_p(+5), _p(-5), _p(0)) for i in range(2, N_H)},
         "expected_pnl_pips": 0.0,
     },
     {
@@ -195,6 +192,7 @@ SCENARIOS = [
 
 # ── Fixture builder ──────────────────────────────────────────────────
 
+
 def _build_fixture(scenario: dict) -> dict:
     """Build M1 / H1 arrays from a per-H1-bar (H, L, C) spec.
 
@@ -238,12 +236,25 @@ def _build_fixture(scenario: dict) -> dict:
     sig_filters = np.full((bc.NUM_SIGNAL_PARAMS, 1), -1, dtype=np.int64)
 
     return dict(
-        h_h=h_h, h_l=h_l, h_c=h_c, h_s=h_s,
-        m_h=m_h, m_l=m_l, m_c=m_c, m_s=m_s,
-        map_start=map_start, map_end=map_end,
-        bar_index=bar_index, direction=direction, entry_price=entry_price,
-        hour=hour, day=day, atr_pips=atr_pips,
-        swing_sl=swing_sl, filter_value=filter_value, variant=variant,
+        h_h=h_h,
+        h_l=h_l,
+        h_c=h_c,
+        h_s=h_s,
+        m_h=m_h,
+        m_l=m_l,
+        m_c=m_c,
+        m_s=m_s,
+        map_start=map_start,
+        map_end=map_end,
+        bar_index=bar_index,
+        direction=direction,
+        entry_price=entry_price,
+        hour=hour,
+        day=day,
+        atr_pips=atr_pips,
+        swing_sl=swing_sl,
+        filter_value=filter_value,
+        variant=variant,
         sig_filters=sig_filters,
     )
 
@@ -278,18 +289,35 @@ def _run_scenario(scenario: dict) -> tuple[int, float]:
     param_layout = np.arange(bc.NUM_PL, dtype=np.int64)
 
     bc.batch_evaluate(
-        data["h_h"], data["h_l"], data["h_c"], data["h_s"],
-        PIP, scenario["slippage"],
-        data["bar_index"], data["direction"], data["entry_price"],
-        data["hour"], data["day"], data["atr_pips"],
-        data["swing_sl"], data["filter_value"], data["variant"],
+        data["h_h"],
+        data["h_l"],
+        data["h_c"],
+        data["h_s"],
+        PIP,
+        scenario["slippage"],
+        data["bar_index"],
+        data["direction"],
+        data["entry_price"],
+        data["hour"],
+        data["day"],
+        data["atr_pips"],
+        data["swing_sl"],
+        data["filter_value"],
+        data["variant"],
         data["sig_filters"],
-        param_matrix, param_layout,
+        param_matrix,
+        param_layout,
         metrics,
-        max_trades, 365.0 * 24.0,
-        0.0, 999.0,
-        data["m_h"], data["m_l"], data["m_c"], data["m_s"],
-        data["map_start"], data["map_end"],
+        max_trades,
+        365.0 * 24.0,
+        0.0,
+        999.0,
+        data["m_h"],
+        data["m_l"],
+        data["m_c"],
+        data["m_s"],
+        data["map_start"],
+        data["map_end"],
         pnl,
         trade_records,
     )
@@ -302,10 +330,7 @@ def _run_scenario(scenario: dict) -> tuple[int, float]:
 @pytest.mark.parametrize("scenario", SCENARIOS, ids=[s["name"] for s in SCENARIOS])
 def test_stale_exit_scenario(scenario):
     n_trades, trade_pnl = _run_scenario(scenario)
-    assert n_trades == 1, (
-        f"{scenario['name']}: expected exactly 1 trade, got {n_trades}. "
-        f"Fixture may have rejected the signal."
-    )
+    assert n_trades == 1, f"{scenario['name']}: expected exactly 1 trade, got {n_trades}. Fixture may have rejected the signal."
     expected = scenario["expected_pnl_pips"]
     tol = 0.25
     assert abs(trade_pnl - expected) <= tol, (

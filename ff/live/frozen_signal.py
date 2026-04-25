@@ -1,4 +1,5 @@
 """Helpers for replaying one deployed signal fingerprint across pairs."""
+
 from __future__ import annotations
 
 from typing import Any

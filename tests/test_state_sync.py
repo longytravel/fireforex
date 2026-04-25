@@ -3,6 +3,7 @@
 Mocks all git subprocess calls so the test is hermetic — no git repo,
 no network, no credentials needed.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -18,13 +19,14 @@ def _fake_git_factory(call_log: list) -> callable:
         if args and args[0] == "status":
             stdout = " M plans/2026-04-21.jsonl\n"
         return SimpleNamespace(stdout=stdout, stderr="", returncode=0)
+
     return _fake_git
 
 
 def test_snapshot_and_push_copies_files_and_invokes_git(tmp_path: Path, monkeypatch):
     """Given a populated LIVE_DIR, snapshot_and_push should:
-       1. Copy each matching file into the worktree (relative path preserved).
-       2. Invoke git add / status / commit / push in order.
+    1. Copy each matching file into the worktree (relative path preserved).
+    2. Invoke git add / status / commit / push in order.
     """
     from ff.live import state_sync
 
@@ -32,7 +34,8 @@ def test_snapshot_and_push_copies_files_and_invokes_git(tmp_path: Path, monkeypa
     live = tmp_path / "live"
     (live / "plans").mkdir(parents=True)
     (live / "plans" / "2026-04-21.jsonl").write_text(
-        '{"plan_id": "x", "pair": "EUR_USD"}\n', encoding="utf-8",
+        '{"plan_id": "x", "pair": "EUR_USD"}\n',
+        encoding="utf-8",
     )
     (live / "tickets.jsonl").write_text('{"ticket": 1}\n', encoding="utf-8")
     (live / "state.json").write_text('{"EUR_USD": {}}', encoding="utf-8")
@@ -66,9 +69,11 @@ def test_snapshot_no_live_dir_is_noop(tmp_path: Path, monkeypatch):
 
     monkeypatch.setattr(state_sync, "LIVE_DIR", tmp_path / "nonexistent")
     # Fail loudly if any git call is attempted.
-    monkeypatch.setattr(state_sync, "_git", lambda *a, **k: (_ for _ in ()).throw(
-        AssertionError("git should not be called when LIVE_DIR is missing")
-    ))
+    monkeypatch.setattr(
+        state_sync,
+        "_git",
+        lambda *a, **k: (_ for _ in ()).throw(AssertionError("git should not be called when LIVE_DIR is missing")),
+    )
 
     assert state_sync.snapshot_and_push() is False
 

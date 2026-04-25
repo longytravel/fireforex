@@ -1,17 +1,16 @@
 /// Metric computation — mirrors _compute_metrics_inline() from jit_loop.py.
-
 use crate::constants::*;
 
 /// Standard-normal CDF via Abramowitz & Stegun 7.1.26 erf approximation.
 /// Max absolute error ~1.5e-7 — sufficient for PSR ranking.
 #[inline]
 fn norm_cdf(x: f64) -> f64 {
-    let a1 =  0.254829592_f64;
+    let a1 = 0.254829592_f64;
     let a2 = -0.284496736_f64;
-    let a3 =  1.421413741_f64;
+    let a3 = 1.421413741_f64;
     let a4 = -1.453152027_f64;
-    let a5 =  1.061405429_f64;
-    let p  =  0.3275911_f64;
+    let a5 = 1.061405429_f64;
+    let p = 0.3275911_f64;
     let z = x / std::f64::consts::SQRT_2;
     let sign = if z < 0.0 { -1.0 } else { 1.0 };
     let az = z.abs();
@@ -65,7 +64,11 @@ pub fn compute_metrics_inline(
         }
     }
     let pf = if gross_loss == 0.0 {
-        if gross_profit > 0.0 { 10.0 } else { 0.0 }
+        if gross_profit > 0.0 {
+            10.0
+        } else {
+            0.0
+        }
     } else {
         gross_profit / gross_loss
     };
@@ -136,11 +139,19 @@ pub fn compute_metrics_inline(
 
     // Expectancy (pips = raw mean; R = mean / avg_sl_pips)
     metrics_row[M_EXPECTANCY_PIPS] = mean;
-    metrics_row[M_EXPECTANCY_R] = if avg_sl_pips > 0.0 { mean / avg_sl_pips } else { 0.0 };
+    metrics_row[M_EXPECTANCY_R] = if avg_sl_pips > 0.0 {
+        mean / avg_sl_pips
+    } else {
+        0.0
+    };
 
     // SQN (Van Tharp) — t-stat of per-trade returns. Scale-invariant, so equivalent
     // whether computed on raw pnl or R-multiples (avg_sl_pips cancels).
-    metrics_row[M_SQN] = if std > 0.0 { (n as f64).sqrt() * mean / std } else { 0.0 };
+    metrics_row[M_SQN] = if std > 0.0 {
+        (n as f64).sqrt() * mean / std
+    } else {
+        0.0
+    };
 
     // Omega(τ=0): Σmax(r,0)/Σmax(-r,0) — on a per-trade distribution this equals PF.
     // Kept as a distinct column so τ can be plumbed through later without schema churn.
@@ -251,14 +262,24 @@ pub fn compute_metrics_inline(
     metrics_row[M_CALMAR] = if max_dd > 0.0 && n_bars > 0 && bars_per_year > 0.0 {
         let annual_pnl = total_pnl * bars_per_year / n_bars as f64;
         annual_pnl / max_dd
-    } else { 0.0 };
+    } else {
+        0.0
+    };
 
     // Recovery Factor — non-annualised Calmar. Intuitive UI value.
-    metrics_row[M_RECOVERY] = if max_dd > 0.0 { total_pnl / max_dd } else { 0.0 };
+    metrics_row[M_RECOVERY] = if max_dd > 0.0 {
+        total_pnl / max_dd
+    } else {
+        0.0
+    };
 
     // UPI / Martin Ratio — return per unit of ulcer pain.
     let ulc_val = metrics_row[M_ULCER];
-    metrics_row[M_UPI] = if ulc_val > 0.0 { metrics_row[M_RETURN_PCT] / ulc_val } else { 0.0 };
+    metrics_row[M_UPI] = if ulc_val > 0.0 {
+        metrics_row[M_RETURN_PCT] / ulc_val
+    } else {
+        0.0
+    };
 
     // Tail Ratio — |P95| / |P5|. Catches negative skew.
     // Needs a partial sort; allocate a local copy to avoid mutating the caller's slice.
@@ -266,11 +287,19 @@ pub fn compute_metrics_inline(
         let mut sorted: Vec<f64> = pnl_arr[..n].to_vec();
         let p5_idx = ((n as f64 - 1.0) * 0.05).round() as usize;
         let p95_idx = ((n as f64 - 1.0) * 0.95).round() as usize;
-        sorted.select_nth_unstable_by(p5_idx, |a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.select_nth_unstable_by(p5_idx, |a, b| {
+            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+        });
         let p5 = sorted[p5_idx];
-        sorted.select_nth_unstable_by(p95_idx, |a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.select_nth_unstable_by(p95_idx, |a, b| {
+            a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal)
+        });
         let p95 = sorted[p95_idx];
-        metrics_row[M_TAIL_RATIO] = if p5.abs() > 0.0 { p95.abs() / p5.abs() } else { 0.0 };
+        metrics_row[M_TAIL_RATIO] = if p5.abs() > 0.0 {
+            p95.abs() / p5.abs()
+        } else {
+            0.0
+        };
     }
 
     // PSR — Lopez de Prado Probabilistic Sharpe Ratio, threshold SR*=0.
@@ -309,7 +338,7 @@ pub fn compute_metrics_inline(
         if denom > 0.0 {
             let q = (so_scaled * k_norm * pf_c * trades_f) / denom;
             metrics_row[M_QUALITY] = q;
-            metrics_row[M_QUALITY_V2] = q;  // alias slot — kept for NPZ schema stability.
+            metrics_row[M_QUALITY_V2] = q; // alias slot — kept for NPZ schema stability.
         }
     }
 }

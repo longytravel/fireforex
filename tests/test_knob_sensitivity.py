@@ -16,18 +16,18 @@ these knobs, or for any new knob added later.
 When adding a new management knob (e.g. a Chandelier stop) add a test
 here that flips it and asserts the outcome differs.
 """
+
 from __future__ import annotations
 
+import ff_core as bc
 import numpy as np
 import pandas as pd
 import pytest
 
-import ff_core as bc
-
 from ff import signal_lib as sl
 
-
 # ── Synthetic data fixture ────────────────────────────────────────────
+
 
 def _build_data():
     """Build 800 H1 bars of fake EUR/USD data with a 60-sub-bar M1 series.
@@ -78,13 +78,27 @@ def _build_data():
     sig_filters = np.full((bc.NUM_SIGNAL_PARAMS, n_sig), -1, dtype=np.int64)
 
     return dict(
-        h_h=h_h, h_l=h_l, h_c=h_c, h_s=h_s,
-        m_h=m_h, m_l=m_l, m_c=m_c, m_s=m_s,
-        map_start=map_start, map_end=map_end,
-        bar_index=bar_index, direction=direction, entry_price=entry_price,
-        hour=hour, day=day, atr_pips=atr_pips,
-        swing_sl=swing_sl, filter_value=filter_value, variant=variant,
-        sig_filters=sig_filters, n_sig=n_sig,
+        h_h=h_h,
+        h_l=h_l,
+        h_c=h_c,
+        h_s=h_s,
+        m_h=m_h,
+        m_l=m_l,
+        m_c=m_c,
+        m_s=m_s,
+        map_start=map_start,
+        map_end=map_end,
+        bar_index=bar_index,
+        direction=direction,
+        entry_price=entry_price,
+        hour=hour,
+        day=day,
+        atr_pips=atr_pips,
+        swing_sl=swing_sl,
+        filter_value=filter_value,
+        variant=variant,
+        sig_filters=sig_filters,
+        n_sig=n_sig,
     )
 
 
@@ -122,22 +136,38 @@ def _run(data: dict, param_matrix: np.ndarray) -> np.ndarray:
     max_trades = data["n_sig"]  # upper bound — one trade per signal
     metrics = np.zeros((n_trials, bc.NUM_METRICS), dtype=np.float64)
     pnl = np.empty((n_trials, max_trades), dtype=np.float64)
-    trade_records = np.empty((n_trials, max_trades * bc.NUM_TRADE_FIELDS),
-                             dtype=np.float64)
+    trade_records = np.empty((n_trials, max_trades * bc.NUM_TRADE_FIELDS), dtype=np.float64)
     param_layout = np.arange(bc.NUM_PL, dtype=np.int64)
     bc.batch_evaluate(
-        data["h_h"], data["h_l"], data["h_c"], data["h_s"],
-        0.0001, 0.0,            # pip_value, slippage
-        data["bar_index"], data["direction"], data["entry_price"],
-        data["hour"], data["day"], data["atr_pips"],
-        data["swing_sl"], data["filter_value"], data["variant"],
+        data["h_h"],
+        data["h_l"],
+        data["h_c"],
+        data["h_s"],
+        0.0001,
+        0.0,  # pip_value, slippage
+        data["bar_index"],
+        data["direction"],
+        data["entry_price"],
+        data["hour"],
+        data["day"],
+        data["atr_pips"],
+        data["swing_sl"],
+        data["filter_value"],
+        data["variant"],
         data["sig_filters"],
-        param_matrix, param_layout,
+        param_matrix,
+        param_layout,
         metrics,
-        max_trades, 365.0 * 24.0,  # bars_per_year for H1
-        0.0, 999.0,                # commission_pips, max_spread_pips
-        data["m_h"], data["m_l"], data["m_c"], data["m_s"],
-        data["map_start"], data["map_end"],
+        max_trades,
+        365.0 * 24.0,  # bars_per_year for H1
+        0.0,
+        999.0,  # commission_pips, max_spread_pips
+        data["m_h"],
+        data["m_l"],
+        data["m_c"],
+        data["m_s"],
+        data["map_start"],
+        data["map_end"],
         pnl,
         trade_records,
     )
@@ -170,9 +200,11 @@ def _assert_knob_moves(data, knob_name: str, mutate_row):
 
 # ── The tests ─────────────────────────────────────────────────────────
 
+
 def test_max_bars_knob_moves_outcomes(data):
     def mut(row):
         row[bc.PL_MAX_BARS] = 3  # force very-early time exit
+
     _assert_knob_moves(data, "max_bars", mut)
 
 
@@ -181,6 +213,7 @@ def test_trailing_stop_knob_moves_outcomes(data):
         row[bc.PL_TRAILING_MODE] = _TRAIL_FIXED_PIP
         row[bc.PL_TRAIL_ACTIVATE] = 5.0
         row[bc.PL_TRAIL_DISTANCE] = 8.0
+
     _assert_knob_moves(data, "trailing", mut)
 
 
@@ -189,6 +222,7 @@ def test_breakeven_knob_moves_outcomes(data):
         row[bc.PL_BREAKEVEN_ENABLED] = 1
         row[bc.PL_BREAKEVEN_TRIGGER] = 5.0
         row[bc.PL_BREAKEVEN_OFFSET] = 1.0
+
     _assert_knob_moves(data, "breakeven", mut)
 
 
@@ -197,6 +231,7 @@ def test_partial_close_knob_moves_outcomes(data):
         row[bc.PL_PARTIAL_ENABLED] = 1
         row[bc.PL_PARTIAL_PCT] = 50.0
         row[bc.PL_PARTIAL_TRIGGER] = 5.0
+
     _assert_knob_moves(data, "partial", mut)
 
 
@@ -208,6 +243,7 @@ def test_stale_exit_knob_moves_outcomes(data):
         row[bc.PL_STALE_ENABLED] = 1
         row[bc.PL_STALE_BARS] = 2
         row[bc.PL_STALE_ATR_THRESH] = 100.0
+
     _assert_knob_moves(data, "stale", mut)
 
 
@@ -221,37 +257,46 @@ def test_chandelier_knob_moves_outcomes(data):
         row[bc.PL_CHANDELIER_ENABLED] = 1
         row[bc.PL_CHANDELIER_ACTIVATE] = 1.0
         row[bc.PL_CHANDELIER_ATR_MULT] = 0.5
+
     _assert_knob_moves(data, "chandelier", mut)
 
 
 def test_session_filter_knob_moves_outcomes(data):
     """This one should already work under EXEC_BASIC — use it as a sanity check.
     If this fails, something much deeper is broken."""
+
     def mut(row):
         row[bc.PL_HOURS_START] = 9
         row[bc.PL_HOURS_END] = 10  # only 1 hour of trading
+
     _assert_knob_moves(data, "session_hours", mut)
 
 
 def test_signal_variant_filter_knob_moves_outcomes(data):
     """Variant 0 exists in the fixture; variant 1 does not.
     Switching the trial's variant to 1 admits zero signals."""
+
     def mut(row):
         row[bc.PL_SIGNAL_VARIANT] = 1
+
     _assert_knob_moves(data, "signal_variant", mut)
 
 
 def test_buy_filter_knob_moves_outcomes(data):
     """Fixture signals have filter_value = 0.0. Trial buy_filter_max = 7.0
     forces every long signal to fail equality and be rejected."""
+
     def mut(row):
         row[bc.PL_BUY_FILTER_MAX] = 7.0
+
     _assert_knob_moves(data, "buy_filter_max", mut)
 
 
 def test_sell_filter_knob_moves_outcomes(data):
     """Fixture signals have filter_value = 0.0. Trial sell_filter_min = 7.0
     forces every short signal to fail equality and be rejected."""
+
     def mut(row):
         row[bc.PL_SELL_FILTER_MIN] = 7.0
+
     _assert_knob_moves(data, "sell_filter_min", mut)

@@ -10,6 +10,7 @@ Continuous ``FloatRange`` (``step is None``) is sampled log-uniform when
 ``scale="log"``, otherwise linear-uniform. Stepped Leaves are sampled uniformly
 from their enumerated grid. ``IntRange`` is uniform over its stepped grid.
 """
+
 from __future__ import annotations
 
 from typing import Any
@@ -109,7 +110,7 @@ if __name__ == "__main__":  # pragma: no cover
             selector=sc.Choice(["fixed", "atr"]),
             arms={
                 "fixed": {"pips": sc.FloatRange(5, 500, scale="log", step=None)},
-                "atr":   {"mult": sc.FloatRange(0.3, 6.0, scale="linear", step=None)},
+                "atr": {"mult": sc.FloatRange(0.3, 6.0, scale="linear", step=None)},
             },
         ),
         "trailing": sc.Group(
@@ -121,7 +122,7 @@ if __name__ == "__main__":  # pragma: no cover
                     selector=sc.Choice(["fixed", "atr"]),
                     arms={
                         "fixed": {"distance": sc.FloatRange(5, 50, scale="log")},
-                        "atr":   {"mult": sc.FloatRange(0.3, 4.0)},
+                        "atr": {"mult": sc.FloatRange(0.3, 4.0)},
                     },
                 ),
             },
@@ -133,11 +134,11 @@ if __name__ == "__main__":  # pragma: no cover
     for i, t in enumerate(trials):
         print(f"trial {i}: variant={t['signal_variant']}")
         print(f"   stop_loss: {t['engine']['stop_loss']}")
-        tr = t['engine']['trailing']
+        tr = t["engine"]["trailing"]
         if tr["test"]:
             print(f"   trailing ON: activate={tr['when_on']['activate']:.1f} mode={tr['when_on']['mode']}")
         else:
-            print(f"   trailing OFF (no sub-knobs in trial dict)")
+            print("   trailing OFF (no sub-knobs in trial dict)")
         print(f"   days: {t['engine']['days']}")
     # Reproducibility check.
     again = RandomSampler(schema, n_variants=5, seed=42).sample(5)

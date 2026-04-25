@@ -1,4 +1,5 @@
 """HTTP endpoints for the Fire Forex web UI."""
+
 from __future__ import annotations
 
 import json
@@ -11,7 +12,7 @@ from fastapi.responses import FileResponse, Response
 
 from ff.defaults.complexity import complexity_to_ea
 from ff.defaults.overrides import apply_overrides, flatten_schema
-from ff.harness import METRIC_COLUMNS as _HARNESS_METRIC_COLUMNS, pick_best
+from ff.harness import METRIC_COLUMNS as _HARNESS_METRIC_COLUMNS
 from ff.inspect import inspect_dict
 from ff.preflight import preflight_dict
 from ff.schema_json import ea_to_dict
@@ -19,7 +20,6 @@ from ff.VERSION import VERSION
 
 from . import baselines, jobs, live_jobs
 from .pairs_scan import scan_pairs_cached
-
 
 router = APIRouter(prefix="/api")
 
@@ -32,12 +32,14 @@ DOCS_DIR = PROJECT_ROOT / "docs"
 
 # ── Catalog ────────────────────────────────────────────────────────────
 
+
 @router.get("/pairs")
 def get_pairs() -> dict[str, Any]:
     pairs = scan_pairs_cached()
     if not pairs:
         raise HTTPException(status_code=503, detail="no data roots found — check G:\\My Drive\\BackTestData")
     from ff.data.groups import group_pairs
+
     return {"pairs": pairs, "groups": group_pairs(list(pairs))}
 
 
@@ -48,10 +50,17 @@ def get_timeframes() -> dict[str, Any]:
 
 # ── Defaults (complexity → EA) ─────────────────────────────────────────
 
-def _build_defaults_bundle(pair: str, main_tf: str, sub_tf: str | None, level: int,
-                            name: str | None = None, overrides: dict | None = None,
-                            start_date: str | None = None,
-                            end_date: str | None = None) -> dict[str, Any]:
+
+def _build_defaults_bundle(
+    pair: str,
+    main_tf: str,
+    sub_tf: str | None,
+    level: int,
+    name: str | None = None,
+    overrides: dict | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
     try:
         ea = complexity_to_ea(level=level, pair=pair, main_tf=main_tf, sub_tf=sub_tf, name=name)
     except (KeyError, ValueError) as e:
@@ -71,11 +80,15 @@ def _build_defaults_bundle(pair: str, main_tf: str, sub_tf: str | None, level: i
             ea["data"]["end_date"] = end_date
 
     return {
-        "recipe": {"pair": pair, "main_tf": main_tf,
-                   "sub_tf": ea.get("data", {}).get("sub_tf"),
-                   "level": level, "name": ea.get("name"),
-                   "start_date": ea.get("data", {}).get("start_date"),
-                   "end_date": ea.get("data", {}).get("end_date")},
+        "recipe": {
+            "pair": pair,
+            "main_tf": main_tf,
+            "sub_tf": ea.get("data", {}).get("sub_tf"),
+            "level": level,
+            "name": ea.get("name"),
+            "start_date": ea.get("data", {}).get("start_date"),
+            "end_date": ea.get("data", {}).get("end_date"),
+        },
         "overrides": overrides or {},
         "ea": ea_to_dict(ea),
         "inspect": inspect_dict(ea),
@@ -88,8 +101,7 @@ def _build_defaults_bundle(pair: str, main_tf: str, sub_tf: str | None, level: i
 
 
 @router.get("/defaults")
-def get_defaults(pair: str, main_tf: str, level: int = 6,
-                 sub_tf: str | None = None, name: str | None = None) -> dict[str, Any]:
+def get_defaults(pair: str, main_tf: str, level: int = 6, sub_tf: str | None = None, name: str | None = None) -> dict[str, Any]:
     if level < 1 or level > 10:
         raise HTTPException(status_code=400, detail="level must be 1..10")
     return _build_defaults_bundle(pair, main_tf, sub_tf, level, name)
@@ -104,13 +116,19 @@ def post_defaults(body: dict[str, Any]) -> dict[str, Any]:
     if level < 1 or level > 10:
         raise HTTPException(status_code=400, detail="level must be 1..10")
     return _build_defaults_bundle(
-        body["pair"], body["main_tf"], body.get("sub_tf"), level,
-        body.get("name"), body.get("overrides"),
-        body.get("start_date"), body.get("end_date"),
+        body["pair"],
+        body["main_tf"],
+        body.get("sub_tf"),
+        level,
+        body.get("name"),
+        body.get("overrides"),
+        body.get("start_date"),
+        body.get("end_date"),
     )
 
 
 # ── Preflight (POST recipe) ────────────────────────────────────────────
+
 
 @router.post("/preflight")
 def post_preflight(body: dict[str, Any]) -> dict[str, Any]:
@@ -118,9 +136,13 @@ def post_preflight(body: dict[str, Any]) -> dict[str, Any]:
         if k not in body:
             raise HTTPException(status_code=400, detail=f"missing '{k}'")
     try:
-        ea = complexity_to_ea(level=int(body["level"]), pair=body["pair"],
-                              main_tf=body["main_tf"], sub_tf=body.get("sub_tf"),
-                              name=body.get("name"))
+        ea = complexity_to_ea(
+            level=int(body["level"]),
+            pair=body["pair"],
+            main_tf=body["main_tf"],
+            sub_tf=body.get("sub_tf"),
+            name=body.get("name"),
+        )
         if body.get("overrides"):
             ea = apply_overrides(ea, body["overrides"])
     except (KeyError, ValueError) as e:
@@ -130,15 +152,20 @@ def post_preflight(body: dict[str, Any]) -> dict[str, Any]:
 
 # ── Inspect ────────────────────────────────────────────────────────────
 
+
 @router.post("/inspect")
 def post_inspect(body: dict[str, Any]) -> dict[str, Any]:
     for k in ("pair", "main_tf", "level"):
         if k not in body:
             raise HTTPException(status_code=400, detail=f"missing '{k}'")
     try:
-        ea = complexity_to_ea(level=int(body["level"]), pair=body["pair"],
-                              main_tf=body["main_tf"], sub_tf=body.get("sub_tf"),
-                              name=body.get("name"))
+        ea = complexity_to_ea(
+            level=int(body["level"]),
+            pair=body["pair"],
+            main_tf=body["main_tf"],
+            sub_tf=body.get("sub_tf"),
+            name=body.get("name"),
+        )
         if body.get("overrides"):
             ea = apply_overrides(ea, body["overrides"])
     except (KeyError, ValueError) as e:
@@ -147,6 +174,7 @@ def post_inspect(body: dict[str, Any]) -> dict[str, Any]:
 
 
 # ── Runs (jobs) ────────────────────────────────────────────────────────
+
 
 @router.post("/run")
 def post_run(body: dict[str, Any]) -> dict[str, Any]:
@@ -159,18 +187,16 @@ def post_run(body: dict[str, Any]) -> dict[str, Any]:
     # ff/harness.py:403-409 so a stale frontend (or a curl by hand) gets a
     # clean 400 instead of a mid-run crash inside the Rust engine.
     from ff import harness as _h
+
     _known = set(_h.TF_MINUTES.keys())
     _main = recipe["main_tf"]
     _sub = recipe.get("sub_tf")
     if _main not in _known:
-        raise HTTPException(status_code=400,
-                            detail=f"main_tf {_main!r} not supported; known={sorted(_known)}")
+        raise HTTPException(status_code=400, detail=f"main_tf {_main!r} not supported; known={sorted(_known)}")
     if _sub is not None and _sub not in _known:
-        raise HTTPException(status_code=400,
-                            detail=f"sub_tf {_sub!r} not supported; known={sorted(_known)}")
+        raise HTTPException(status_code=400, detail=f"sub_tf {_sub!r} not supported; known={sorted(_known)}")
     if _sub is not None and _h.TF_MINUTES[_sub] >= _h.TF_MINUTES[_main]:
-        raise HTTPException(status_code=400,
-                            detail=f"sub_tf must be finer than main_tf (got {_sub} vs {_main})")
+        raise HTTPException(status_code=400, detail=f"sub_tf must be finer than main_tf (got {_sub} vs {_main})")
 
     n_trials = int(body.get("n_trials", 2000))
     seed = int(body.get("seed", 42))
@@ -188,8 +214,7 @@ def post_run(body: dict[str, Any]) -> dict[str, Any]:
             recipe[key] = val
 
     try:
-        job_id = jobs.start(recipe, n_trials=n_trials, seed=seed, layer_name=layer_name,
-                            overrides=overrides)
+        job_id = jobs.start(recipe, n_trials=n_trials, seed=seed, layer_name=layer_name, overrides=overrides)
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     return {"job_id": job_id}
@@ -215,6 +240,7 @@ def get_job(job_id: str) -> dict[str, Any]:
 # laptop browser refreshes automatically after the Restart Fire Forex
 # shortcut runs — no more Ctrl+F5 after code pulls.
 import time as _time_boot  # scoped alias to avoid polluting module namespace
+
 _BOOT_ID: int = int(_time_boot.time() * 1000)
 
 
@@ -224,6 +250,7 @@ def get_version() -> dict[str, Any]:
 
 
 # ── History ────────────────────────────────────────────────────────────
+
 
 @router.get("/history")
 def get_history() -> dict[str, Any]:
@@ -290,6 +317,7 @@ def load_ea(name: str) -> dict[str, Any]:
 
 # ── Explain ────────────────────────────────────────────────────────────
 
+
 def _parse_knob_explanations() -> dict[str, dict[str, str]]:
     path = DOCS_DIR / "knob-explanations.md"
     if not path.exists():
@@ -333,6 +361,7 @@ def get_explain(knob: str) -> dict[str, Any]:
 
 # ── Baseline ──────────────────────────────────────────────────────────
 
+
 @router.get("/baseline")
 def get_baseline() -> dict[str, Any]:
     return {"baseline": baselines.load()}
@@ -348,7 +377,10 @@ def set_baseline(body: dict[str, Any]) -> dict[str, Any]:
         if j is None or j.status != "done" or not j.result:
             raise HTTPException(status_code=400, detail="job not complete")
         pinned = baselines.pin_from_job(
-            j.result, j.recipe, j.overrides, j.result.get("layer") or j.recipe.get("name"),
+            j.result,
+            j.recipe,
+            j.overrides,
+            j.result.get("layer") or j.recipe.get("name"),
         )
         return {"baseline": pinned}
 
@@ -360,9 +392,11 @@ def set_baseline(body: dict[str, Any]) -> dict[str, Any]:
     match = None
     for r in reversed(rows):
         if run_file and r.get("run_file") == run_file:
-            match = r; break
+            match = r
+            break
         if layer and r.get("layer") == layer:
-            match = r; break
+            match = r
+            break
     if match is None:
         raise HTTPException(status_code=404, detail="no matching history row")
     pinned = baselines.pin_from_history_row(match)
@@ -403,6 +437,7 @@ def _baseline_quality() -> float | None:
     """Best-quality score of the pinned baseline's run, if any. Used as the
     zero-point of the scatter colour gradient."""
     import numpy as np
+
     b = baselines.load()
     if not b:
         return None
@@ -428,18 +463,17 @@ def get_scatter(run_file: str) -> dict[str, Any]:
     returned ``indices`` array preserves original trial indices so the
     click handler can map a point back to its true trial."""
     import numpy as np
+
     path = _resolve_run_npz(run_file)
     with np.load(path, allow_pickle=False) as z:
         if "per_trial_metrics" not in z.files:
-            raise HTTPException(status_code=409,
-                                detail="this run predates the scatter feature; re-run to enable")
+            raise HTTPException(status_code=409, detail="this run predates the scatter feature; re-run to enable")
         metrics = z["per_trial_metrics"]  # (n_trials, N_rust_cols) float32
         # Pad legacy runs (saved with 10 Rust cols) up to the current schema
         # so new columns show as NaN rather than wrap-around indices.
         n_rust_cols = len(_HARNESS_METRIC_COLUMNS)
         if metrics.shape[1] < n_rust_cols:
-            pad = np.full((metrics.shape[0], n_rust_cols - metrics.shape[1]),
-                          np.nan, dtype=metrics.dtype)
+            pad = np.full((metrics.shape[0], n_rust_cols - metrics.shape[1]), np.nan, dtype=metrics.dtype)
             metrics = np.concatenate([metrics, pad], axis=1)
         # Derive total_pips per trial — appended as the final column.
         if "per_trial_pnl" in z.files and "per_trial_n_trades" in z.files:
@@ -475,14 +509,14 @@ def get_scatter(run_file: str) -> dict[str, Any]:
 def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
     """Return one trial's equity curve + metric row for click-to-replay."""
     import numpy as np
+
     path = _resolve_run_npz(run_file)
     with np.load(path, allow_pickle=False) as z:
         if "per_trial_pnl" not in z.files or "per_trial_n_trades" not in z.files:
-            raise HTTPException(status_code=409,
-                                detail="this run predates the scatter feature; re-run to enable")
+            raise HTTPException(status_code=409, detail="this run predates the scatter feature; re-run to enable")
         n_trials = int(z["per_trial_metrics"].shape[0])
         if not (0 <= trial_idx < n_trials):
-            raise HTTPException(status_code=404, detail=f"trial_idx out of range 0..{n_trials-1}")
+            raise HTTPException(status_code=404, detail=f"trial_idx out of range 0..{n_trials - 1}")
         n_trades = int(z["per_trial_n_trades"][trial_idx])
         pnl = z["per_trial_pnl"][trial_idx, :n_trades].astype(np.float64)
         metrics_row = z["per_trial_metrics"][trial_idx]
@@ -506,6 +540,7 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
 
 
 # ── Per-run trade log (live parity validator) ─────────────────────────
+
 
 @router.get("/runs/{run_id}/trades.csv", include_in_schema=False)
 def get_run_trades_csv(run_id: str) -> Response:
@@ -548,6 +583,7 @@ def get_run_trades_csv(run_id: str) -> Response:
 
 
 # ── Live-parity runner ────────────────────────────────────────────────
+
 
 @router.get("/live/status")
 def get_live_status() -> dict[str, Any]:
@@ -609,7 +645,7 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
     reads them from ``.env.live`` on disk when it boots.
     """
     import json as _json
-    from pathlib import Path as _Path
+
     import numpy as _np
 
     run_id = body.get("run_id")
@@ -633,6 +669,7 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
     # position would sit on its original SL while the backtest exits
     # on a time-based check — a silent divergence.
     from ff.live.parity_guard import un_portable_knobs
+
     bad_groups = un_portable_knobs(best_trial)
     if bad_groups:
         raise HTTPException(
@@ -657,6 +694,7 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
     # can run concurrently without colliding on artifacts, magic numbers,
     # or plan_ids. Format: <source_run_id>__<YYYYMMDD_HHMMSS>.
     import time as _time
+
     instance_id = body.get("instance_id") or f"{run_id}__{_time.strftime('%Y%m%d_%H%M%S')}"
 
     # Allocate a unique magic. instances.json carries a monotonically
@@ -704,16 +742,13 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
     # all live under artifacts/live/<instance_id>/.
     inst_dir = live_dir / instance_id
     inst_dir.mkdir(parents=True, exist_ok=True)
-    (inst_dir / "config.json").write_text(
-        _json.dumps(service_config, default=str, indent=2), encoding="utf-8"
-    )
-    (inst_dir / "pinned_run.json").write_text(
-        _json.dumps({"run_id": run_id}, indent=2), encoding="utf-8"
-    )
+    (inst_dir / "config.json").write_text(_json.dumps(service_config, default=str, indent=2), encoding="utf-8")
+    (inst_dir / "pinned_run.json").write_text(_json.dumps({"run_id": run_id}, indent=2), encoding="utf-8")
 
     # Register in instances.json so the runner service (and UI) knows
     # this instance is active.
     import pandas as _pd
+
     index["instances"][instance_id] = {
         "active": True,
         "source_run_id": run_id,
@@ -731,9 +766,7 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
     deploy_dir.mkdir(parents=True, exist_ok=True)
     deploy_instances_dir = deploy_dir / "instances"
     deploy_instances_dir.mkdir(parents=True, exist_ok=True)
-    (deploy_instances_dir / f"{instance_id}.json").write_text(
-        _json.dumps(service_config, default=str, indent=2), encoding="utf-8"
-    )
+    (deploy_instances_dir / f"{instance_id}.json").write_text(_json.dumps(service_config, default=str, indent=2), encoding="utf-8")
 
     # Manifest of actively-deployed instance ids. Runner service filters
     # ``deploy/instances/*.json`` through this — stops historical committed
@@ -742,44 +775,57 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
     active_manifest: dict[str, Any] = {"active": []}
     if active_manifest_path.exists():
         try:
-            active_manifest = _json.loads(
-                active_manifest_path.read_text(encoding="utf-8"))
+            active_manifest = _json.loads(active_manifest_path.read_text(encoding="utf-8"))
             active_manifest.setdefault("active", [])
         except Exception:
             active_manifest = {"active": []}
     if instance_id not in active_manifest["active"]:
         active_manifest["active"].append(instance_id)
-    active_manifest_path.write_text(
-        _json.dumps(active_manifest, indent=2), encoding="utf-8")
+    active_manifest_path.write_text(_json.dumps(active_manifest, indent=2), encoding="utf-8")
 
     # Backcompat: keep writing deploy/live_config.json pointing at the
     # most-recent instance so the VPS Deploy bat continues to work
     # until the bat is updated to consume deploy/instances/.
-    (deploy_dir / "live_config.json").write_text(
-        _json.dumps(service_config, default=str, indent=2), encoding="utf-8"
-    )
+    (deploy_dir / "live_config.json").write_text(_json.dumps(service_config, default=str, indent=2), encoding="utf-8")
 
     # Try to commit + push so the VPS can pull. Silently no-op on dev boxes
     # that aren't git repos or don't have push rights.
     git_pushed = False
     git_error: str | None = None
     import subprocess as _sp2
+
     try:
-        _sp2.run(["git", "add", "deploy/live_config.json",
-                  f"deploy/instances/{instance_id}.json",
-                  "deploy/instances/active.json"],
-                 capture_output=True, check=False, timeout=10,
-                 cwd=str(ARTIFACTS_DIR.parent))
+        _sp2.run(
+            [
+                "git",
+                "add",
+                "deploy/live_config.json",
+                f"deploy/instances/{instance_id}.json",
+                "deploy/instances/active.json",
+            ],
+            capture_output=True,
+            check=False,
+            timeout=10,
+            cwd=str(ARTIFACTS_DIR.parent),
+        )
         commit = _sp2.run(
             ["git", "commit", "-m", f"deploy: live config from run {run_id}"],
-            capture_output=True, text=True, check=False, timeout=10,
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
             cwd=str(ARTIFACTS_DIR.parent),
         )
         # Even "nothing to commit" is fine — just means config hasn't changed.
-        push = _sp2.run(["git", "push", "origin", "HEAD"],
-                        capture_output=True, text=True, check=False, timeout=30,
-                        cwd=str(ARTIFACTS_DIR.parent))
-        git_pushed = (push.returncode == 0)
+        push = _sp2.run(
+            ["git", "push", "origin", "HEAD"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+            cwd=str(ARTIFACTS_DIR.parent),
+        )
+        git_pushed = push.returncode == 0
         if not git_pushed:
             git_error = (push.stderr or push.stdout or "").strip()[:300]
     except (FileNotFoundError, _sp2.TimeoutExpired) as exc:
@@ -792,12 +838,22 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
     runner_kicked = False
     kick_error: str | None = None
     import subprocess as _sp
+
     try:
-        _sp.run(["schtasks", "/End", "/TN", "ff-live-runner"],
-                capture_output=True, check=False, timeout=10)
-        r = _sp.run(["schtasks", "/Run", "/TN", "ff-live-runner"],
-                    capture_output=True, text=True, check=False, timeout=10)
-        runner_kicked = (r.returncode == 0)
+        _sp.run(
+            ["schtasks", "/End", "/TN", "ff-live-runner"],
+            capture_output=True,
+            check=False,
+            timeout=10,
+        )
+        r = _sp.run(
+            ["schtasks", "/Run", "/TN", "ff-live-runner"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=10,
+        )
+        runner_kicked = r.returncode == 0
         if not runner_kicked:
             kick_error = (r.stderr or r.stdout or "").strip()[:200]
     except (FileNotFoundError, _sp.TimeoutExpired) as exc:
@@ -816,9 +872,11 @@ def post_live_deploy_from_run(body: dict[str, Any]) -> dict[str, Any]:
         "note": (
             "runner (re)started via Scheduled Task"
             if runner_kicked
-            else ("config pushed to git — on VPS, double-click 'Deploy Fire Forex' shortcut"
-                  if git_pushed
-                  else "Scheduled Task not triggered and git push failed — see kick_error/git_error")
+            else (
+                "config pushed to git — on VPS, double-click 'Deploy Fire Forex' shortcut"
+                if git_pushed
+                else "Scheduled Task not triggered and git push failed — see kick_error/git_error"
+            )
         ),
     }
 
@@ -848,8 +906,10 @@ def get_live_stats_by_pair() -> dict[str, Any]:
     exists yet — the UI already handles the empty state.
     """
     import json as _json
+
     import numpy as _np
     import pandas as _pd
+
     from ff.live import reconcile as _recon
 
     live_dir = ARTIFACTS_DIR / "live"
@@ -928,29 +988,31 @@ def get_live_stats_by_pair() -> dict[str, Any]:
         if not active_filter.get(inst_cfg.parent.name, True):
             continue
         try:
-            configured_pairs_set.update(
-                _json.loads(inst_cfg.read_text(encoding="utf-8")).get("pairs") or []
-            )
+            configured_pairs_set.update(_json.loads(inst_cfg.read_text(encoding="utf-8")).get("pairs") or [])
         except Exception:
             continue
     svc_path = live_dir / "service_config.json"
     if svc_path.exists():
         try:
-            configured_pairs_set.update(
-                _json.loads(svc_path.read_text(encoding="utf-8")).get("pairs") or []
-            )
+            configured_pairs_set.update(_json.loads(svc_path.read_text(encoding="utf-8")).get("pairs") or [])
         except Exception:
             pass
     configured_pairs: list[str] = sorted(configured_pairs_set)
     for pair in configured_pairs:
         if pair not in rollup:
             rollup[pair] = {
-                "matched": 0, "missing_in_live": 0, "extra_in_live": 0,
-                "matched_pnl_pips_live": 0.0, "matched_pnl_pips_bt": 0.0,
+                "matched": 0,
+                "missing_in_live": 0,
+                "extra_in_live": 0,
+                "matched_pnl_pips_live": 0.0,
+                "matched_pnl_pips_bt": 0.0,
                 "delta_pips": 0.0,
-                "n_mismatched_signal": 0, "n_mismatched_spread": 0,
-                "n_mismatched_slippage": 0, "n_mismatched_closure": 0,
-                "n_mismatched_entry_price": 0, "n_mismatched_exit_price": 0,
+                "n_mismatched_signal": 0,
+                "n_mismatched_spread": 0,
+                "n_mismatched_slippage": 0,
+                "n_mismatched_closure": 0,
+                "n_mismatched_entry_price": 0,
+                "n_mismatched_exit_price": 0,
                 "n_mismatched_pnl": 0,
                 "mean_spread_delta_pips": float("nan"),
                 "mean_slippage_pips": float("nan"),
@@ -975,8 +1037,10 @@ def post_live_reconcile(body: dict[str, Any] | None = None) -> dict[str, Any]:
     ``scripts/run_reconcile.py`` with explicit inputs.
     """
     import time as _t
-    from ff.live import reconcile as _recon
+
     import pandas as _pd
+
+    from ff.live import reconcile as _recon
 
     body = body or {}
     run_id = body.get("run_id")
@@ -992,6 +1056,7 @@ def post_live_reconcile(body: dict[str, Any] | None = None) -> dict[str, Any]:
         raise HTTPException(status_code=404, detail=f"no run {run_id}")
 
     import numpy as _np
+
     z = _np.load(run_file, allow_pickle=True)
     if "trades" not in z.files:
         raise HTTPException(status_code=404, detail="run has no trade log")
@@ -1012,8 +1077,7 @@ def post_live_reconcile(body: dict[str, Any] | None = None) -> dict[str, Any]:
     html_path, _ = _recon.write_report(report, out_dir, stamp)
     # Drop a "latest" symlink-style file that the UI can point an iframe at.
     (out_dir / "latest.html").write_bytes(html_path.read_bytes())
-    return {"stamp": stamp, "html": f"/api/live/reconcile/latest.html",
-            "counts": report.counts}
+    return {"stamp": stamp, "html": "/api/live/reconcile/latest.html", "counts": report.counts}
 
 
 @router.get("/live/reconcile/latest.html", include_in_schema=False)
@@ -1026,6 +1090,7 @@ def get_live_reconcile_latest() -> FileResponse:
 
 # ── Static comparison dashboard ────────────────────────────────────────
 
+
 @router.get("/comparison.html", include_in_schema=False)
 def get_comparison() -> FileResponse:
     path = ARTIFACTS_DIR / "comparison.html"
@@ -1037,11 +1102,11 @@ def get_comparison() -> FileResponse:
 # ── Data page: inventory / health / download ──────────────────────────
 
 from datetime import date as _date  # noqa: E402
+
 from fastapi.responses import PlainTextResponse  # noqa: E402
 
 from ff.data import health as _data_health  # noqa: E402
 from ff.data import inventory as _data_inventory  # noqa: E402
-
 
 _PAIR_RE = re.compile(r"^[A-Z]{3}_[A-Z]{3}$")
 _TF_RE = re.compile(r"^(M1|M5|M15|M30|H1|H4|D|W)$")
@@ -1098,10 +1163,7 @@ def get_data_health(pair: str, tf: str) -> dict[str, Any]:
             "bars": 0,
             "range": {"start": None, "end": None},
             "summary": "error",
-            "error_detail": (
-                f"{msg}. File is truncated or not fully synced from "
-                f"Google Drive — redownload via Bars download."
-            ),
+            "error_detail": (f"{msg}. File is truncated or not fully synced from Google Drive — redownload via Bars download."),
             "nan_counts": {},
             "ohlc_violations": {},
             "timestamp_issues": {},
@@ -1162,6 +1224,7 @@ def post_data_download_cancel(job_id: str) -> dict[str, Any]:
 
 # ── Tick downloads ────────────────────────────────────────────────────────
 
+
 @router.post("/data/download/tick")
 def post_data_download_tick(body: dict[str, Any]) -> dict[str, Any]:
     pair = body.get("pair") or ""
@@ -1210,6 +1273,7 @@ def post_data_tick_download_cancel(job_id: str) -> dict[str, Any]:
 
 
 # ── Manual resample (inventory Roll-up / Rebuild buttons) ─────────────────
+
 
 @router.post("/data/derive/{pair}")
 def post_data_derive(pair: str) -> dict[str, Any]:

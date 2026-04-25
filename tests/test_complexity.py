@@ -1,4 +1,5 @@
 """Tests for ff.defaults.complexity — the 1..10 complexity-level EA builder."""
+
 from __future__ import annotations
 
 import sys
@@ -12,10 +13,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
+from eas.complex01 import ENGINE_MAPPING as COMPLEX01_MAPPING
 from ff.defaults.complexity import complexity_to_ea
 from ff.preflight import preflight_report
-from eas.complex01 import ENGINE_MAPPING as COMPLEX01_MAPPING
-
 
 _OPTIONAL_KEYS = ("trailing", "breakeven", "partial", "stale", "session", "max_bars")
 
@@ -25,6 +25,7 @@ def _optional_present(ea: dict) -> set[str]:
 
 
 # ── Individual level tests ─────────────────────────────────────────────
+
 
 def test_level_1() -> None:
     ea = complexity_to_ea(1, "EUR_USD", "H1")
@@ -73,16 +74,14 @@ def test_level_10() -> None:
 
 # ── Cross-level invariants ─────────────────────────────────────────────
 
+
 def test_monotonic_complexity() -> None:
     """Active-optional-key sets are non-decreasing across levels 1..10."""
     prev: set[str] = set()
     for lvl in range(1, 11):
         ea = complexity_to_ea(lvl, "EUR_USD", "H1")
         present = _optional_present(ea)
-        assert prev.issubset(present), (
-            f"level {lvl} active keys {present} is not a superset of "
-            f"level {lvl - 1}'s active keys {prev}"
-        )
+        assert prev.issubset(present), f"level {lvl} active keys {present} is not a superset of level {lvl - 1}'s active keys {prev}"
         prev = present
 
 
@@ -91,13 +90,11 @@ def test_mapping_matches_complex01_shape() -> None:
     ea = complexity_to_ea(10, "EUR_USD", "H1")
     complex01_slots = {pl for pl, _encoder in COMPLEX01_MAPPING}
     for pl, _encoder in ea["engine_mapping"]:
-        assert pl in complex01_slots, (
-            f"level-10 mapping uses PL slot {pl} which is not present in "
-            f"eas.complex01.ENGINE_MAPPING"
-        )
+        assert pl in complex01_slots, f"level-10 mapping uses PL slot {pl} which is not present in eas.complex01.ENGINE_MAPPING"
 
 
 # ── Sampler structural check ───────────────────────────────────────────
+
 
 def test_sampler_runs_level_6() -> None:
     from ff.sampler import RandomSampler

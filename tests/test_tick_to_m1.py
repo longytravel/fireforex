@@ -1,8 +1,8 @@
 """Tick → M1 aggregation correctness."""
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -22,13 +22,15 @@ def tmp_root(tmp_path, monkeypatch):
 
 def _tick_frame(start: datetime, rows: list[tuple[int, float, float]]) -> pd.DataFrame:
     """`rows` = list of (offset_ms, bid, ask) triples."""
-    return pd.DataFrame({
-        "timestamp":  [start + pd.Timedelta(ms, unit="ms") for ms, _, _ in rows],
-        "bid":        [b for _, b, _ in rows],
-        "ask":        [a for _, _, a in rows],
-        "bid_volume": [0.5] * len(rows),
-        "ask_volume": [0.5] * len(rows),
-    })
+    return pd.DataFrame(
+        {
+            "timestamp": [start + pd.Timedelta(ms, unit="ms") for ms, _, _ in rows],
+            "bid": [b for _, b, _ in rows],
+            "ask": [a for _, _, a in rows],
+            "bid_volume": [0.5] * len(rows),
+            "ask_volume": [0.5] * len(rows),
+        }
+    )
 
 
 def test_120s_of_ticks_produce_two_m1_rows(tmp_root):
@@ -36,10 +38,10 @@ def test_120s_of_ticks_produce_two_m1_rows(tmp_root):
     # Minute B (10:01:00 + 0..30s): bids 1.2010 / asks 1.2014 → mid 1.2012
     start = datetime(2024, 1, 2, 10, 0, 0, tzinfo=timezone.utc)
     rows = [
-        (0,      1.2000, 1.2002),
+        (0, 1.2000, 1.2002),
         (10_000, 1.2000, 1.2002),
         (20_000, 1.2000, 1.2002),
-        (60_000, 1.2010, 1.2014),     # new minute boundary
+        (60_000, 1.2010, 1.2014),  # new minute boundary
         (70_000, 1.2010, 1.2014),
         (80_000, 1.2010, 1.2014),
     ]
@@ -69,11 +71,11 @@ def test_mid_high_low_use_both_bid_and_ask(tmp_root):
     # must come from the final tick (highest mid), low from the first.
     start = datetime(2024, 1, 2, 10, 0, 0, tzinfo=timezone.utc)
     rows = [
-        (0,      1.2000, 1.2002),   # mid 1.2001 (low)
-        (5_000,  1.2001, 1.2003),   # mid 1.2002
-        (10_000, 1.2003, 1.2005),   # mid 1.2004
-        (20_000, 1.2004, 1.2006),   # mid 1.2005 (high)
-        (30_000, 1.2002, 1.2004),   # mid 1.2003 (close)
+        (0, 1.2000, 1.2002),  # mid 1.2001 (low)
+        (5_000, 1.2001, 1.2003),  # mid 1.2002
+        (10_000, 1.2003, 1.2005),  # mid 1.2004
+        (20_000, 1.2004, 1.2006),  # mid 1.2005 (high)
+        (30_000, 1.2002, 1.2004),  # mid 1.2003 (close)
     ]
     df = _tick_frame(start, rows)
     df.to_parquet(tmp_root / "EUR_USD_TICK.parquet", index=False)

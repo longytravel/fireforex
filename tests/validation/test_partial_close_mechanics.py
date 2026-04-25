@@ -29,13 +29,12 @@ Pre-fix historical values (kept here for context):
     row_5_bug_short_trigger_gt_tp        pre-fix = +26.0,  post-fix = +12.0
     row_6_partial_rescues_to_win         pre-fix = +6.6,   post-fix = +4.5
 """
+
 from __future__ import annotations
 
+import ff_core as bc
 import numpy as np
 import pytest
-
-import ff_core as bc
-
 
 # ── Constants (match core/src/constants.rs) ──────────────────────────
 
@@ -78,8 +77,8 @@ SCENARIOS = [
         "pct": 0.0,
         "trigger": 0.0,
         "subs": {
-            TRIGGER_SUB: (_p(+20), _p(+0),  _p(+10)),
-            NEXT_SUB:    (_p(+65), _p(+30), _p(+60)),
+            TRIGGER_SUB: (_p(+20), _p(+0), _p(+10)),
+            NEXT_SUB: (_p(+65), _p(+30), _p(+60)),
         },
         "expected_pnl_pips": +60.0,
     },
@@ -95,10 +94,10 @@ SCENARIOS = [
         "pct": 50.0,
         "trigger": 10.0,
         "subs": {
-            TRIGGER_SUB: (_p(+15), _p(+0),  _p(+12)),
-            NEXT_SUB:    (_p(+65), _p(+10), _p(+60)),
+            TRIGGER_SUB: (_p(+15), _p(+0), _p(+12)),
+            NEXT_SUB: (_p(+65), _p(+10), _p(+60)),
         },
-        "expected_pnl_pips": +35.0,   # post-fix. pre-fix = +36.0
+        "expected_pnl_pips": +35.0,  # post-fix. pre-fix = +36.0
     },
     {
         # Row 3: mirror of row 2 on short side.
@@ -110,10 +109,10 @@ SCENARIOS = [
         "pct": 50.0,
         "trigger": 10.0,
         "subs": {
-            TRIGGER_SUB: (_p(+0),  _p(-15), _p(-12)),
-            NEXT_SUB:    (_p(-10), _p(-65), _p(-60)),
+            TRIGGER_SUB: (_p(+0), _p(-15), _p(-12)),
+            NEXT_SUB: (_p(-10), _p(-65), _p(-60)),
         },
-        "expected_pnl_pips": +35.0,   # post-fix. pre-fix = +36.0
+        "expected_pnl_pips": +35.0,  # post-fix. pre-fix = +36.0
     },
     {
         # Row 4: BUG B (long). Partial trigger=44 > TP=12. SL=12 chosen
@@ -130,9 +129,9 @@ SCENARIOS = [
         "trigger": 44.0,
         "subs": {
             TRIGGER_SUB: (_p(+50), _p(+0), _p(+40)),
-            NEXT_SUB:    (_p(+1),  _p(+0), _p(+0)),
+            NEXT_SUB: (_p(+1), _p(+0), _p(+0)),
         },
-        "expected_pnl_pips": +12.0,   # post-fix. pre-fix = +26.0
+        "expected_pnl_pips": +12.0,  # post-fix. pre-fix = +26.0
     },
     {
         # Row 5: BUG B mirror (short). Pre-fix +26, post-fix +12.
@@ -145,9 +144,9 @@ SCENARIOS = [
         "trigger": 44.0,
         "subs": {
             TRIGGER_SUB: (_p(+0), _p(-50), _p(-40)),
-            NEXT_SUB:    (_p(+0), _p(-1),  _p(+0)),
+            NEXT_SUB: (_p(+0), _p(-1), _p(+0)),
         },
-        "expected_pnl_pips": +12.0,   # post-fix. pre-fix = +26.0
+        "expected_pnl_pips": +12.0,  # post-fix. pre-fix = +26.0
     },
     {
         # Row 6: partial rescues the trade. Post-fix realises at trigger
@@ -161,15 +160,16 @@ SCENARIOS = [
         "pct": 70.0,
         "trigger": 15.0,
         "subs": {
-            TRIGGER_SUB: (_p(+20), _p(+0),  _p(+18)),
-            NEXT_SUB:    (_p(+18), _p(-25), _p(-22)),
+            TRIGGER_SUB: (_p(+20), _p(+0), _p(+18)),
+            NEXT_SUB: (_p(+18), _p(-25), _p(-22)),
         },
-        "expected_pnl_pips": +4.5,   # post-fix. pre-fix = +6.6
+        "expected_pnl_pips": +4.5,  # post-fix. pre-fix = +6.6
     },
 ]
 
 
 # ── Fixture builder ──────────────────────────────────────────────────
+
 
 def _build_fixture(scenario: dict) -> dict:
     m_h = np.full(N_M, ENTRY_PRICE, dtype=np.float64)
@@ -207,12 +207,25 @@ def _build_fixture(scenario: dict) -> dict:
     sig_filters = np.full((bc.NUM_SIGNAL_PARAMS, 1), -1, dtype=np.int64)
 
     return dict(
-        h_h=h_h, h_l=h_l, h_c=h_c, h_s=h_s,
-        m_h=m_h, m_l=m_l, m_c=m_c, m_s=m_s,
-        map_start=map_start, map_end=map_end,
-        bar_index=bar_index, direction=direction, entry_price=entry_price,
-        hour=hour, day=day, atr_pips=atr_pips,
-        swing_sl=swing_sl, filter_value=filter_value, variant=variant,
+        h_h=h_h,
+        h_l=h_l,
+        h_c=h_c,
+        h_s=h_s,
+        m_h=m_h,
+        m_l=m_l,
+        m_c=m_c,
+        m_s=m_s,
+        map_start=map_start,
+        map_end=map_end,
+        bar_index=bar_index,
+        direction=direction,
+        entry_price=entry_price,
+        hour=hour,
+        day=day,
+        atr_pips=atr_pips,
+        swing_sl=swing_sl,
+        filter_value=filter_value,
+        variant=variant,
         sig_filters=sig_filters,
     )
 
@@ -246,18 +259,35 @@ def _run_scenario(scenario: dict) -> tuple[int, float]:
     param_layout = np.arange(bc.NUM_PL, dtype=np.int64)
 
     bc.batch_evaluate(
-        data["h_h"], data["h_l"], data["h_c"], data["h_s"],
-        PIP, 0.0,
-        data["bar_index"], data["direction"], data["entry_price"],
-        data["hour"], data["day"], data["atr_pips"],
-        data["swing_sl"], data["filter_value"], data["variant"],
+        data["h_h"],
+        data["h_l"],
+        data["h_c"],
+        data["h_s"],
+        PIP,
+        0.0,
+        data["bar_index"],
+        data["direction"],
+        data["entry_price"],
+        data["hour"],
+        data["day"],
+        data["atr_pips"],
+        data["swing_sl"],
+        data["filter_value"],
+        data["variant"],
         data["sig_filters"],
-        param_matrix, param_layout,
+        param_matrix,
+        param_layout,
         metrics,
-        max_trades, 365.0 * 24.0,
-        0.0, 999.0,
-        data["m_h"], data["m_l"], data["m_c"], data["m_s"],
-        data["map_start"], data["map_end"],
+        max_trades,
+        365.0 * 24.0,
+        0.0,
+        999.0,
+        data["m_h"],
+        data["m_l"],
+        data["m_c"],
+        data["m_s"],
+        data["map_start"],
+        data["map_end"],
         pnl,
         trade_records,
     )
@@ -271,17 +301,16 @@ def _run_scenario(scenario: dict) -> tuple[int, float]:
 def test_partial_close_scenario(scenario):
     n_trades, trade_pnl = _run_scenario(scenario)
 
-    assert n_trades == 1, (
-        f"{scenario['name']}: expected exactly 1 trade, got {n_trades}. "
-        f"Scenario setup rejected the signal — check the fixture."
-    )
+    assert (
+        n_trades == 1
+    ), f"{scenario['name']}: expected exactly 1 trade, got {n_trades}. Scenario setup rejected the signal — check the fixture."
 
     expected = scenario["expected_pnl_pips"]
     tol = 0.15
     assert abs(trade_pnl - expected) <= tol, (
         f"{scenario['name']}: engine produced PnL={trade_pnl:+.3f} pips, "
         f"expected {expected:+.3f} pips (tol ±{tol}).\n"
-        f"Params: direction={'BUY' if scenario['direction']==DIR_BUY else 'SELL'}, "
+        f"Params: direction={'BUY' if scenario['direction'] == DIR_BUY else 'SELL'}, "
         f"sl={scenario['sl_pips']}, tp={scenario['tp_pips']}, "
         f"partial_enabled={scenario['partial_enabled']}, "
         f"pct={scenario['pct']}, trigger={scenario['trigger']}.\n"

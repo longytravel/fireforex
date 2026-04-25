@@ -6,6 +6,7 @@ Run with::
 
 or via ``python run.py web``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -14,9 +15,8 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import routes as app_routes
 from . import live_state_puller
-
+from . import routes as app_routes
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 STATIC_DIR = Path(__file__).resolve().parent / "static"

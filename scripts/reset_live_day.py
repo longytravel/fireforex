@@ -21,6 +21,7 @@ archive dir back into artifacts/live/.
 
 Runs on the VPS. Requires MetaTrader5 package + .env.live credentials.
 """
+
 from __future__ import annotations
 
 import argparse
@@ -39,14 +40,14 @@ SERVICE_CONFIG = LIVE_DIR / "service_config.json"
 SCHEDULED_TASK = "ff-live-runner"
 
 ARCHIVE_TARGETS = [
-    "plans",                 # whole directory
+    "plans",  # whole directory
     "tickets.jsonl",
     "state.json",
     "errors.jsonl",
     "crashes.jsonl",
-    "service_config.json",   # legacy pre-multi-instance config
-    "instances.json",        # multi-instance index
-    "runner.log",            # shared process log
+    "service_config.json",  # legacy pre-multi-instance config
+    "instances.json",  # multi-instance index
+    "runner.log",  # shared process log
     "state_sync_errors.jsonl",
 ]
 
@@ -66,11 +67,13 @@ def _stop_task() -> None:
     print(f"[reset] ending + disabling Scheduled Task {SCHEDULED_TASK}...")
     subprocess.run(
         ["schtasks", "/End", "/TN", SCHEDULED_TASK],
-        capture_output=True, check=False,
+        capture_output=True,
+        check=False,
     )
     subprocess.run(
         ["schtasks", "/Change", "/TN", SCHEDULED_TASK, "/DISABLE"],
-        capture_output=True, check=False,
+        capture_output=True,
+        check=False,
     )
 
 
@@ -78,11 +81,13 @@ def _start_task() -> None:
     print(f"[reset] enabling + starting Scheduled Task {SCHEDULED_TASK}...")
     subprocess.run(
         ["schtasks", "/Change", "/TN", SCHEDULED_TASK, "/ENABLE"],
-        capture_output=True, check=False,
+        capture_output=True,
+        check=False,
     )
     subprocess.run(
         ["schtasks", "/Run", "/TN", SCHEDULED_TASK],
-        capture_output=True, check=False,
+        capture_output=True,
+        check=False,
     )
 
 
@@ -105,6 +110,7 @@ def _flatten_positions(magic_only: bool = False) -> int:
 
     # Load MT5 credentials same path the runner uses.
     from ff.live import broker_mt5 as _b
+
     env_file = REPO_ROOT / ".env.live"
     if env_file.exists():
         _b.load_broker_cfg_from_env(env_file)
@@ -128,22 +134,20 @@ def _flatten_positions(magic_only: bool = False) -> int:
         positions = mt5.positions_get() or []
         if magic_only:
             ours = [p for p in positions if int(p.magic) == magic]
-            print(f"[reset] {len(ours)} position(s) with magic={magic} to flatten "
-                  f"(leaving {len(positions) - len(ours)} other positions untouched)")
+            print(
+                f"[reset] {len(ours)} position(s) with magic={magic} to flatten "
+                f"(leaving {len(positions) - len(ours)} other positions untouched)"
+            )
         else:
             ours = list(positions)
-            print(f"[reset] {len(ours)} open position(s) on the account -- "
-                  f"closing ALL (pass --magic-only to filter by Fire Forex magic)")
+            print(f"[reset] {len(ours)} open position(s) on the account -- closing ALL (pass --magic-only to filter by Fire Forex magic)")
 
         for p in ours:
             tick = mt5.symbol_info_tick(p.symbol)
             if tick is None:
                 print(f"[reset]  {p.symbol} no tick -- SKIP")
                 continue
-            opposite_type = (
-                mt5.ORDER_TYPE_SELL if p.type == mt5.ORDER_TYPE_BUY
-                else mt5.ORDER_TYPE_BUY
-            )
+            opposite_type = mt5.ORDER_TYPE_SELL if p.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
             price = tick.bid if opposite_type == mt5.ORDER_TYPE_SELL else tick.ask
             req = {
                 "action": mt5.TRADE_ACTION_DEAL,
@@ -184,8 +188,7 @@ def _archive_and_wipe(only_instance: str | None = None) -> Path:
     dst = ARCHIVE_ROOT / stamp
     dst.mkdir(parents=True, exist_ok=True)
 
-    print(f"[reset] archiving live files -> {dst}"
-          f"{' (instance=' + only_instance + ')' if only_instance else ''}")
+    print(f"[reset] archiving live files -> {dst}{' (instance=' + only_instance + ')' if only_instance else ''}")
 
     # 1. Per-instance subdirs.
     for sub in sorted(LIVE_DIR.iterdir()):
@@ -223,20 +226,22 @@ def _archive_and_wipe(only_instance: str | None = None) -> Path:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fire Forex VPS reset")
     parser.add_argument(
-        "--magic-only", action="store_true",
-        help="Only close positions matching the Fire Forex magic number. "
-             "Default is to close EVERY open position on the account.",
+        "--magic-only",
+        action="store_true",
+        help="Only close positions matching the Fire Forex magic number. Default is to close EVERY open position on the account.",
     )
     parser.add_argument(
-        "--restart", action="store_true",
+        "--restart",
+        action="store_true",
         help="Re-arm the ff-live-runner Scheduled Task after the wipe. "
-             "Default leaves it stopped -- Deploy from the laptop is the "
-             "intended way to resume trading.",
+        "Default leaves it stopped -- Deploy from the laptop is the "
+        "intended way to resume trading.",
     )
     parser.add_argument(
-        "--instance", type=str, default=None,
-        help="Archive + flatten only this instance_id. "
-             "Omit to reset everything.",
+        "--instance",
+        type=str,
+        default=None,
+        help="Archive + flatten only this instance_id. Omit to reset everything.",
     )
     args = parser.parse_args()
 

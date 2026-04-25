@@ -8,6 +8,7 @@ Usage:
     python scripts/fetch_mt5_history.py --pair EUR_USD --days 30
     python scripts/fetch_mt5_history.py --pair EUR_USD --start 2026-03-01 --end 2026-04-22
 """
+
 from __future__ import annotations
 
 import argparse
@@ -23,25 +24,21 @@ if hasattr(sys.stdout, "reconfigure"):
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-from ff.data import mt5_m1_downloader  # noqa: E402
-from ff.data import resample  # noqa: E402
+from ff.data import (
+    mt5_m1_downloader,  # noqa: E402
+    resample,  # noqa: E402
+)
 
 
 def _parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--pair", required=True,
-                   help="Fire Forex pair symbol, e.g. EUR_USD")
+    p.add_argument("--pair", required=True, help="Fire Forex pair symbol, e.g. EUR_USD")
     g = p.add_mutually_exclusive_group(required=True)
-    g.add_argument("--days", type=int,
-                   help="Fetch last N days (ending today UTC)")
-    g.add_argument("--start", type=str,
-                   help="Start date YYYY-MM-DD (use with --end)")
-    p.add_argument("--end", type=str,
-                   help="End date YYYY-MM-DD (defaults to today UTC)")
-    p.add_argument("--no-append", action="store_true",
-                   help="Overwrite existing parquet instead of merging")
-    p.add_argument("--no-resample", action="store_true",
-                   help="Skip higher-TF fan-out (M5/M15/M30/H1/H4/D)")
+    g.add_argument("--days", type=int, help="Fetch last N days (ending today UTC)")
+    g.add_argument("--start", type=str, help="Start date YYYY-MM-DD (use with --end)")
+    p.add_argument("--end", type=str, help="End date YYYY-MM-DD (defaults to today UTC)")
+    p.add_argument("--no-append", action="store_true", help="Overwrite existing parquet instead of merging")
+    p.add_argument("--no-resample", action="store_true", help="Skip higher-TF fan-out (M5/M15/M30/H1/H4/D)")
     return p.parse_args()
 
 
@@ -64,20 +61,20 @@ def main() -> int:
     print(f"  root: {mt5_m1_downloader.MT5_DATA_ROOT}")
 
     result = mt5_m1_downloader.download(
-        args.pair, start, end,
+        args.pair,
+        start,
+        end,
         append=not args.no_append,
         log_cb=lambda m: print(f"  {m}"),
     )
-    print(f"  wrote {result['total_bars']:,} bars  "
-          f"(+{result['new_bars']:,} new)  → {result['path']}")
+    print(f"  wrote {result['total_bars']:,} bars  (+{result['new_bars']:,} new)  → {result['path']}")
     if result["start_ts"] and result["end_ts"]:
         print(f"  window {result['start_ts']} → {result['end_ts']}")
 
     if args.no_resample or result["total_bars"] == 0:
         return 0
 
-    print(f"[resample] deriving higher TFs from M1 under "
-          f"{mt5_m1_downloader.MT5_DATA_ROOT.name}")
+    print(f"[resample] deriving higher TFs from M1 under {mt5_m1_downloader.MT5_DATA_ROOT.name}")
     resample.derive_higher_tfs(
         args.pair,
         source_tf="M1",

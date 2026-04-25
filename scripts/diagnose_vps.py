@@ -20,6 +20,7 @@ Collects (best-effort, survives partial failures):
     - Tail of the scheduled task stdout (if we can find it — Windows
       task output lives in Event Viewer, we note the command here)
 """
+
 from __future__ import annotations
 
 import json
@@ -81,8 +82,15 @@ def _config_one(cfg: dict, origin: str) -> dict:
     summary["best_trial.signal_variant"] = bt.get("signal_variant")
     summary["best_trial.groups_on"] = {
         name: bool((engine.get(name) or {}).get("test"))
-        for name in ("trailing", "breakeven", "chandelier", "partial",
-                     "session", "stale", "max_bars")
+        for name in (
+            "trailing",
+            "breakeven",
+            "chandelier",
+            "partial",
+            "session",
+            "stale",
+            "max_bars",
+        )
     }
     return summary
 
@@ -96,10 +104,12 @@ def _config() -> str:
         if sub.parent.name in ("archive", "reconcile"):
             continue
         try:
-            configs.append(_config_one(
-                json.loads(sub.read_text(encoding="utf-8")),
-                origin=str(sub.relative_to(LIVE_DIR.parent.parent)),
-            ))
+            configs.append(
+                _config_one(
+                    json.loads(sub.read_text(encoding="utf-8")),
+                    origin=str(sub.relative_to(LIVE_DIR.parent.parent)),
+                )
+            )
         except Exception as e:  # noqa: BLE001
             configs.append({"origin": str(sub), "error": repr(e)})
 
@@ -107,10 +117,12 @@ def _config() -> str:
     legacy = LIVE_DIR / "service_config.json"
     if legacy.exists():
         try:
-            configs.append(_config_one(
-                json.loads(legacy.read_text(encoding="utf-8")),
-                origin="service_config.json (legacy)",
-            ))
+            configs.append(
+                _config_one(
+                    json.loads(legacy.read_text(encoding="utf-8")),
+                    origin="service_config.json (legacy)",
+                )
+            )
         except Exception as e:  # noqa: BLE001
             configs.append({"origin": str(legacy), "error": repr(e)})
 
@@ -125,7 +137,8 @@ def _config() -> str:
         try:
             out += "\n\ninstances.json:\n" + json.dumps(
                 json.loads(index_file.read_text(encoding="utf-8")),
-                indent=2, default=str,
+                indent=2,
+                default=str,
             )
         except Exception as e:  # noqa: BLE001
             out += f"\n\ninstances.json parse error: {e!r}"
@@ -136,6 +149,7 @@ def _mt5() -> str:
     out = _section("MT5")
     try:
         from ff.live import broker_mt5 as _b
+
         env_file = REPO_ROOT / ".env.live"
         if env_file.exists():
             _b.load_broker_cfg_from_env(env_file)
@@ -163,20 +177,24 @@ def _mt5() -> str:
             out += f"\nopen positions: {len(positions)}\n"
             for p in positions:
                 side = "BUY" if p.type == mt5.ORDER_TYPE_BUY else "SELL"
-                out += (f"  ticket={p.ticket} {p.symbol:<8} {side:<4} "
-                        f"vol={p.volume} magic={p.magic} "
-                        f"comment='{p.comment}' open_price={p.price_open} "
-                        f"sl={p.sl} tp={p.tp} "
-                        f"time={time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(p.time))}\n")
+                out += (
+                    f"  ticket={p.ticket} {p.symbol:<8} {side:<4} "
+                    f"vol={p.volume} magic={p.magic} "
+                    f"comment='{p.comment}' open_price={p.price_open} "
+                    f"sl={p.sl} tp={p.tp} "
+                    f"time={time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(p.time))}\n"
+                )
             since = int(time.time()) - 24 * 3600
             deals = mt5.history_deals_get(since, int(time.time())) or []
             deals = list(deals)[-20:]
             out += f"\nlast {len(deals)} deals (24h):\n"
             for d in deals:
-                out += (f"  ticket={d.ticket} pos={d.position_id} {d.symbol:<8} "
-                        f"type={d.type} vol={d.volume} price={d.price} "
-                        f"magic={d.magic} comment='{d.comment}' profit={d.profit} "
-                        f"time={time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(d.time))}\n")
+                out += (
+                    f"  ticket={d.ticket} pos={d.position_id} {d.symbol:<8} "
+                    f"type={d.type} vol={d.volume} price={d.price} "
+                    f"magic={d.magic} comment='{d.comment}' profit={d.profit} "
+                    f"time={time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime(d.time))}\n"
+                )
         finally:
             mt5.shutdown()
     except Exception as e:  # noqa: BLE001
@@ -220,8 +238,7 @@ def main() -> int:
     parts: list[str] = []
     parts.append(f"Fire Forex -- VPS diagnostic  ({time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())})")
     parts.append(f"Report path: {DIAG_PATH}")
-    for fn in (_git_state, _tasks, _config, _artifacts_listing,
-               _log_tails, _mt5):
+    for fn in (_git_state, _tasks, _config, _artifacts_listing, _log_tails, _mt5):
         try:
             parts.append(fn())
         except Exception as e:  # noqa: BLE001

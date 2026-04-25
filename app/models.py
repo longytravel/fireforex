@@ -1,4 +1,5 @@
 """Pydantic request/response shapes for the Fire Forex web API."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -14,10 +15,10 @@ class RunRequest(BaseModel):
 
 
 class JobProgress(BaseModel):
-    status: str                       # "running" | "done" | "error"
-    progress: float                   # 0.0..1.0
+    status: str  # "running" | "done" | "error"
+    progress: float  # 0.0..1.0
     message: str = ""
-    started_at: float                 # unix epoch seconds
+    started_at: float  # unix epoch seconds
     finished_at: float | None = None
     error: str | None = None
     result: dict[str, Any] | None = None

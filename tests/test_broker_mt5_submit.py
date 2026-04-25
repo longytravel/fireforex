@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-import pandas as pd
 from types import SimpleNamespace
 
+import pandas as pd
 import pytest
 
 from ff.live import broker_mt5
@@ -101,31 +101,28 @@ def _plan():
 
 
 def test_submit_market_order_raises_on_reject(monkeypatch):
-    fake = _FakeMT5([
-        SimpleNamespace(retcode=10016, order=0, price=0.0, volume=0.0,
-                        comment="invalid stops"),
-    ])
+    fake = _FakeMT5(
+        [
+            SimpleNamespace(retcode=10016, order=0, price=0.0, volume=0.0, comment="invalid stops"),
+        ]
+    )
     monkeypatch.setattr(broker_mt5, "_mt5", fake)
 
-    broker = broker_mt5.MT5Broker(
-        BrokerCfg(login=1, password="x", server="x", deviation_pips=3)
-    )
+    broker = broker_mt5.MT5Broker(BrokerCfg(login=1, password="x", server="x", deviation_pips=3))
     with pytest.raises(RuntimeError, match="order_send rejected"):
         broker.submit_market_order(_plan())
 
 
 def test_submit_market_order_retries_requote_once(monkeypatch):
-    fake = _FakeMT5([
-        SimpleNamespace(retcode=10004, order=0, price=0.0, volume=0.0,
-                        comment="requote"),
-        SimpleNamespace(retcode=10009, order=12345, price=1.1002,
-                        volume=0.01, comment="done"),
-    ])
+    fake = _FakeMT5(
+        [
+            SimpleNamespace(retcode=10004, order=0, price=0.0, volume=0.0, comment="requote"),
+            SimpleNamespace(retcode=10009, order=12345, price=1.1002, volume=0.01, comment="done"),
+        ]
+    )
     monkeypatch.setattr(broker_mt5, "_mt5", fake)
 
-    broker = broker_mt5.MT5Broker(
-        BrokerCfg(login=1, password="x", server="x", deviation_pips=3)
-    )
+    broker = broker_mt5.MT5Broker(BrokerCfg(login=1, password="x", server="x", deviation_pips=3))
     ticket = broker.submit_market_order(_plan())
 
     assert ticket.ticket == 12345
@@ -135,15 +132,14 @@ def test_submit_market_order_retries_requote_once(monkeypatch):
 
 
 def test_submit_market_order_comment_names_signal(monkeypatch):
-    fake = _FakeMT5([
-        SimpleNamespace(retcode=10009, order=12345, price=1.1002,
-                        volume=0.01, comment="done"),
-    ])
+    fake = _FakeMT5(
+        [
+            SimpleNamespace(retcode=10009, order=12345, price=1.1002, volume=0.01, comment="done"),
+        ]
+    )
     monkeypatch.setattr(broker_mt5, "_mt5", fake)
 
-    broker = broker_mt5.MT5Broker(
-        BrokerCfg(login=1, password="x", server="x", deviation_pips=3)
-    )
+    broker = broker_mt5.MT5Broker(BrokerCfg(login=1, password="x", server="x", deviation_pips=3))
     broker.submit_market_order(_plan())
 
     assert fake.requests[0]["comment"] == "ff_ema_cross"
@@ -174,9 +170,7 @@ def test_fetch_recent_deals_queries_broker_time_and_stores_utc(monkeypatch):
     fake = _FakeMT5History()
     monkeypatch.setattr(broker_mt5, "_mt5", fake)
 
-    broker = broker_mt5.MT5Broker(
-        BrokerCfg(login=1, password="x", server="x", deviation_pips=3)
-    )
+    broker = broker_mt5.MT5Broker(BrokerCfg(login=1, password="x", server="x", deviation_pips=3))
     broker._broker_to_utc_sec = -3 * 60 * 60
     since = datetime(2026, 4, 24, 10, 0, tzinfo=timezone.utc)
     deals = broker.fetch_recent_deals(since)

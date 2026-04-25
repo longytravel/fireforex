@@ -3,6 +3,7 @@
 Everything heavy (data download, harness.run) is monkeypatched so the
 test is hermetic — no parquet required, no engine invocation.
 """
+
 from __future__ import annotations
 
 import json
@@ -25,6 +26,7 @@ def _make_plan(pair: str, ts: str) -> dict:
 def _fake_trade_log(pair: str, n: int = 3) -> np.ndarray:
     """Build a minimal structured array matching the harness dtype."""
     from ff.harness import TRADE_FIELD_NAMES
+
     dtype = np.dtype(
         [(name, np.float64) for name in TRADE_FIELD_NAMES]
         + [
@@ -85,8 +87,11 @@ def test_replay_service_config_end_to_end(tmp_path: Path, monkeypatch):
     config = {
         "source_run_id": "complexity_L10_EUR_USD_M15_20260421_095645",
         "recipe": {
-            "pair": "EUR_USD", "main_tf": "M15", "sub_tf": "M1",
-            "level": 10, "seed": 42,
+            "pair": "EUR_USD",
+            "main_tf": "M15",
+            "sub_tf": "M1",
+            "level": 10,
+            "seed": 42,
         },
         "overrides": {},
         "pairs": ["EUR_USD", "USD_CHF", "USD_JPY"],
@@ -110,7 +115,8 @@ def test_replay_service_config_end_to_end(tmp_path: Path, monkeypatch):
 
     # Mock EA build — don't need complexity_to_ea to actually work.
     monkeypatch.setattr(
-        replay, "_build_ea_for_pair",
+        replay,
+        "_build_ea_for_pair",
         lambda cfg, pair: {"data": {"pair": pair}, "name": f"ea_{pair}"},
     )
 
@@ -151,8 +157,7 @@ def test_replay_service_config_end_to_end(tmp_path: Path, monkeypatch):
     trades = npz["trades"]
     assert len(trades) == 6  # 3 pairs × 2 trades each
     assert set(trades["pair"]) == {"EUR_USD", "USD_CHF", "USD_JPY"}
-    for key in ("commission_pips", "slippage_pips",
-                "max_spread_pips", "pip_value"):
+    for key in ("commission_pips", "slippage_pips", "max_spread_pips", "pip_value"):
         assert key in npz.files, f"missing scalar {key}"
 
     # Summary + latest pointer written.

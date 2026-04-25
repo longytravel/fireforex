@@ -4,6 +4,7 @@ Covers every classification category (matched / missing / extra /
 mismatched_entry / mismatched_exit / mismatched_pnl / ±1 bar fuzz) without
 MT5 — inputs are hand-built DataFrames so CI has no broker dependency.
 """
+
 from __future__ import annotations
 
 import pandas as pd
@@ -25,18 +26,33 @@ def _sig_ts(iso: str) -> pd.Timestamp:
 
 def test_exact_match_all_categories_within_tolerance():
     sig = "2026-04-20T15:00:00Z"
-    bt = _bt([{
-        "pair": "EUR_USD", "direction": 1,
-        "signal_bar_ts": _sig_ts(sig),
-        "entry_ts": _sig_ts(sig), "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
-        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
-    }])
-    live = _live([{
-        "plan_id": "EUR_USD_" + sig + "_+1",
-        "pair": "EUR_USD", "direction": 1,
-        "signal_bar_ts": _sig_ts(sig),
-        "entry_price": 1.08505, "exit_price": 1.08795, "pnl_pips": 29.5,
-    }])
+    bt = _bt(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_ts": _sig_ts(sig),
+                "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
+                "entry_price": 1.0850,
+                "exit_price": 1.0880,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
+    live = _live(
+        [
+            {
+                "plan_id": "EUR_USD_" + sig + "_+1",
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_price": 1.08505,
+                "exit_price": 1.08795,
+                "pnl_pips": 29.5,
+            }
+        ]
+    )
     rep = reconcile(bt, live)
     assert len(rep.matched) == 1
     assert rep.matched[0].categories == []
@@ -45,34 +61,64 @@ def test_exact_match_all_categories_within_tolerance():
 
 def test_mismatched_entry_price_flagged():
     sig = "2026-04-20T15:00:00Z"
-    bt = _bt([{
-        "pair": "EUR_USD", "direction": 1,
-        "signal_bar_ts": _sig_ts(sig),
-        "entry_ts": _sig_ts(sig), "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
-        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
-    }])
-    live = _live([{
-        "pair": "EUR_USD", "direction": 1,
-        "signal_bar_ts": _sig_ts(sig),
-        "entry_price": 1.0860, "exit_price": 1.0880, "pnl_pips": 30.0,
-    }])
+    bt = _bt(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_ts": _sig_ts(sig),
+                "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
+                "entry_price": 1.0850,
+                "exit_price": 1.0880,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
+    live = _live(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_price": 1.0860,
+                "exit_price": 1.0880,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
     rep = reconcile(bt, live, Tolerances(entry_price_pips=2.0, exit_price_pips=2.0, pnl_pips=1.0))
     assert "mismatched_entry_price" in rep.matched[0].categories
 
 
 def test_mismatched_exit_price_flagged():
     sig = "2026-04-20T15:00:00Z"
-    bt = _bt([{
-        "pair": "EUR_USD", "direction": -1,
-        "signal_bar_ts": _sig_ts(sig),
-        "entry_ts": _sig_ts(sig), "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
-        "entry_price": 1.0850, "exit_price": 1.0820, "pnl_pips": 30.0,
-    }])
-    live = _live([{
-        "pair": "EUR_USD", "direction": -1,
-        "signal_bar_ts": _sig_ts(sig),
-        "entry_price": 1.0850, "exit_price": 1.0830, "pnl_pips": 20.0,
-    }])
+    bt = _bt(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": -1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_ts": _sig_ts(sig),
+                "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
+                "entry_price": 1.0850,
+                "exit_price": 1.0820,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
+    live = _live(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": -1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_price": 1.0850,
+                "exit_price": 1.0830,
+                "pnl_pips": 20.0,
+            }
+        ]
+    )
     rep = reconcile(bt, live, Tolerances(entry_price_pips=2.0, exit_price_pips=2.0, pnl_pips=1.0))
     cats = rep.matched[0].categories
     assert "mismatched_exit_price" in cats
@@ -81,11 +127,20 @@ def test_mismatched_exit_price_flagged():
 
 def test_missing_in_live():
     sig = "2026-04-20T15:00:00Z"
-    bt = _bt([{
-        "pair": "EUR_USD", "direction": 1, "signal_bar_ts": _sig_ts(sig),
-        "entry_ts": _sig_ts(sig), "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
-        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
-    }])
+    bt = _bt(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_ts": _sig_ts(sig),
+                "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
+                "entry_price": 1.0850,
+                "exit_price": 1.0880,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
     live = _live([])  # nothing live
     rep = reconcile(bt, live)
     assert rep.counts["missing_in_live"] == 1
@@ -95,11 +150,18 @@ def test_missing_in_live():
 def test_extra_in_live():
     sig = "2026-04-20T15:00:00Z"
     bt = _bt([])
-    live = _live([{
-        "pair": "EUR_USD", "direction": 1,
-        "signal_bar_ts": _sig_ts(sig),
-        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
-    }])
+    live = _live(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_price": 1.0850,
+                "exit_price": 1.0880,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
     rep = reconcile(bt, live)
     assert rep.counts["extra_in_live"] == 1
     assert rep.counts["missing_in_live"] == 0
@@ -108,36 +170,64 @@ def test_extra_in_live():
 def test_fuzzy_match_within_one_bar_window():
     """Live signal fires one main-TF bar after backtest — should still match
     with ``signal_bar_window=1`` (default)."""
-    bt = _bt([{
-        "pair": "EUR_USD", "direction": 1,
-        "signal_bar_ts": _sig_ts("2026-04-20T15:00:00Z"),
-        "entry_ts": _sig_ts("2026-04-20T15:00:00Z"),
-        "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
-        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
-    }])
-    live = _live([{
-        "pair": "EUR_USD", "direction": 1,
-        "signal_bar_ts": _sig_ts("2026-04-20T16:00:00Z"),  # +1 H1 bar
-        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
-    }])
+    bt = _bt(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts("2026-04-20T15:00:00Z"),
+                "entry_ts": _sig_ts("2026-04-20T15:00:00Z"),
+                "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
+                "entry_price": 1.0850,
+                "exit_price": 1.0880,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
+    live = _live(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts("2026-04-20T16:00:00Z"),  # +1 H1 bar
+                "entry_price": 1.0850,
+                "exit_price": 1.0880,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
     rep = reconcile(bt, live)
     assert len(rep.matched) == 1
     assert rep.counts["missing_in_live"] == 0
 
 
 def test_fuzzy_match_rejects_beyond_window():
-    bt = _bt([{
-        "pair": "EUR_USD", "direction": 1,
-        "signal_bar_ts": _sig_ts("2026-04-20T15:00:00Z"),
-        "entry_ts": _sig_ts("2026-04-20T15:00:00Z"),
-        "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
-        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
-    }])
-    live = _live([{
-        "pair": "EUR_USD", "direction": 1,
-        "signal_bar_ts": _sig_ts("2026-04-20T19:00:00Z"),  # +4 H1 bars
-        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
-    }])
+    bt = _bt(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts("2026-04-20T15:00:00Z"),
+                "entry_ts": _sig_ts("2026-04-20T15:00:00Z"),
+                "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
+                "entry_price": 1.0850,
+                "exit_price": 1.0880,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
+    live = _live(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts("2026-04-20T19:00:00Z"),  # +4 H1 bars
+                "entry_price": 1.0850,
+                "exit_price": 1.0880,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
     rep = reconcile(bt, live, Tolerances(signal_bar_window=1))
     assert rep.counts["missing_in_live"] == 1
     assert rep.counts["extra_in_live"] == 1
@@ -146,17 +236,32 @@ def test_fuzzy_match_rejects_beyond_window():
 def test_jpy_pair_pip_scaling():
     """JPY pairs use 0.01 pip unit, not 0.0001."""
     sig = "2026-04-20T15:00:00Z"
-    bt = _bt([{
-        "pair": "USD_JPY", "direction": 1,
-        "signal_bar_ts": _sig_ts(sig),
-        "entry_ts": _sig_ts(sig), "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
-        "entry_price": 150.00, "exit_price": 150.30, "pnl_pips": 30.0,
-    }])
-    live = _live([{
-        "pair": "USD_JPY", "direction": 1,
-        "signal_bar_ts": _sig_ts(sig),
-        "entry_price": 150.005, "exit_price": 150.295, "pnl_pips": 29.0,
-    }])
+    bt = _bt(
+        [
+            {
+                "pair": "USD_JPY",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_ts": _sig_ts(sig),
+                "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
+                "entry_price": 150.00,
+                "exit_price": 150.30,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
+    live = _live(
+        [
+            {
+                "pair": "USD_JPY",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_price": 150.005,
+                "exit_price": 150.295,
+                "pnl_pips": 29.0,
+            }
+        ]
+    )
     rep = reconcile(bt, live, Tolerances(entry_price_pips=2.0, exit_price_pips=2.0, pnl_pips=1.5))
     # 0.005 JPY / 0.01 = 0.5 pips → within 2 pip tolerance
     assert rep.matched[0].categories == []
@@ -164,17 +269,32 @@ def test_jpy_pair_pip_scaling():
 
 def test_render_html_and_json_are_non_empty():
     sig = "2026-04-20T15:00:00Z"
-    bt = _bt([{
-        "pair": "EUR_USD", "direction": 1,
-        "signal_bar_ts": _sig_ts(sig),
-        "entry_ts": _sig_ts(sig), "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
-        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
-    }])
-    live = _live([{
-        "pair": "EUR_USD", "direction": 1,
-        "signal_bar_ts": _sig_ts(sig),
-        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
-    }])
+    bt = _bt(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_ts": _sig_ts(sig),
+                "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
+                "entry_price": 1.0850,
+                "exit_price": 1.0880,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
+    live = _live(
+        [
+            {
+                "pair": "EUR_USD",
+                "direction": 1,
+                "signal_bar_ts": _sig_ts(sig),
+                "entry_price": 1.0850,
+                "exit_price": 1.0880,
+                "pnl_pips": 30.0,
+            }
+        ]
+    )
     rep = reconcile(bt, live)
     html = render_report_html(rep)
     assert "Fire Forex" in html
@@ -185,16 +305,24 @@ def test_render_html_and_json_are_non_empty():
 
 # ── Parity-v2 categories + per-pair rollup ────────────────────────────
 
+
 def _pairv2_bt(
-    pair: str, sig: str, signal_variant_id: int = 42,
-    signal_family: str = "ema_cross", spread_entry_pips: float = 0.5,
+    pair: str,
+    sig: str,
+    signal_variant_id: int = 42,
+    signal_family: str = "ema_cross",
+    spread_entry_pips: float = 0.5,
     exit_reason_name: str = "TP",
 ) -> dict:
     return {
-        "pair": pair, "direction": 1,
+        "pair": pair,
+        "direction": 1,
         "signal_bar_ts": _sig_ts(sig),
-        "entry_ts": _sig_ts(sig), "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
-        "entry_price": 1.0850, "exit_price": 1.0880, "pnl_pips": 30.0,
+        "entry_ts": _sig_ts(sig),
+        "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
+        "entry_price": 1.0850,
+        "exit_price": 1.0880,
+        "pnl_pips": 30.0,
         "signal_variant_id": signal_variant_id,
         "signal_family": signal_family,
         "spread_entry_pips": spread_entry_pips,
@@ -203,16 +331,23 @@ def _pairv2_bt(
 
 
 def _pairv2_live(
-    pair: str, sig: str, signal_variant: int = 42,
-    signal_family: str = "ema_cross", spread_pips: float = 0.5,
-    slippage_pips: float = 0.2, close_reason: str = "TP",
+    pair: str,
+    sig: str,
+    signal_variant: int = 42,
+    signal_family: str = "ema_cross",
+    spread_pips: float = 0.5,
+    slippage_pips: float = 0.2,
+    close_reason: str = "TP",
     pnl_pips: float = 29.9,
 ) -> dict:
     return {
         "plan_id": f"{pair}_{sig}_+1",
-        "pair": pair, "direction": 1,
+        "pair": pair,
+        "direction": 1,
         "signal_bar_ts": _sig_ts(sig),
-        "entry_price": 1.08505, "exit_price": 1.08795, "pnl_pips": pnl_pips,
+        "entry_price": 1.08505,
+        "exit_price": 1.08795,
+        "pnl_pips": pnl_pips,
         "signal_variant": signal_variant,
         "signal_family": signal_family,
         "spread_pips": spread_pips,
@@ -265,14 +400,18 @@ def test_engine_managed_exits_canonicalise_to_other_no_closure_flag():
 def test_by_pair_rollup_across_multiple_pairs():
     sig_a = "2026-04-20T15:00:00Z"
     sig_b = "2026-04-20T16:00:00Z"
-    bt = _bt([
-        _pairv2_bt("EUR_USD", sig_a),
-        _pairv2_bt("USD_JPY", sig_b),
-    ])
-    live = _live([
-        _pairv2_live("EUR_USD", sig_a),
-        # USD_JPY live missing → shows up in missing_in_live for USD_JPY.
-    ])
+    bt = _bt(
+        [
+            _pairv2_bt("EUR_USD", sig_a),
+            _pairv2_bt("USD_JPY", sig_b),
+        ]
+    )
+    live = _live(
+        [
+            _pairv2_live("EUR_USD", sig_a),
+            # USD_JPY live missing → shows up in missing_in_live for USD_JPY.
+        ]
+    )
     rep = reconcile(bt, live)
     rollup = rep.by_pair()
     assert set(rollup) == {"EUR_USD", "USD_JPY"}
