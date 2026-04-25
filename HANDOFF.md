@@ -1,7 +1,13 @@
-# Handoff — 2026-04-25 (PR #29: stop-killers + daily parity routine)
+# Handoff — 2026-04-25 (PR #29: stop-killers + MT5 spread-units fix + parity diagnosis)
 
-**Branch:** `feat/stop-the-stops` (PR #29, 3 commits ahead of main, in CI / review).
-**Status:** Both Pillar 1 follow-ons shipped today — the workflow stop-killers and the daily live-vs-BT parity routine. First parity measurement landed: BT predicts ~32× the trade count MT5 actually fires (912 BT trades vs 28 MT5 closes in the last 72h on Dukascopy data). That is the gap Pillar 5 chases.
+**Branch:** `feat/stop-the-stops` (PR #29, 5 commits ahead of main, in CI / review).
+**Status:** Stop-killers shipped + a real silent-no-op bug found and fixed in the MT5 downloader (was breaking MT5 BT replay for every non-JPY pair) + the live↔BT parity gap is now diagnosed at three levels.
+
+## Three nested parity issues (in order of severity)
+
+1. **MT5 spread-units bug** — FIXED (commit `412efd9`). The downloader stored spread in pips; the engine expected price units. Every signal on non-JPY pairs was silently rejected by the `max_spread_pips` filter. Bundle 2 MT5 BT went from **30 → 5,394 trades** after the fix. Match against live trades improved from 0/37 → 4/37.
+2. **Forming-candle timing** — known, real, separate. Live runner fires 22-58s BEFORE the M15 bar closes (uses the in-progress / "provisional" candle). BT fires at bar close. Visible in near-misses as systematic 15-30 min offsets between live entry and nearest MT5 BT entry on the same pair.
+3. **Live-vs-MT5 data-source divergence** — the deepest issue. Live runner reads its signal data from Dukascopy parquet (which is why Dukascopy BT match = 10/10) but MT5 BT reads from MT5 parquet. Different broker prices → different bar shapes → different EMA crosses → signals fire on different bars. Even with bug 1 fixed, MT5 BT chose neighbouring bars vs live for 33/37 plans on bundle 2.
 
 ## What's in PR #29 (open, in CI / review)
 
@@ -51,12 +57,12 @@ Window: last 72h, entry-time match tolerance ±30 min.
 ## Resume steps next session
 
 1. SessionStart hook injects HANDOFF + PROGRESS + recent commits + open issues.
-2. Run `bash scripts/daily_check.sh` to refresh the parity picture (~10–15 min).
-3. Read the latest `artifacts/parity/<stamp>_parity.md` for trade-by-trade detail.
-4. **Pillar 5 work**: chase the 32× trade-count gap. Likely candidates in priority order:
-   - Live runner forming-candle skip vs BT bar-close semantics (`app/live_runner/`)
-   - MT5 broker session/spread filters not modelled in BT
-   - Retry-suppression masking signals in the runner
+2. Run the canonical pipeline (per "Canonical daily pipeline" section above) — `import_mt5_report.py`, `reconcile_live.py --instance X --data-source both` for each active bundle, then `build_forensic_report.py`. The output is `artifacts/live/reconcile/<stamp>_forensic.html` (rich per-trade narrative).
+3. **Pillar 5 work** — chase the remaining match gaps in priority order:
+   - **Forming-candle timing**: instrument BT to optionally use the same provisional-candle logic the live runner uses (or backport the live forming-candle fix into BT). The "guy yesterday" was right that this was load-bearing.
+   - **Live signal data source**: confirm whether the live runner reads bars from Dukascopy or MT5 — if Dukascopy, MT5 BT will never match exactly because the prices differ at the broker level. Decide whether to (a) switch live to MT5 data, or (b) treat MT5 BT as independent reference and stop expecting matches.
+   - **Spread-filter sanity**: now that MT5 spread is in price units, verify there's no other unit-mismatch elsewhere (e.g., the live spread-at-fire field vs BT's spread).
+4. Add a regression unit test for `mt5_m1_downloader.download` that asserts the parquet's spread column is in price units (e.g., median < 0.001 for a 5-digit pair). This silent-no-op bug hid for weeks; the test would have caught it.
 5. Once PR #29 merges, dogfood `bash scripts/merge_pr.sh 29` to validate end-to-end.
 
 ## Failed approaches today — DON'T REPEAT
