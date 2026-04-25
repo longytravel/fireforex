@@ -49,6 +49,8 @@ _Audit table lands in Phase B. Files in this stage:_
 ## 3 · BACKTEST SWEEP
 _Audit table lands in Phase B. Files in this stage:_
 
+- `core/Cargo.lock`
+- `core/Cargo.toml`
 - `core/src/constants.rs`
 - `core/src/filter.rs`
 - `core/src/lib.rs`
