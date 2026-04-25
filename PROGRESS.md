@@ -4,11 +4,12 @@ Living milestone register. Tick boxes as things ship. Never rewritten — only a
 
 ## In flight
 
-- [ ] **Dev workbench port** (this session)
+- [x] **Dev workbench port** (shipped 2026-04-25, PRs #11 + bootstrap commit)
   - [x] Deny list + hooks + rules scaffolded
-  - [ ] Root CLAUDE.md slimmed
-  - [ ] GitHub side (PR template, CI, branch protection, CodeRabbit, Gemini)
-  - [ ] Pre-PR ritual script
+  - [x] Root CLAUDE.md slimmed (264 → 118 lines)
+  - [x] GitHub side: PR template, CI (ruff/maturin/pytest/clippy), branch protection, CodeRabbit, Gemini Code Assist installed
+  - [x] Pre-PR ritual script (`scripts/pre-pr.ps1`, Codex gpt-5.4-mini reasoning=high)
+  - [x] First end-to-end workflow demo: PR #11 reviewed by Codex + CodeRabbit + Gemini, 3 real findings tracked as issues #12/#13/#14, merged cleanly without admin override
 - [ ] **Live↔BT parity** (plan: `docs/live-bt-parity-plan.md`)
   - [x] Forensic reconciliation report
   - [x] MT5 deal history timezone fix
@@ -21,6 +22,13 @@ Living milestone register. Tick boxes as things ship. Never rewritten — only a
 
 ## Next
 
+- [ ] **Architecture stocktake** (see HANDOFF) — full codebase review, redundancy cleanup, end-to-end map
+- [ ] **Address review-flagged bugs**:
+  - [ ] #12 Path-traversal validation in `app/routes.py`
+  - [ ] #13 Out-of-bounds bounds check on `sig_bar_index`
+  - [ ] #14 Metric key mismatch (`win_rate` vs `win_rate_pct`)
+- [ ] **Triage 10 dependabot PRs** auto-opened on 2026-04-25
+- [ ] **Pin test fixtures** so CI can run `test_golden_baseline` and `test_trade_log_roundtrip` (currently skipped on Linux for missing data)
 - [ ] **Optuna optimiser** (replaces random sweep for serious runs)
 - [ ] **Walk-forward validation** (in-sample / out-of-sample rolling windows)
 - [ ] **Monte Carlo robustness** (stressed seeds, confidence bands on metrics)
