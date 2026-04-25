@@ -68,6 +68,11 @@
             "type": "command",
             "timeout": 5,
             "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/update-paperwork.sh\""
+          },
+          {
+            "type": "command",
+            "timeout": 5,
+            "command": "bash \"$CLAUDE_PROJECT_DIR/.claude/hooks/check-architecture-map.sh\""
           }
         ]
       }
