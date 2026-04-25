@@ -8,7 +8,7 @@ sweeps parameters against a **local Rust engine** (`ff_core` in `core/`); the
 web UI compares each run to a pinned baseline. Production-style live trading
 runs on a VPS and reconciles daily against backtest.
 
-Deep tour: `docs/ARCHITECTURE.md`, `docs/next-session-handover.md`, `HANDOFF.md`.
+Deep tour: `docs/ARCHITECTURE_MAP.md` (the audited file-by-file map — start here), `docs/ARCHITECTURE.md`, `docs/next-session-handover.md`, `HANDOFF.md`.
 
 ## How to talk to the user
 
