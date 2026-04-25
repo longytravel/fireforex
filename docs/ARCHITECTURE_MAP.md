@@ -116,31 +116,64 @@ _Mermaid diagram lands in Phase F. Stages 1–6 below._
 **Flows down to Stage 5** when the user picks a winner — config gets exported into `deploy/instances/<name>.json`.
 
 ## 5 · DEPLOY TO VPS
-_Audit table lands in Phase B. Files in this stage:_
 
-- `app/live_jobs.py`
-- `app/live_state_puller.py`
-- `deploy/instances/active.json`
-- `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111232__20260422_111326.json`
-- `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111400__20260422_111414.json`
-- `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111436__20260422_111458.json`
-- `deploy/instances/complexity_L10_EUR_USD_M15_20260424_100942__20260424_101044.json`
-- `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142.json`
-- `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101204__20260424_101238.json`
-- `deploy/live_config.json`
-- `deploy/live_config.json.example`
-- `ff/live/__init__.py`
-- `ff/live/broker_mt5.py`
-- `ff/live/exit_manager.py`
-- `ff/live/frozen_signal.py`
-- `ff/live/parity_guard.py`
-- `ff/live/reconcile.py`
-- `ff/live/runner.py`
-- `ff/live/runner_service.py`
-- `ff/live/state_sync.py`
-- `scripts/diagnose_vps.py`
-- `scripts/runner_launcher.bat`
-- `scripts/vps_bootstrap.ps1`
+**Supposed to:** Push the picked best-trial config to the VPS, run a Python live runner under a Windows Scheduled Task, fire signals through the same pipeline as the backtest, route orders via MT5, and stream state back to the laptop for the Live tab.
+
+**Stage-level verdict: ⚠️ — works end-to-end, but the management loop has only partial parity coverage and signal-fingerprint patch wasn't yet active in last verification.**
+
+### Live runner core (`ff/live/`)
+
+| Component | Path | Supposed to | Verdict | Notes |
+|---|---|---|---|---|
+| Live package init | `ff/live/__init__.py` | Package marker | ✅ | |
+| MT5 broker bridge | `ff/live/broker_mt5.py` | Thin wrapper over `MetaTrader5` pip package; documented failure taxonomy (REQUOTE / REJECT / partial fill / disconnect / clock drift / duplicate plan); zero MQL5 EA | ✅ | No silent retries; every outcome logged. Windows-only. Rejected orders no longer create phantom positions (memory `MT5 Rejected Orders No Longer Create Phantom Positions`). |
+| Exit manager (sub-bar) | `ff/live/exit_manager.py` | Python port of `core/src/trade_full.rs:165-502` — trailing, breakeven, chandelier, partial close on M1 sub-bars | ⚠️ | **Partial coverage by design.** Stale / session / max_bars are NOT ported; deploys that use them are refused by `parity_guard`. Source-of-truth is the Rust file; comments reference back to specific line numbers so drift is visible. |
+| Frozen signal pinning | `ff/live/frozen_signal.py` | Pin a deployed signal fingerprint as single-value `Choice` across pairs (live deploys are calibrated on one pair, traded across many) | ✅ | Memory `Signal Library Now Keeps Zero-Signal Variants for Stable Variant IDs`. |
+| Parity guard | `ff/live/parity_guard.py` | Refuse deploys whose best-trial uses un-portable knobs (`stale`, `session`, `max_bars`) — return 400 with offending groups | ✅ | Earlier impl checked wrong path (`when_on.test`); fixed in 2026-04-21 audit so trials no longer slip through. |
+| Live trade reconciler | `ff/live/reconcile.py` | Join per-trade BT log against MT5 deal history; classify match / missing / extra / mismatched-{entry,exit,pnl}; key `(pair, direction, signal_bar_ts)` with sweep window for clock drift | ✅ | No MT5 dependency — takes pre-fetched data so unit tests can mock both sides. Stage-6 reconcile script calls this. |
+| Live runner main loop | `ff/live/runner.py` | Poll MT5 → detect new closed M1 → roll up to main-TF → on close call `signal_lib.build_signal_library` → fire plan → route order via broker | ✅ | Plain class + single thread + `stop_event`. Skips forming M1 candles (memory `Runner Startup Guard Prevents Refiring Closed Candles`). MT5 order comments now carry the signal family name. |
+| Scheduled-task service | `ff/live/runner_service.py` | What the VPS Scheduled Task executes; reads `.env.live` + `service_config.json`; on crash writes JSONL record + exits non-zero so the task restarts every 60s | ✅ | Windows-only; not imported by tests. |
+| State sync (VPS push) | `ff/live/state_sync.py` | Force-push `plans/tickets/state` to a dedicated `live-state` orphan branch every 60s so the laptop can pull state without polluting `main` | ✅ | Best-effort telemetry — failures swallowed, never block trading. |
+
+### Web layer + state pull
+
+| Component | Path | Supposed to | Verdict | Notes |
+|---|---|---|---|---|
+| Live job singleton | `app/live_jobs.py` | One active runner at a time, in-process, cooperative `Event` stop. Mirrors `app.jobs` pattern. | ✅ | In-process by deliberate design (avoids second credential path). |
+| Live-state puller (laptop) | `app/live_state_puller.py` | Mirror of `state_sync` running in the laptop's FastAPI process; fetches the `live-state` branch every N seconds and extracts to `artifacts/live/` | ✅ | Disabled via `FF_DISABLE_LIVE_STATE_PULL=1` for local dev. |
+
+### Deploy artifacts (`deploy/`)
+
+| Component | Path | Supposed to | Verdict | Notes |
+|---|---|---|---|---|
+| Live config | `deploy/live_config.json` | Active deploy config (broker creds reference, scheduled-task settings) | ✅ | |
+| Live config template | `deploy/live_config.json.example` | Onboarding template with placeholder values | ✅ | |
+| Active deploy pointer | `deploy/instances/active.json` | Points at the currently-deployed config bundle | ✅ | |
+| Apr 22 deploy bundle (1) | `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111232__20260422_111326.json` | Deploy attempt snapshot | ❌ cleanup | Dated; superseded — keep only `active.json` + the latest one. Section 7 candidate. |
+| Apr 22 deploy bundle (2) | `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111400__20260422_111414.json` | Deploy attempt snapshot | ❌ cleanup | Same. |
+| Apr 22 deploy bundle (3) | `deploy/instances/complexity_L10_EUR_USD_M15_20260422_111436__20260422_111458.json` | Deploy attempt snapshot | ❌ cleanup | Same. |
+| Apr 24 deploy bundle (1) | `deploy/instances/complexity_L10_EUR_USD_M15_20260424_100942__20260424_101044.json` | Deploy attempt snapshot | ⚠️ | Verify against `active.json` — may be the live one. |
+| Apr 24 deploy bundle (2) | `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142.json` | Deploy attempt snapshot | ❌ cleanup | Superseded by later same-day bundle. |
+| Apr 24 deploy bundle (3) | `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101204__20260424_101238.json` | Deploy attempt snapshot | ⚠️ | Verify against `active.json` — likely the live one. |
+
+### Operations scripts
+
+| Component | Path | Supposed to | Verdict | Notes |
+|---|---|---|---|---|
+| VPS diagnostic dumper | `scripts/diagnose_vps.py` | One-shot best-effort report — git HEAD, schtasks state, service_config shape, MT5 open positions, last 20 deals, artifacts listing, crash/error tails | ✅ | Used for "what is this VPS actually doing" snapshots. Memory `SSH Connectivity Established and Diagnostic Tooling Deployed to VPS`. |
+| Runner launcher | `scripts/runner_launcher.bat` | Scheduled-task entry batch file that invokes `ff.live.runner_service` | ✅ | Tiny wrapper. |
+| VPS bootstrap | `scripts/vps_bootstrap.ps1` | One-shot VPS provisioning: clone repo, install Python deps, register Scheduled Task, configure firewall | ✅ | Memory `VPS SSH Server Firewall Configuration and Service Verification`. |
+
+### Unbuilt
+
+| Component | Supposed to | Verdict | Notes |
+|---|---|---|---|
+| Stale / session / max_bars management ports | Cover the remaining time-based knobs that `parity_guard` currently refuses | 🔘 | Pillar 5 dependency — required before those groups can be deployed live. |
+| Live monitoring / alerts | Watch runner health, alert on stop or losing run | 🔘 | Pillar 5 / Pillar 4 dashboards. |
+| Paper-trade gate | Demo-account stage between BT and live before any change touches a real account | 🔘 | Pillar 3. |
+
+**Flows up from Stage 4** by reading `deploy/instances/active.json` (the picked config bundle).
+**Flows down to Stage 6** by writing `artifacts/live/{plans,tickets,deals,state}.jsonl` to the `live-state` branch, which the laptop pulls and the reconciler joins against the BT replay.
 
 ## 6 · RECONCILE LIVE ⇄ BACKTEST
 
