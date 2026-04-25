@@ -247,8 +247,6 @@ Stages 1–6 below.
 | `docs/live/HANDOVER-2026-04-22-day.md` | Day-watch handover (2026-04-22) | ⚠️ | Documents multi-instance shipped state. |
 | `docs/live/BUG-variant-id-not-stable-2026-04-22.md` | Variant-id stability bug report | ⚠️ | Useful for regression tracking. |
 
-**Cleanup candidates from this appendix:** all 5 dated session/wake-up/parity-plan files were deleted in Phase H (PR #22).
-
 ## Appendix B — PRs & GitHub issues
 
 **Snapshot date:** 2026-04-25.
@@ -391,8 +389,6 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `scripts/desktop/Reset Live Day (VPS).bat` | STOP trading, clear state, reset to origin/main, flatten positions | ✅ | Orchestrates: kill task, git reset --hard, clear plans/tickets, wipe crashes/errors JSONLs. |
 | `scripts/desktop/Restart Fire Forex (laptop).bat` | Restart web UI via PowerShell wrapper | ✅ | Convenience desktop shortcut; delegates to `ff_restart_server.ps1`. |
 
-**Cleanup candidates from this appendix:** `scripts/ff_start_server.ps1` was deleted in Phase H (PR #22).
-
 ## Appendix G — Root files
 
 **Scope:** Tracked files at the repository root (no slash in path). `ff/__init__.py` and `ff/VERSION.py` were placed here in Phase A but are package files under `ff/`; flagged for re-routing in Phase D.
@@ -449,7 +445,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 
 Files explicitly recommended for deletion or relocation, sourced from the audit pass (Stages 1–6 + Appendices A–I).
 
-### Deleted in Phase H (PR #22) ✅
+### Deleted in Phase H ✅
 
 | Path | Reason | Source |
 |---|---|---|
@@ -471,7 +467,7 @@ Verified against `deploy/instances/active.json` (2026-04-25). These three bundle
 - `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101119__20260424_101142.json`
 - `deploy/instances/complexity_L10_EUR_USD_M15_20260424_101204__20260424_101238.json`
 
-(Earlier draft flagged all six 04-22 + 04-24 bundles as cleanup; CodeRabbit caught the conflict with Stage 5's "may be active" note on PR #20. `active.json` is the source of truth.)
+`deploy/instances/active.json` is the source of truth for which bundles are live.
 
 ### Relocate / re-route (not delete)
 
