@@ -450,7 +450,7 @@ Files explicitly recommended for deletion or relocation, sourced from the audit 
 | `docs/ROADMAP.md` | Stale + contradictory (says "live trading out of scope" while live runner exists); superseded by MAP Section 8 | Appendix A |
 | `docs/live/SESSION-2026-04-21.md` | Dated session journal, same pattern as the 04-21-end / -evening / -night siblings already removed | Appendix A |
 | `docs/live/HANDOVER-2026-04-22-day.md` | Dated day-watch handover; HANDOFF.md is the live source of truth | Appendix A |
-| `docs/live/BUG-variant-id-not-stable-2026-04-22.md` | Bug fixed; captured in memory `Signal Library Now Keeps Zero-Signal Variants` | Appendix A |
+| `docs/live/BUG-variant-id-not-stable-2026-04-22.md` | Bug fixed; captured in memory `Signal Library Now Keeps Zero-Signal Variants for Stable Variant IDs` | Appendix A |
 | `snapshot-home.md` | Random Playwright DOM dump at root; not load-bearing | Appendix G |
 
 ### Deleted in Phase H ✅
