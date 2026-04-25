@@ -6,6 +6,27 @@ build-backend = "maturin"
 name = "fire_forex"
 version = "0.1.0"
 requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.110",
+    "pydantic>=2.5",
+    "uvicorn>=0.27",
+    "numpy>=1.26",
+    "pandas>=2.1",
+    "pyarrow>=15.0",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.15",
+    "maturin>=1.0",
+    "pre-commit>=4.0",
+]
+# Live-trading runner: only installable on Windows (MetaTrader5 is win-only).
+live = [
+    "MetaTrader5>=5.0; platform_system == 'Windows'",
+]
 
 [tool.maturin]
 manifest-path = "core/Cargo.toml"

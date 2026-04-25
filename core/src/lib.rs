@@ -1,13 +1,17 @@
-// These clippy lints are allowed crate-wide because they conflict with the
-// engine's intentional design choices, not because the warnings are wrong:
+// These lints are allowed crate-wide because they conflict with the engine's
+// intentional design choices (not because the warnings are wrong):
 //   - too_many_arguments: simulate_trade_full takes ~30 plain scalars/slices
 //     by design, to keep the pyo3 boundary thin and let Rust monomorphise
 //     hot loops without a builder pattern.
 //   - needless_range_loop: indexed access (`for i in 0..buf.len()`) is
 //     load-bearing in numeric kernels where the loop body uses i for offset
 //     arithmetic; rewriting as iterators obscures intent.
-//   - collapsible_if / empty_line_after_doc_comments: pure style preference.
+//   - collapsible_if / empty_line_after_doc_comments: style preference.
+//   - dead_code: SL_FIXED_PIPS / TP_RR_RATIO / TRAIL_ATR_CHANDELIER / M_DSR
+//     and `tp_pips` are constants/fields reserved for upcoming SL/TP and
+//     metric variants. To be reviewed in the architecture stocktake.
 #![allow(
+    dead_code,
     clippy::too_many_arguments,
     clippy::needless_range_loop,
     clippy::collapsible_if,

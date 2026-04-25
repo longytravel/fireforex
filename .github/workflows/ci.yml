@@ -35,11 +35,11 @@ jobs:
       - name: Install python deps + build Rust engine
         run: |
           python -m pip install --upgrade pip
-          pip install maturin pytest ruff
-          # `pip install -e .` invokes maturin via PEP 517 to build ff_core
-          # in-place, so a separate `maturin develop` step would be redundant
-          # (and would fail without an active virtualenv).
-          pip install -e .
+          # `pip install -e .[dev]` invokes maturin via PEP 517 to build
+          # ff_core in-place AND pulls runtime + dev deps. No separate
+          # `maturin develop` step needed (and it would fail without an
+          # active virtualenv).
+          pip install -e ".[dev]"
 
       - name: Ruff lint
         run: ruff check .
@@ -48,7 +48,8 @@ jobs:
         run: ruff format --check .
 
       - name: Unit + integration tests
-        run: pytest tests/ -v --ignore=tests/live
+        # MT5-touching tests skip on Linux (MetaTrader5 is Windows-only).
+        run: pytest tests/ -v --ignore=tests/test_live_runner_synthetic.py
 
   rust:
     name: rust
