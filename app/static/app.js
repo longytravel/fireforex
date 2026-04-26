@@ -1485,6 +1485,46 @@ function updateBaselinePill() {
 
 // ── history ────────────────────────────────────────────────────────────
 
+// Cost-realism overlay column helpers. The harness writes a status field
+// alongside adjusted_total_pips so a silent overlay exception can't
+// publish raw P&L as "adjusted". We render that status as a coloured pill
+// next to the adjusted column.
+function costRealismBadge(status) {
+  if (!status) return '<span class="text-slate-500" title="No cost-realism status (older run)">—</span>';
+  const map = {
+    ok:     ['bg-emerald-500/20 text-emerald-300', 'overlay applied'],
+    empty:  ['bg-slate-500/20 text-slate-400',     'best trial had zero trades'],
+    failed: ['bg-rose-500/20 text-rose-300',       'overlay raised — adjusted col fell back to raw'],
+  };
+  const value = Object.prototype.hasOwnProperty.call(map, status) ? map[status] : null;
+  const [cls, hint] = Array.isArray(value) ? value : ['bg-slate-500/20 text-slate-400', status];
+  return `<span class="px-1.5 py-0.5 rounded ${cls}" title="${escapeHtml(hint)}">${escapeHtml(status)}</span>`;
+}
+function costRealismCell(r) {
+  // Tint the adjusted-pips cell red if the overlay failed — otherwise
+  // adjusted will equal total_pips and look identical, which is exactly
+  // what the cost_realism_status="failed" marker is there to flag.
+  return r.cost_realism_status === 'failed' ? 'text-rose-300' : '';
+}
+function signedPipsCell(v) {
+  // Render gate_save / cost_overhead as a signed integer with green/red
+  // tint. Empty / NaN show "—". A leading + sign on positives makes the
+  // sign visible at a glance — these columns can swing either way.
+  if (v === undefined || v === '' || v === null) return '<span class="text-slate-500">—</span>';
+  const n = +v;
+  if (!Number.isFinite(n)) return '<span class="text-slate-500">—</span>';
+  const rounded = Math.round(n);
+  const display = Object.is(rounded, -0) ? 0 : rounded;
+  const cls = display > 0 ? 'text-emerald-300' : (display < 0 ? 'text-rose-300' : 'text-slate-400');
+  const sign = display > 0 ? '+' : '';
+  return `<span class="${cls}">${sign}${display}</span>`;
+}
+function integerCell(v) {
+  if (v === undefined || v === '' || v === null) return '—';
+  const n = +v;
+  return Number.isFinite(n) ? n.toFixed(0) : '—';
+}
+
 async function refreshHistory() {
   try {
     const { rows } = await api('/api/history');
@@ -1503,6 +1543,11 @@ async function refreshHistory() {
         <td class="px-3 py-1.5 text-slate-400">${escapeHtml(r.pair)}/${escapeHtml(r.main_tf)}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${escapeHtml(r.n_trials || '')}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${r.total_pips ? (+r.total_pips).toFixed(0) : '—'}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums ${costRealismCell(r)}">${integerCell(r.adjusted_total_pips)}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums">${signedPipsCell(r.gate_save_pips)}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums">${signedPipsCell(r.cost_overhead_pips)}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums text-slate-400">${integerCell(r.n_gated_trades)}</td>
+        <td class="px-3 py-1.5 text-center text-[11px]">${costRealismBadge(r.cost_realism_status)}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${r.max_dd_pct ? (+r.max_dd_pct).toFixed(1) : '—'}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${r.profit_factor ? (+r.profit_factor).toFixed(2) : '—'}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${r.sharpe ? (+r.sharpe).toFixed(2) : '—'}</td>
