@@ -36,7 +36,7 @@ import pandas as pd
 from . import encoding as enc
 from . import sampler as spl
 from . import signal_lib as sl
-from .cost_realism import bt_gate, overlay
+from .cost_realism import bt_gate, cost_table, overlay
 from .exit_codes import exit_reason_name
 
 # ── Timeframe / pair tables (constants of the market, not assumptions) ──
@@ -230,6 +230,8 @@ def pick_best(
     constraints: dict | None = None,
     tie_break: tuple[str, ...] = ("return_pct", "trades"),
     require_profitable: bool = True,
+    *,
+    objective_array: np.ndarray | None = None,
 ) -> int:
     """Select the best trial by ``objective`` among rows passing ``constraints``.
 
@@ -246,10 +248,23 @@ def pick_best(
     that can be maximised by losing trials (R², K-Ratio, Tail Ratio) don't
     promote a loser to "best". Falls back to unfiltered best if no
     profitable row exists.
+
+    ``objective_array`` overrides the metric-column lookup with a synthetic
+    per-trial array (length must match ``metrics_out.shape[0]``). Used by
+    the cost-realism pick-best path to rank trials by IC-adjusted P&L
+    proxy without bumping ``NUM_METRICS`` in the Rust engine. Higher is
+    always better when this override is supplied. Tie-breakers and the
+    profitability filter still come from ``metrics_out``.
     """
-    obj_idx = METRIC_INDEX[objective]
-    obj_col = metrics_out[:, obj_idx]
-    direction = -1.0 if objective in LOWER_IS_BETTER else 1.0
+    if objective_array is not None:
+        if objective_array.shape[0] != metrics_out.shape[0]:
+            raise ValueError(f"objective_array length {objective_array.shape[0]} != metrics_out rows {metrics_out.shape[0]}")
+        obj_col = objective_array
+        direction = 1.0
+    else:
+        obj_idx = METRIC_INDEX[objective]
+        obj_col = metrics_out[:, obj_idx]
+        direction = -1.0 if objective in LOWER_IS_BETTER else 1.0
 
     mask = np.ones(metrics_out.shape[0], dtype=bool)
     if constraints:
@@ -824,9 +839,39 @@ def run(
     _finalise_dsr(metrics_out, n_trials)
 
     quality = metrics_out[:, METRIC_INDEX["quality"]]
-    # Default objective stays "quality" (v1) for baseline back-compat; the
-    # frontend can post-facto re-rank by any other column via pick_best().
-    best = pick_best(metrics_out, objective="quality", tie_break=("return_pct", "trades"))
+    # Rank trials by IC-realistic adjusted P&L proxy when the cost table
+    # is available. The proxy is total_pnl + n_trades * charge, where
+    # charge = (BT cost - IC real cost) per trade in pips. This shifts
+    # the optimiser's pick toward trials whose realistic-live P&L beats
+    # the others, instead of trials that look good only in Dukascopy
+    # spread world. Falls back to the legacy Quality objective if the
+    # cost table is missing or has no entry for the pair (charge == 0).
+    cost_table_path_for_pick = Path(__file__).resolve().parent.parent / "artifacts" / "cost_table.json"
+    overlay_charge = cost_table.per_trade_overlay_charge_pips(pair, cost_table_path_for_pick)
+    if overlay_charge != 0.0:
+        n_trades_col = metrics_out[:, METRIC_INDEX["trades"]]
+        exp_pips_col = metrics_out[:, METRIC_INDEX["expectancy_pips"]]
+        # n_trades * expectancy_pips = total pips per trial (exact). Adding
+        # n_trades * charge applies the constant per-trade overlay
+        # adjustment. Trials with NaN expectancy (typically zero-trade
+        # rows) collapse to NaN here and pick_best treats them as -inf.
+        adjusted_proxy = n_trades_col * (exp_pips_col + overlay_charge)
+        logging.getLogger(__name__).info(
+            "[pick_best] proxy charge per trade = %+.3f pips; ranking %d trials by adjusted_pnl_proxy",
+            overlay_charge,
+            adjusted_proxy.shape[0],
+        )
+        best = pick_best(
+            metrics_out,
+            tie_break=("return_pct", "trades"),
+            objective_array=adjusted_proxy,
+        )
+    else:
+        logging.getLogger(__name__).info(
+            "[pick_best] cost_table charge unavailable for %s; falling back to objective=quality",
+            pair,
+        )
+        best = pick_best(metrics_out, objective="quality", tie_break=("return_pct", "trades"))
     running_best = np.maximum.accumulate(quality)
     n_trades_best = int(metrics_out[best, 0])
     pnl_best = pnl_buffers[best, :n_trades_best].copy()

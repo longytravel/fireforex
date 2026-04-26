@@ -7,6 +7,16 @@
 ## Goal
 Make Dukascopy backtests show what live IC Markets would actually have made — cost-realism overlay (3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, MT5 session-median spreads, per-pair commission, telemetry-fed slippage), with one source of truth (`gate_rules.py`) shared between the backtest gate and live runner. The UI now decomposes adjusted P&L so users can see *why* adjusted differs from raw.
 
+## Late-evening update — optimiser ranks by IC-realistic adjusted P&L (Option C)
+
+`ff.harness.run` now ranks trials by an IC-aligned adjusted-P&L proxy whenever `artifacts/cost_table.json` covers the swept pair. The proxy is `total_pnl + n_trades * per_trade_overlay_charge_pips(pair)`, where `charge = bt_commission_proxy_rt − ic_real_cost_rt` is computed once from the cost table's liquid-session means. When the table is missing or has no entry for the pair, the optimiser silently falls back to the legacy composite Quality objective. Logs `[pick_best] proxy charge per trade = ±X pips; ranking N trials by adjusted_pnl_proxy` so it's obvious what happened.
+
+**Why:** users want the picked trial to match what is likely to happen live. Quality balanced Sharpe / DD / return on Dukascopy spreads, which under-charged execution cost vs IC Markets — so the headline trial often had high return-per-trade but few trades, which doesn't survive realistic per-trade cost. Option C charges every trial the IC delta and lets sweeps with high-volume, lower-expectancy strategies that still beat IC reality win the slot.
+
+**Engineering choice:** the proxy column lives outside `metrics_out` because adding a column would require bumping `NUM_METRICS` in the Rust engine. `pick_best` now accepts an `objective_array=` kwarg that overrides the metric-column lookup with a synthetic per-trial array (higher-is-better; tie-breakers + profitability filter still come from `metrics_out`). No `core/` changes; no UI changes (existing Cost / Adj. pips / Gate save columns already decompose the realistic side).
+
+**Golden re-pinned.** `tests/golden/complex01_seed42_500trials.json` shifted from a 33-trade outlier-Quality trial (337 pips, PF 5.029) to a 136-trade EMA-cross trend-follower (1248 pips, PF 1.545). The shift is the intended effect; description updated with prior values for traceability.
+
 ## Late-afternoon update — MT5 tick downloader resolves cost-realism data quality (PR #42)
 
 The structural floor-bias in MT5 M1 `spread` (issue #39) is sidestepped by switching the cost-table source to **MT5 tick data**. New `ff/data/mt5_tick_downloader.py` pulls per-pair tick history (bid/ask per quote change) via `mt5.copy_ticks_range()` into `{MT5_DATA_ROOT}/{pair}_TICK.parquet`. `ff/cost_realism/cost_table.py` now prefers tick parquets and computes `spread = ask − bid`; entries tagged `spread_source: "tick"` (preferred) or `"m1"` (legacy fallback).
