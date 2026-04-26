@@ -33,6 +33,8 @@ Thumbs.db
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/hooks/log.txt
+.claude/hooks/_archmap_state.txt
+.claude/hooks/_paperwork_state.txt
 
 # Local dev scaffolding
 artifacts/_kill.ps1

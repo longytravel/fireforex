@@ -1,35 +1,43 @@
-# Handoff — 2026-04-25 evening (PR #29 in CI; MT5 spread bug fixed; hook noise tamed)
+# Handoff — 2026-04-26 afternoon (PR #31 — fail-open fixes landed, ready to merge)
 
-**Branch:** `feat/stop-the-stops` (PR #29, 7 commits, in CI / review)
-**Status:** All today's working-system goals shipped to PR #29. The remaining task is the 10-trade focused comparison (live vs Dukascopy BT vs MT5 BT) and a few follow-ups noted below.
+**Branch:** `feat/cost-realism-overlay` (PR #31, awaiting CodeRabbit + Gemini on the new commit)
+**Status:** Codex round 3's three fail-open bugs are fixed — harness now writes a `cost_realism_status` marker (`"ok"|"empty"|"failed"`), looks up per-pair slippage from `cost_table.json` (matching `reconcile_live.py`), and the live runner passes `float("nan")` instead of `0.0` on missing spread telemetry so `execution_guard.evaluate` fail-closes via `unknown_spread`. 31 cost-realism tests green, 204 broader tests green, harness smoke test now also asserts `cost_realism_status ∈ {"ok","empty"}` so a silent failure can never slip past CI again. Architectural items #32–#34 remain follow-ups.
 
 ## Goal
-Get the daily live-vs-backtest parity check working end-to-end and stop the constant hook interruptions that were stalling the session.
+Make Dukascopy backtests show what live IC Markets would actually have made — by adding a post-pass cost-realism overlay (3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, MT5 session-median spreads, per-pair commission, telemetry-fed slippage), with one source of truth (`gate_rules.py`) shared between the backtest gate and the live runner so they can never drift.
 
 ## Completed this session
-- Three stop-killer scripts shipped: one for finalizing a PR (format + commit + push), one for merging it (resolve threads + wait CI + squash + sync), one for safely re-syncing local main when it drifts.
-- Found and fixed a silent bug in the MT5 data downloader: it was storing spread in the wrong units, so the engine rejected nearly every MT5-backtest signal on non-JPY pairs. After the fix, MT5 backtest now generates trades on every pair instead of only the four JPY pairs.
-- Diagnosed the live-vs-backtest match gap into three layers: (1) spread units — fixed, (2) forming-candle timing — known, separate, the live runner already has a fix, (3) live runner uses the MT5 broker for prices not Dukascopy — confirmed, this is the deeper architectural divergence.
-- Tamed the architecture-map nag: it was firing every turn because background tooling rewrites `.claude/settings.json` and the old hook treated any byte-change as a real source-file change. Hook now ignores paperwork/settings paths and emits a soft systemMessage instead of blocking.
-- Softened the handoff command — no more "rewrite from scratch" every refresh.
-- Saved a full Codex (gpt-5.5, high reasoning) workflow review to `artifacts/_codex_review.log` for reference.
+- **Codex round 3 fail-open fixes landed** on top of the cost-realism subsystem:
+  - `ff/harness.py` — added `cost_realism_status` field (`"ok"`/`"empty"`/`"failed"`) persisted to NPZ + `history.csv`. A silent overlay exception now publishes `status="failed"` so downstream readers can detect that `adjusted_pnl_total_pips` fell back to raw P&L.
+  - `ff/harness.py` — telemetry slippage is now looked up per-pair from `cost_table.json` (mirrors the `scripts/reconcile_live.py` pattern), with `0.5` only as the final fillna fallback. Harness gating no longer disagrees with reconcile.
+  - `ff/live/runner.py` — `spread_at_fire_pips` defaults to `float("nan")` instead of `0.0` so `execution_guard.evaluate` returns `block=True, reason="unknown_spread"` when telemetry is missing rather than silently passing the 3-pip cap.
+  - `tests/test_harness_cost_realism.py` — asserts `cost_realism_status ∈ {"ok","empty"}` so a regression to silent fail-open trips CI immediately.
+- Pre-existing subsystem context (still applies):
+  - New subsystem `ff/cost_realism/` shipped: shared 3-and-3 gate rules, MT5-backed cost table generator, post-pass overlay, BT trade gate, slippage telemetry feedback loop. All TDD with 31 unit tests.
+  - Live mirror: `ff/live/execution_guard.py` wired into the live runner before broker submit, reusing the spread reading already in scope. Slippage cap is documented as post-fill (the runner enforces after the order returns — see issue #34).
+  - Reconcile script and the harness both default-ON the overlay. Harness wiring is **conservative**: existing headline metrics (`pnl_pips`, `total_pips`) and the metrics dtype are unchanged so baseline-compare and history.csv readers don't shift; new `adjusted_total_pips`, `n_gated_trades`, and `cost_realism_status` columns are appended, and a JSON-encoded enriched-trades blob lands in the NPZ.
+  - 28-pair `artifacts/cost_table.json` smoke-generated successfully from real MT5 history.
+  - Codex rounds 1+2 already folded in: NaN fail-open in the gate, tz-aware non-UTC timestamps coerced to UTC, absurd-spread sanity guard, CLI exits 1 on empty cost-table, None/pd.NA → NaN in bt_gate, raise on missing reconcile columns, zero adjusted P&L on gated rows. `build_comparison_html` `allow_pickle=False` regression also fixed.
 
 ## Not yet done
-- **The 10-trade focused comparison.** For each of yesterday's 10 closed live trades, show what live did vs Dukascopy BT vs MT5 BT in one row each, with a plain-English match/miss reason. The data is now there in the canonical pipeline output; just needs the focused write-up.
-- Backport the live runner's forming-candle fix into the BT engine so closed-bar BT matches the closed-bar live runner once the live fix is fully deployed.
-- Decide whether the live runner should read its bars from MT5 (matching what the broker actually sees) or stay on Dukascopy (matching what the long-history backtest sees). This is the architectural call that closes the parity gap by definition.
-- Three open scanner findings from prior PRs: path traversal, out-of-bounds index in the trade simulation, and a metric-key naming mismatch.
+- **Issue #33** — live guard reads stale closed-bar spread, not the submit-time tick. Architectural; fix needs a fresh `mt5.symbol_info_tick` immediately before order send.
+- **Issue #34** — post-fill slippage cap is not wired. The execution guard docstring promises it; the runner doesn't enforce it. Architectural.
+- **Issue #32** — propagate the new columns through `MatchedRow` and the matched-row HTML/JSON writers so the reconcile report shows the cost-adjusted view, not just the raw view.
+- **Three open scanner findings from prior PRs:** path traversal in routes (#12), out-of-bounds index in trade simulation (#13), metric-key naming mismatch (#14).
+- **Backport the live runner's forming-candle fix** into the BT engine so closed-bar BT matches closed-bar live.
+- **DST and exchange-local sessions** — deliberate v1 deferral. The current session-boundary table is fixed UTC; London / NY shift ±1 hour with DST. Document in spec → consider an exchange-local session module if reconcile drift on DST boundary days proves material.
 
 ## Failed approaches — DON'T REPEAT
-- Built a parallel parity comparator instead of using the existing canonical pipeline (`reconcile_live.py` + `build_forensic_report.py`). Burned an evening on a worse copy. Deleted. New rule added: grep the architecture map before writing any new script.
-- Tried to silently fall back to a smaller Codex model when the requested one wasn't available. The user wanted the upgrade, not the fallback. Always ask before trading down a tool the user explicitly chose.
-- Two-step Write-then-Bash sequences across separate turns produced visible "stops" between tool calls. Batch tool calls in a single turn whenever the second one isn't strictly dependent on the first's content being on disk yet.
+- The original Task 7 plan said to **replace** `pnl_pips` with `adjusted_pnl_pips` as the harness's headline metric and mutate the metrics dtype. That would silently shift every existing baseline-compare result and break `app/baselines.py` + `app/static/app.js` which read fixed column names. The conservative parallel-column approach used instead is the right call here.
+- Storing the enriched best-trial trades as a numpy recarray inside `np.savez_compressed`. Recarrays with datetime64/object columns require pickle, which the existing comparison HTML loader explicitly disallowed. Storing as JSON-encoded uint8 bytes round-trips cleanly without the pickle dependency.
+- Inserting the live execution guard at the top of `_poll_one_pair`. That short-circuits other legitimate early-returns (duplicate-plan dedup, position-cap). Always insert immediately before the broker submit call.
 
 ## Exact resume steps for next session
-1. Check that PR #29 is green and reviews are addressed; merge it via the new merge helper script.
-2. Run the canonical daily pipeline: pull today's MT5 trade history, run the reconcile against both data sources for each of the three active deploy bundles, then build the forensic HTML.
-3. Open the latest forensic HTML and walk through the 10-trade comparison for the most recent closed trades — that's the deliverable the user asked for.
-4. Decide on the live-data-source architectural question (MT5 vs Dukascopy for the live runner) before chasing more parity numbers.
+1. Watch CodeRabbit + Gemini on the new commit; resolve any threads.
+2. Squash-merge PR #31 via `bash scripts/merge_pr.sh 31`; sync local main with `bash scripts/sync_main.sh`.
+3. Tick the two PROGRESS.md items (Cost-realism overlay + Execution Guard module) once the merge lands.
+4. Pick up issue #32 (MatchedRow propagation) as a small follow-up PR — should be the smallest of the three follow-ups.
+5. Then issues #33 (submit-time spread tick) and #34 (post-fill slippage cap) — both architectural live-runner work.
 
 ## In flight
-- PR #29 — open, awaiting review.
+- PR #31 — open with the round 3 fixes pushed; awaiting CodeRabbit + Gemini re-review.

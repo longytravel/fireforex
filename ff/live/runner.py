@@ -832,12 +832,15 @@ def _evaluate_and_fire(
     # points universally, so dividing by 10 yields pips. The earlier
     # code divided by ``pip_value`` (0.0001) and surfaced 50000-pip
     # nonsense in the plan - see 2026-04-21 audit.
-    spread_at_fire_pips = 0.0
+    # Default to NaN so the execution guard's unknown_spread fail-closed
+    # branch fires when telemetry is missing — a 0.0 default would silently
+    # pass the 3-pip cap and let a no-spread-data fire reach the broker.
+    spread_at_fire_pips = float("nan")
     try:
         if state.m1_buf is not None and len(state.m1_buf) > 0 and "spread" in state.m1_buf.columns:
             spread_at_fire_pips = float(state.m1_buf["spread"].iloc[-1]) / 10.0
     except Exception:  # pragma: no cover - defensive: never block a fire on telemetry
-        spread_at_fire_pips = 0.0
+        spread_at_fire_pips = float("nan")
 
     sl_price, tp_price = _compute_sl_tp_live(
         ea,

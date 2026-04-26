@@ -858,9 +858,14 @@ def run(
 
     # Cost-realism overlay on best-trial trades (post-parity-pass; raw pnl_pips
     # above is unchanged so baseline compare and history.csv totals stay stable).
+    # cost_realism_status surfaces overlay health: "ok" (applied), "empty"
+    # (best trial had zero trades — nothing to gate), "failed" (overlay raised;
+    # adjusted_total_pips fell back to raw — readers must NOT treat as adjusted).
     adjusted_total_pips: float = total_pips
     n_gated_trades: int = 0
     trades_best_with_cr = np.frombuffer(b"[]", dtype=np.uint8)  # default — empty JSON when overlay skipped
+    cost_realism_status: str = "empty"
+    cost_table_path = Path(__file__).resolve().parent.parent / "artifacts" / "cost_table.json"
     try:
         if n_trades_best:
             cr_df = pd.DataFrame(trades_best)
@@ -870,12 +875,17 @@ def run(
                     "pnl_pips": "raw_pnl_pips",
                 }
             )
-            # bt_gate needs telemetry_slippage_pips; fall back to cost-table
-            # default if absent.
+            # bt_gate needs telemetry_slippage_pips. Look it up per-pair from
+            # cost_table.json (same pattern as scripts/reconcile_live.py) so a
+            # pair whose realised slippage is above 3 pips actually gets gated;
+            # the prior hardcoded 0.5 made the harness disagree with reconcile.
             if "telemetry_slippage_pips" not in cr_df.columns:
-                cr_df["telemetry_slippage_pips"] = 0.5
+                table: dict = {}
+                if cost_table_path.exists():
+                    table = json.loads(cost_table_path.read_text())
+                pair_to_slip = {p: e["slippage_per_side_pips"] for p, e in table.get("pairs", {}).items()}
+                cr_df["telemetry_slippage_pips"] = cr_df["pair"].map(pair_to_slip).fillna(0.5)
             cr_df = bt_gate.apply(cr_df)
-            cost_table_path = Path(__file__).resolve().parent.parent / "artifacts" / "cost_table.json"
             cr_df = overlay.apply(cr_df, cost_table_path=cost_table_path)
             adjusted_total_pips = float(cr_df["adjusted_pnl_pips"].sum())
             n_gated_trades = int(cr_df["gated_out_reason"].notna().sum())
@@ -885,8 +895,10 @@ def run(
                 cr_df.to_json(orient="records", date_format="iso").encode("utf-8"),
                 dtype=np.uint8,
             )
+            cost_realism_status = "ok"
     except Exception as exc:
         logging.getLogger(__name__).warning("[harness][cost-realism] overlay skipped: %s", exc)
+        cost_realism_status = "failed"
         # adjusted_total_pips / n_gated_trades stay at default values; the
         # primary metrics (total_pips, pnl_pips) remain authoritative.
 
@@ -982,6 +994,7 @@ def run(
         cost_realism_trades_json=trades_best_with_cr,
         adjusted_pnl_total_pips=np.float64(adjusted_total_pips),
         n_gated_trades=np.int64(n_gated_trades),
+        cost_realism_status=np.array(cost_realism_status),
     )
     print(f"[save] run data → {run_file.name}")
 
@@ -1005,6 +1018,7 @@ def run(
         "total_pips": round(total_pips, 1),
         "adjusted_total_pips": round(adjusted_total_pips, 1),
         "n_gated_trades": n_gated_trades,
+        "cost_realism_status": cost_realism_status,
         "expectancy_pips": round(expectancy_pips, 3),
         "max_dd_pct": round(float(metrics_out[best, 5]), 3),
         "profit_factor": round(float(metrics_out[best, 2]), 4),

@@ -50,8 +50,16 @@ def test_harness_npz_carries_cost_realism_keys(tmp_path):
     assert "cost_realism_trades_json" in npz.files, "missing cost_realism_trades_json"
     assert "adjusted_pnl_total_pips" in npz.files, "missing adjusted_pnl_total_pips"
     assert "n_gated_trades" in npz.files, "missing n_gated_trades"
+    assert "cost_realism_status" in npz.files, "missing cost_realism_status"
 
     assert np.isfinite(float(npz["adjusted_pnl_total_pips"])), "adjusted_pnl_total_pips is not finite"
+
+    # Status is the only machine-readable signal that the overlay actually
+    # ran (vs fell back to raw P&L on exception). "ok" means applied, "empty"
+    # means no trades, "failed" means raw P&L was published as adjusted —
+    # that last case must never silently slip past CI.
+    status = str(npz["cost_realism_status"])
+    assert status in {"ok", "empty"}, f"cost_realism_status={status!r} — overlay failed silently"
 
     # Verify the JSON round-trips to a list of records.
     raw_bytes = bytes(npz["cost_realism_trades_json"].tobytes())
