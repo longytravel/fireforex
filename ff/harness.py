@@ -218,7 +218,7 @@ def _finalise_dsr(metrics_out: np.ndarray, n_trials: int) -> None:
     n = float(n_trials)
     e_max = (1.0 - euler_mascheroni) * _norm_ppf(1.0 - 1.0 / n) + euler_mascheroni * _norm_ppf(1.0 - 1.0 / (n * np.e))
 
-    psr_col = metrics_out[:, psr_idx]
+    psr_col = metrics_out[:, psr_idx].astype(np.float64, copy=False)
     p_clamped = np.clip(psr_col, 1e-12, 1.0 - 1e-12)
     z = _norm_ppf(p_clamped)
     metrics_out[:, dsr_idx] = _norm_cdf_vec(z - e_max)
@@ -522,6 +522,403 @@ def _safe_progress(cb: Callable[[float, str], None] | None, fraction: float, mes
             pass
 
 
+def _engine_eval(
+    *,
+    h_h: np.ndarray,
+    h_l: np.ndarray,
+    h_c: np.ndarray,
+    h_s: np.ndarray,
+    exe_cfg: dict,
+    lib: sl.SignalLibrary,
+    sig_filters: np.ndarray,
+    param_matrix: np.ndarray,
+    param_layout: np.ndarray,
+    metrics_out: np.ndarray,
+    max_trades: int,
+    bars_per_year: int,
+    m_h: np.ndarray,
+    m_l: np.ndarray,
+    m_c: np.ndarray,
+    m_s: np.ndarray,
+    map_start: np.ndarray,
+    map_end: np.ndarray,
+    pnl_buffers: np.ndarray,
+    trade_records: np.ndarray,
+) -> None:
+    """Call the Rust evaluator with the shared harness argument set."""
+    bc.batch_evaluate(
+        h_h,
+        h_l,
+        h_c,
+        h_s,
+        exe_cfg["pip_value"],
+        exe_cfg["slippage_pips"],
+        lib.bar_index,
+        lib.direction,
+        lib.entry_price,
+        lib.hour,
+        lib.day,
+        lib.atr_pips,
+        lib.swing_sl,
+        lib.filter_value,
+        lib.variant,
+        sig_filters,
+        param_matrix,
+        param_layout,
+        metrics_out,
+        max_trades,
+        bars_per_year,
+        exe_cfg["commission_pips"],
+        exe_cfg["max_spread_pips"],
+        m_h,
+        m_l,
+        m_c,
+        m_s,
+        map_start,
+        map_end,
+        pnl_buffers,
+        trade_records,
+    )
+
+
+def _choose_lean_chunk_size(max_trades: int, requested: int | None = None) -> int:
+    if requested is not None and requested > 0:
+        return int(requested)
+    env = os.environ.get("FF_LEAN_CHUNK_SIZE")
+    if env:
+        try:
+            val = int(env)
+            if val > 0:
+                return val
+        except ValueError:
+            pass
+    # Keep the hot per-chunk working set bounded. The current Rust entrypoint
+    # still needs pnl + trade-record buffers, so size by max_trades until a
+    # metrics-only kernel lands.
+    target_mb = float(os.environ.get("FF_LEAN_CHUNK_MB", "768"))
+    per_trial_bytes = max(1, max_trades) * 8 * (1 + bc.NUM_TRADE_FIELDS)
+    return max(10, int((target_mb * 1024 * 1024) // per_trial_bytes))
+
+
+def _run_lean_random_sweep(
+    ea: dict,
+    *,
+    layer_name: str,
+    optimizer: str,
+    seed: int,
+    n_trials: int,
+    open_browser: bool,
+    progress_cb: Callable[[float, str], None] | None,
+    exe_cfg: dict,
+    pair: str,
+    main_tf: str,
+    sub_tf: str,
+    main_df: pd.DataFrame,
+    sub_df: pd.DataFrame,
+    h_h: np.ndarray,
+    h_l: np.ndarray,
+    h_c: np.ndarray,
+    h_s: np.ndarray,
+    m_h: np.ndarray,
+    m_l: np.ndarray,
+    m_c: np.ndarray,
+    m_s: np.ndarray,
+    map_start: np.ndarray,
+    map_end: np.ndarray,
+    lib: sl.SignalLibrary,
+    sig_filters: np.ndarray,
+    param_layout: np.ndarray,
+    max_trades: int,
+    chunk_size: int | None,
+) -> dict:
+    """Large-run random sweep that stores a compact metrics ledger.
+
+    Rich mode keeps every trial's PnL curve. That is perfect for 2k-50k runs
+    but explodes at millions. Lean mode streams metrics to a sidecar .npy and
+    retains detailed PnL/trade rows only for best-by-metric candidates.
+    """
+    if optimizer != "random":
+        raise NotImplementedError(f"lean artifact mode currently supports random only, got {optimizer!r}")
+
+    ART_ROOT.mkdir(parents=True, exist_ok=True)
+    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    run_file = RUNS_DIR / f"{layer_name}_{stamp}.npz"
+    metrics_file = RUNS_DIR / f"{layer_name}_{stamp}_metrics.npy"
+    metrics_out = np.lib.format.open_memmap(
+        metrics_file,
+        mode="w+",
+        dtype=np.float32,
+        shape=(n_trials, bc.NUM_METRICS),
+    )
+
+    actual_chunk = _choose_lean_chunk_size(max_trades, chunk_size)
+    sampler = spl.RandomSampler(ea["engine_schema"], n_variants=lib.n_variants, seed=seed)
+    retained: dict[int, dict[str, Any]] = {}
+    best_scores: dict[str, tuple[float, int]] = {}
+    metric_objectives = {
+        "quality": 1.0,
+        "trades": 1.0,
+        "profit_factor": 1.0,
+        "sharpe": 1.0,
+        "sortino": 1.0,
+        "return_pct": 1.0,
+        "expectancy_pips": 1.0,
+        "psr": 1.0,
+        "max_dd_pct": -1.0,
+        "ulcer": -1.0,
+        "max_consec_loss": -1.0,
+    }
+
+    def retain(
+        global_idx: int, local_idx: int, trials: list[dict], pm: np.ndarray, metrics: np.ndarray, pnl: np.ndarray, recs: np.ndarray
+    ) -> None:
+        if global_idx in retained:
+            return
+        n_tr = int(metrics[local_idx, METRIC_INDEX["trades"]])
+        retained[global_idx] = {
+            "trial": dict(trials[local_idx]),
+            "params": pm[local_idx].copy(),
+            "metrics": metrics[local_idx].astype(np.float32, copy=True),
+            "pnl": pnl[local_idx, :n_tr].copy(),
+            "trade_record": recs[local_idx].copy(),
+            "n_trades": n_tr,
+        }
+
+    print(f"[sample] lean random stream {n_trials:,} trials in chunks of {actual_chunk:,}")
+    _safe_progress(progress_cb, 0.35, f"lean sweep: streaming {n_trials:,} trials")
+
+    t = time.perf_counter()
+    done = 0
+    while done < n_trials:
+        this_n = min(actual_chunk, n_trials - done)
+        trials = sampler.sample(this_n)
+        pm = enc.encode(trials, ea["engine_mapping"])
+        metrics_chunk = np.zeros((this_n, bc.NUM_METRICS), dtype=np.float64)
+        pnl_buffers = np.empty((this_n, max_trades), dtype=np.float64)
+        trade_records = np.empty((this_n, max_trades * bc.NUM_TRADE_FIELDS), dtype=np.float64)
+        _engine_eval(
+            h_h=h_h,
+            h_l=h_l,
+            h_c=h_c,
+            h_s=h_s,
+            exe_cfg=exe_cfg,
+            lib=lib,
+            sig_filters=sig_filters,
+            param_matrix=pm,
+            param_layout=param_layout,
+            metrics_out=metrics_chunk,
+            max_trades=max_trades,
+            bars_per_year=BARS_PER_YEAR[main_tf],
+            m_h=m_h,
+            m_l=m_l,
+            m_c=m_c,
+            m_s=m_s,
+            map_start=map_start,
+            map_end=map_end,
+            pnl_buffers=pnl_buffers,
+            trade_records=trade_records,
+        )
+        metrics_out[done : done + this_n] = metrics_chunk.astype(np.float32, copy=False)
+
+        # Retain enough detail for the Run page's "jump to best" workflow.
+        for key, direction in metric_objectives.items():
+            col = metrics_chunk[:, METRIC_INDEX[key]]
+            safe = np.where(np.isfinite(col), direction * col, -np.inf)
+            local_idx = int(np.argmax(safe))
+            score = float(safe[local_idx])
+            old = best_scores.get(key)
+            if old is None or score > old[0]:
+                global_idx = done + local_idx
+                best_scores[key] = (score, global_idx)
+                retain(global_idx, local_idx, trials, pm, metrics_chunk, pnl_buffers, trade_records)
+
+        # Also retain the harness' real best-pick candidate for this chunk,
+        # because pick_best has profitability and tie-break rules.
+        local_pick = pick_best(metrics_chunk, objective="quality", tie_break=("return_pct", "trades"))
+        retain(done + local_pick, local_pick, trials, pm, metrics_chunk, pnl_buffers, trade_records)
+
+        done += this_n
+        frac = 0.45 + 0.40 * (done / n_trials)
+        elapsed = time.perf_counter() - t
+        _safe_progress(progress_cb, frac, f"lean sweep {done:,}/{n_trials:,} trials · {elapsed:.0f}s elapsed")
+
+    metrics_out.flush()
+    elapsed = time.perf_counter() - t
+    rate = n_trials / elapsed if elapsed > 0 else 0.0
+    print(f"        lean sweep done in {elapsed:.2f}s  →  {rate:,.0f} evals/sec")
+    _safe_progress(progress_cb, 0.85, "lean sweep complete, finalising metrics")
+
+    _finalise_dsr(metrics_out, n_trials)
+    metrics_out.flush()
+    quality = metrics_out[:, METRIC_INDEX["quality"]]
+    best = pick_best(metrics_out, objective="quality", tie_break=("return_pct", "trades"))
+    if best not in retained:
+        # Extremely rare: global pick differs from every retained chunk winner.
+        # Fall back to the retained quality winner so the artifact still has a
+        # detailed trade view. The metric ledger still contains every row.
+        best = best_scores["quality"][1]
+    best_retained = retained[int(best)]
+    n_trades_best = int(best_retained["n_trades"])
+    pnl_best = best_retained["pnl"].copy()
+    total_pips = float(pnl_best.sum())
+
+    best_trial_for_log = best_retained["trial"]
+    variant_id_for_log = int(best_trial_for_log["signal_variant"])
+    variant_info_for_log = lib.variant_map[variant_id_for_log] if variant_id_for_log < len(lib.variant_map) else {}
+    trades_best = _build_best_trade_log(
+        best_retained["trade_record"],
+        n_trades_best,
+        main_df.index,
+        sub_df.index,
+        pair=pair,
+        signal_variant_id=variant_id_for_log,
+        signal_family=str(variant_info_for_log.get("family", "")),
+        h_spread=h_s,
+        pip_value=float(exe_cfg["pip_value"]),
+    )
+
+    adjusted_total_pips = total_pips
+    n_gated_trades = 0
+    gate_save_pips = 0.0
+    cost_overhead_pips = 0.0
+    cost_realism_status = "empty"
+    trades_best_with_cr = np.frombuffer(b"[]", dtype=np.uint8)
+    cost_table_path = Path(__file__).resolve().parent.parent / "artifacts" / "cost_table.json"
+    try:
+        if n_trades_best:
+            cr_df = pd.DataFrame(trades_best).rename(columns={"spread_entry_pips": "duka_bt_spread_pips", "pnl_pips": "raw_pnl_pips"})
+            if "telemetry_slippage_pips" not in cr_df.columns:
+                table: dict = {}
+                if cost_table_path.exists():
+                    table = json.loads(cost_table_path.read_text())
+                pair_to_slip = {p: e["slippage_per_side_pips"] for p, e in table.get("pairs", {}).items()}
+                cr_df["telemetry_slippage_pips"] = cr_df["pair"].map(pair_to_slip).fillna(0.5)
+            cr_df = bt_gate.apply(cr_df)
+            cr_df = overlay.apply(cr_df, cost_table_path=cost_table_path)
+            adjusted_total_pips = float(cr_df["adjusted_pnl_pips"].sum())
+            n_gated_trades = int(cr_df["gated_out_reason"].notna().sum())
+            gated_mask = cr_df["gated_out_reason"].notna()
+            gate_save_pips = -float(cr_df.loc[gated_mask, "raw_pnl_pips"].sum())
+            cost_overhead_pips = float(cr_df.loc[~gated_mask, "overlay_delta_pips"].sum())
+            trades_best_with_cr = np.frombuffer(cr_df.to_json(orient="records", date_format="iso").encode("utf-8"), dtype=np.uint8)
+            cost_realism_status = "ok"
+    except Exception as exc:
+        logging.getLogger(__name__).warning("[harness][cost-realism] overlay skipped: %s", exc)
+        cost_realism_status = "failed"
+
+    best_trial = dict(best_retained["trial"])
+    variant_id = int(best_trial["signal_variant"])
+    variant_info = lib.variant_map[variant_id] if variant_id < len(lib.variant_map) else {}
+    best_trial["signal_family"] = variant_info.get("family", "")
+    best_trial["signal_params"] = variant_info.get("params", {})
+    win_rate_pct = float(metrics_out[best, METRIC_INDEX["win_rate"]]) * 100.0
+    expectancy_pips = total_pips / n_trades_best if n_trades_best else 0.0
+    equity_curve = np.cumsum(pnl_best)
+    running_best = np.maximum.accumulate(quality)
+
+    retained_indices = np.array(sorted(retained), dtype=np.int64)
+    retained_max_trades = max((retained[int(i)]["n_trades"] for i in retained_indices), default=0)
+    retained_pnl = np.zeros((retained_indices.size, retained_max_trades), dtype=np.float32)
+    retained_n_trades = np.zeros(retained_indices.size, dtype=np.int32)
+    retained_metrics = np.zeros((retained_indices.size, bc.NUM_METRICS), dtype=np.float32)
+    for out_i, trial_idx in enumerate(retained_indices):
+        item = retained[int(trial_idx)]
+        retained_n_trades[out_i] = item["n_trades"]
+        retained_metrics[out_i] = item["metrics"]
+        if item["n_trades"]:
+            retained_pnl[out_i, : item["n_trades"]] = item["pnl"].astype(np.float32, copy=False)
+
+    np.savez_compressed(
+        run_file,
+        artifact_mode=np.array("lean"),
+        lean_metrics_file=np.array(metrics_file.name),
+        quality=np.asarray(quality, dtype=np.float32),
+        running_best=np.asarray(running_best, dtype=np.float32),
+        pnl=pnl_best.astype(np.float32, copy=False),
+        equity=equity_curve.astype(np.float32, copy=False),
+        best_trial_json=np.array(json.dumps(best_trial, default=_json_default)),
+        variant_map_json=np.array(json.dumps(lib.variant_map, default=_json_default)),
+        retained_trial_indices=retained_indices,
+        retained_pnl=retained_pnl,
+        retained_n_trades=retained_n_trades,
+        retained_metrics=retained_metrics,
+        trades=trades_best,
+        commission_pips=np.float64(exe_cfg["commission_pips"]),
+        slippage_pips=np.float64(exe_cfg["slippage_pips"]),
+        max_spread_pips=np.float64(exe_cfg["max_spread_pips"]),
+        pip_value=np.float64(exe_cfg["pip_value"]),
+        cost_realism_trades_json=trades_best_with_cr,
+        adjusted_pnl_total_pips=np.float64(adjusted_total_pips),
+        n_gated_trades=np.int64(n_gated_trades),
+        cost_realism_status=np.array(cost_realism_status),
+        gate_save_pips=np.float64(gate_save_pips),
+        cost_overhead_pips=np.float64(cost_overhead_pips),
+    )
+    print(f"[save] lean run data → {run_file.name}")
+    print(f"[save] lean metrics → {metrics_file.name}")
+
+    row = {
+        "datetime": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "strategy": ea["name"],
+        "layer": layer_name,
+        "optimizer": optimizer,
+        "seed": seed,
+        "n_trials": n_trials,
+        "n_variants": lib.n_variants,
+        "n_signals": lib.n_signals,
+        "pair": pair,
+        "main_tf": main_tf,
+        "sub_tf": sub_tf,
+        "bt_per_sec": round(rate, 0),
+        "runtime_s": round(elapsed, 2),
+        "trades": n_trades_best,
+        "win_rate_pct": round(win_rate_pct, 3),
+        "total_pips": round(total_pips, 1),
+        "adjusted_total_pips": round(adjusted_total_pips, 1),
+        "n_gated_trades": n_gated_trades,
+        "cost_realism_status": cost_realism_status,
+        "gate_save_pips": round(gate_save_pips, 1),
+        "cost_overhead_pips": round(cost_overhead_pips, 1),
+        "expectancy_pips": round(expectancy_pips, 3),
+        "max_dd_pct": round(float(metrics_out[best, METRIC_INDEX["max_dd_pct"]]), 3),
+        "profit_factor": round(float(metrics_out[best, METRIC_INDEX["profit_factor"]]), 4),
+        "sharpe": round(float(metrics_out[best, METRIC_INDEX["sharpe"]]), 4),
+        "return_pct": round(float(metrics_out[best, METRIC_INDEX["return_pct"]]), 2),
+        "quality": round(float(metrics_out[best, METRIC_INDEX["quality"]]), 4),
+        "best_variant_id": variant_id,
+        "best_variant_family": variant_info.get("family", ""),
+        "run_file": run_file.name,
+    }
+    if HISTORY_CSV.exists():
+        hist = pd.read_csv(HISTORY_CSV)
+        if "strategy" not in hist.columns:
+            hist["strategy"] = "baseline"
+        hist = pd.concat([hist, pd.DataFrame([row])], ignore_index=True)
+    else:
+        hist = pd.DataFrame([row])
+    hist.to_csv(HISTORY_CSV, index=False)
+    build_comparison_html(hist)
+    if open_browser:
+        webbrowser.open(COMPARISON_HTML.as_uri())
+
+    _safe_progress(progress_cb, 1.0, "done")
+    return {
+        "rate_bt_per_sec": rate,
+        "runtime_s": elapsed,
+        "trades": n_trades_best,
+        "win_rate_pct": win_rate_pct,
+        "total_pips": total_pips,
+        "expectancy_pips": expectancy_pips,
+        "max_dd_pct": float(metrics_out[best, METRIC_INDEX["max_dd_pct"]]),
+        "profit_factor": float(metrics_out[best, METRIC_INDEX["profit_factor"]]),
+        "quality_best": float(metrics_out[best, METRIC_INDEX["quality"]]),
+        "best_trial": best_trial,
+        "run_file": str(run_file),
+        "artifact_mode": "lean",
+    }
+
+
 def run(
     ea: dict,
     *,
@@ -534,6 +931,8 @@ def run(
     frozen_trial: dict | None = None,
     save_artifacts: bool = True,
     data_source: str = "dukascopy",
+    artifact_mode: str = "auto",
+    chunk_size: int | None = None,
 ) -> dict:
     """Execute an EA end-to-end.
 
@@ -557,9 +956,17 @@ def run(
     ``comparison.html`` is not regenerated. Replay uses this to stay
     orthogonal to the sweep artifact tree. The return dict always carries
     the per-trade log under ``result["trade_log"]``.
+
+    ``artifact_mode`` controls sweep storage. ``"rich"`` keeps the historical
+    per-trial PnL buffers. ``"lean"`` streams a compact metrics ledger and
+    retains only best-by-metric trial details. ``"auto"`` switches to lean
+    above 50k trials.
     """
     t_total = time.perf_counter()
     _safe_progress(progress_cb, 0.0, "starting")
+    if artifact_mode not in {"auto", "rich", "lean"}:
+        raise ValueError(f"artifact_mode must be 'auto', 'rich', or 'lean', got {artifact_mode!r}")
+    lean_mode = artifact_mode == "lean" or (artifact_mode == "auto" and n_trials > 50_000)
 
     data_cfg = ea["data"]
     exe_cfg = _resolve_execution(ea)
@@ -662,6 +1069,46 @@ def run(
         0.30,
         f"signal library ready ({lib.n_variants} variants, {lib.n_signals:,} signals)",
     )
+
+    param_layout = np.arange(bc.NUM_PL, dtype=np.int64)
+    max_trades = max(v["n_signals"] for v in lib.variant_map)
+    sig_filters = np.full((bc.NUM_SIGNAL_PARAMS, lib.bar_index.size), -1, dtype=np.int64)
+
+    if lean_mode and frozen_trial is not None:
+        raise ValueError("artifact_mode='lean' is not supported with frozen_trial replay")
+    if lean_mode and not save_artifacts:
+        raise ValueError("artifact_mode='lean' requires save_artifacts=True")
+    if lean_mode:
+        return _run_lean_random_sweep(
+            ea,
+            layer_name=layer_name,
+            optimizer=optimizer,
+            seed=seed,
+            n_trials=n_trials,
+            open_browser=open_browser,
+            progress_cb=progress_cb,
+            exe_cfg=exe_cfg,
+            pair=pair,
+            main_tf=main_tf,
+            sub_tf=sub_tf,
+            main_df=main_df,
+            sub_df=sub_df,
+            h_h=h_h,
+            h_l=h_l,
+            h_c=h_c,
+            h_s=h_s,
+            m_h=m_h,
+            m_l=m_l,
+            m_c=m_c,
+            m_s=m_s,
+            map_start=map_start,
+            map_end=map_end,
+            lib=lib,
+            sig_filters=sig_filters,
+            param_layout=param_layout,
+            max_trades=max_trades,
+            chunk_size=chunk_size,
+        )
 
     # 6. Sample trials (or replay a single frozen trial).
     if frozen_trial is not None:
