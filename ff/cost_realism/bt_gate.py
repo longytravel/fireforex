@@ -12,6 +12,21 @@ import pandas as pd
 from .gate_rules import should_block
 
 
+def _safe_float(value) -> float:
+    """Coerce a row value to float, mapping None / pd.NA / unparseable to NaN.
+
+    ``gate_rules.should_block`` treats NaN as *unknown* and fails closed, so
+    converting bad inputs to NaN here keeps the diagnostic reason meaningful
+    instead of letting ``float(None)`` raise from inside the apply loop.
+    """
+    if value is None or pd.isna(value):
+        return float("nan")
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float("nan")
+
+
 def apply(trades: pd.DataFrame) -> pd.DataFrame:
     """Return ``trades`` with two new columns: ``gated_out_reason``,
     ``effective_pnl_pips``.
@@ -25,8 +40,8 @@ def apply(trades: pd.DataFrame) -> pd.DataFrame:
         reasons.append(
             should_block(
                 row["entry_ts"],
-                spread_pips=float(row["duka_bt_spread_pips"]),
-                slippage_pips=float(row["telemetry_slippage_pips"]),
+                spread_pips=_safe_float(row["duka_bt_spread_pips"]),
+                slippage_pips=_safe_float(row["telemetry_slippage_pips"]),
             )
         )
     # Use pd.Series(dtype=object) so None stays None (not NaN) in tolist().

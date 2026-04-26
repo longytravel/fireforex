@@ -54,3 +54,20 @@ def test_gated_pnl_zeroed_in_metric_view():
     )
     out = bt_gate.apply(df)
     assert out["effective_pnl_pips"].tolist() == [0.0, 10.0]
+
+
+def test_gate_handles_none_and_pd_na_safely():
+    """None / pd.NA in object-typed columns must not raise — they should
+    coerce to NaN and surface as the unknown_* fail-closed reason."""
+    df = pd.DataFrame(
+        [
+            _trade_row(ts="2026-04-24 10:00:00", spread=None),
+            _trade_row(ts="2026-04-24 10:00:00", slippage=pd.NA),
+        ]
+    )
+    out = bt_gate.apply(df)
+    assert out["gated_out_reason"].iloc[0] == "unknown_spread"
+    assert out["gated_out_reason"].iloc[1] == "unknown_slippage"
+    # Fail-closed reasons must zero effective_pnl_pips, same as explicit caps.
+    assert out["effective_pnl_pips"].iloc[0] == 0.0
+    assert out["effective_pnl_pips"].iloc[1] == 0.0

@@ -225,14 +225,32 @@ def _apply_cost_realism(bt_df: pd.DataFrame) -> pd.DataFrame:
         df["telemetry_slippage_pips"] = df["pair"].map(pair_to_slip).fillna(0.5)
 
     # Guard: both required columns must exist before calling gate/overlay.
+    # Silent skip would let the reconcile report look cost-adjusted while
+    # actually showing raw P&L — refuse to ship the report instead.
     missing = [c for c in ("duka_bt_spread_pips", "raw_pnl_pips") if c not in df.columns]
     if missing:
-        print(f"[reconcile][cost-realism] skipping overlay — missing columns: {missing}")
-        return df
+        raise ValueError(
+            f"[reconcile][cost-realism] required column(s) {missing} missing "
+            f"on the BT trades DataFrame; refusing to write a misleading "
+            f"un-adjusted reconcile report. Check the upstream replay output."
+        )
 
     df = bt_gate.apply(df)
     df = _overlay.apply(df, cost_table_path=COST_TABLE_PATH)
-    print(f"[reconcile][cost-realism] overlay applied: {len(df)} rows, gated={df['gated_out_reason'].notna().sum()}")
+
+    # Only claim the overlay was applied when the cost table was present.
+    # If COST_TABLE_PATH is missing, every overlay_delta_pips is 0.0 and the
+    # report is functionally raw — say so explicitly so users can't misread.
+    overlay_in_effect = df["overlay_delta_pips"].abs().sum() > 0
+    n_gated = int(df["gated_out_reason"].notna().sum())
+    if overlay_in_effect:
+        print(f"[reconcile][cost-realism] overlay applied: {len(df)} rows, gated={n_gated}")
+    else:
+        print(
+            f"[reconcile][cost-realism] WARN — overlay returned zero delta "
+            f"for every row (cost_table.json missing or empty?). "
+            f"Report shows raw P&L. gated={n_gated} rows."
+        )
     return df
 
 

@@ -81,3 +81,27 @@ def test_overlay_unknown_pair_passes_through(cost_table, caplog):
     assert out["overlay_delta_pips"].iloc[0] == 0.0
     assert out["adjusted_pnl_pips"].iloc[0] == 5.0
     assert any("XAU_USD" in r.getMessage() for r in caplog.records)
+
+
+def test_overlay_zeros_adjusted_pnl_for_gated_rows(cost_table):
+    """When bt_gate ran first and stamped a gated_out_reason, the overlay
+    must zero adjusted_pnl_pips to match — otherwise gated rollover trades
+    contribute to adjusted-P&L roll-ups they should not be in."""
+    trades = pd.DataFrame(
+        {
+            "pair": ["EUR_USD", "EUR_USD"],
+            "entry_ts": [
+                pd.Timestamp("2026-04-24 22:00:00", tz="UTC"),  # Rollover, will be gated
+                pd.Timestamp("2026-04-24 10:00:00", tz="UTC"),  # London, free to fire
+            ],
+            "duka_bt_spread_pips": [0.32, 0.32],
+            "raw_pnl_pips": [10.0, 10.0],
+            # bt_gate output already on the frame:
+            "gated_out_reason": ["rollover", None],
+        }
+    )
+    out = overlay.apply(trades, cost_table_path=cost_table, bt_commission_per_side_pips=0.3)
+    # Gated row: adjusted forced to 0.
+    assert out["adjusted_pnl_pips"].iloc[0] == 0.0
+    # Non-gated row: adjusted = raw + delta as normal.
+    assert out["adjusted_pnl_pips"].iloc[1] == pytest.approx(10.0 - 0.78, abs=0.001)

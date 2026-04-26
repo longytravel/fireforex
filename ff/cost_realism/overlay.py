@@ -78,5 +78,12 @@ def apply(
         deltas.append(bt_cost_rt - real_cost_rt)
 
     out["overlay_delta_pips"] = deltas
+    # Respect bt_gate: if a row was gated out, ``adjusted_pnl_pips`` must
+    # also be zeroed. Otherwise a rollover or spread-spike trade would
+    # contribute to adjusted-P&L roll-ups even though the gate said it
+    # should not have fired.
     out["adjusted_pnl_pips"] = out["raw_pnl_pips"] + out["overlay_delta_pips"]
+    if "gated_out_reason" in out.columns:
+        gated_mask = out["gated_out_reason"].notna()
+        out.loc[gated_mask, "adjusted_pnl_pips"] = 0.0
     return out
