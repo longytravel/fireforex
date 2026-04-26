@@ -33,6 +33,8 @@ Thumbs.db
 .claude/settings.local.json
 .claude/scheduled_tasks.lock
 .claude/hooks/log.txt
+.claude/hooks/_archmap_state.txt
+.claude/hooks/_paperwork_state.txt
 
 # Local dev scaffolding
 artifacts/_kill.ps1
@@ -41,6 +43,8 @@ artifacts/server.err
 artifacts/_pre_pr_diff.patch
 artifacts/review-*.md
 artifacts/_pr_*.md
+artifacts/_*.log
+artifacts/_codex_*
 
 # Live-parity runner — VPS-only creds + ephemeral runtime state.
 # Never commit these: they contain MT5 credentials and ticket/plan logs.
@@ -57,3 +61,6 @@ artifacts/live_archive_*/
 artifacts/_*_rerun_*.log
 artifacts/diag_*.txt
 scripts/_tmp_*.py
+
+# Cost-realism runtime artifact (rebuilt by scripts/build_cost_table.py)
+artifacts/cost_table.json

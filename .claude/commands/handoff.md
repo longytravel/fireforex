@@ -2,7 +2,9 @@
 description: Refresh HANDOFF.md with the current session state so the next session starts from truth.
 ---
 
-Rewrite `HANDOFF.md` from scratch using this exact structure:
+Update `HANDOFF.md` — keep what's still accurate, edit only the sections that have changed. The file is the next session's starting point, not a session log; it should always read as a fresh snapshot of "where we are right now".
+
+Required sections (preserve them, don't add/remove):
 
 ```markdown
 # Handoff — <UTC date and time>
@@ -31,4 +33,4 @@ Rules:
 - Plain English only — no shell commands, no file paths unless essential.
 - If PR-in-flight: link the PR number.
 - If a box in PROGRESS.md shipped this session, tick it.
-- Commit HANDOFF.md (and PROGRESS.md if you ticked a box) as a separate `chore: refresh handoff` commit.
+- Commit only at explicit handoff or after PR merge — not every refresh. The session-end Stop hook handles the final paperwork commit.

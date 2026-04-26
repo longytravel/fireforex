@@ -21,6 +21,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
+import pandas as pd
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -208,6 +210,41 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Wrote:  {json_path}")
         print()
         print(_summarise(positions))
+
+    # Refresh per-pair slippage telemetry from the latest forensic.
+    # Telemetry refresh is best-effort — a malformed comparison CSV must NOT
+    # turn a successful MT5 import into a failed CLI exit.
+    try:
+        from ff.cost_realism.slippage_telemetry import update_from_forensic  # noqa: PLC0415
+
+        forensic_dir = ROOT / "artifacts" / "live" / "reconcile"
+        latest_comparison = sorted(forensic_dir.glob("*_trade_comparison.csv"))
+        if latest_comparison:
+            fdf = pd.read_csv(latest_comparison[-1])
+            if "entry_slippage_pips" not in fdf.columns and "duka_entry_delta_pips" in fdf.columns:
+                # Fallback: use absolute entry-delta as a proxy for slippage in
+                # older reports. Coerce to numeric first because the CSV writer
+                # in build_trade_comparison.py emits empty strings for missing
+                # values, which would make the column object-dtype and crash
+                # .abs() with TypeError.
+                fdf["entry_slippage_pips"] = pd.to_numeric(fdf["duka_entry_delta_pips"], errors="coerce").abs()
+            if "entry_slippage_pips" in fdf.columns and "pair" in fdf.columns:
+                update_from_forensic(
+                    fdf,
+                    cost_table_path=ROOT / "artifacts" / "cost_table.json",
+                )
+            else:
+                import logging as _logging
+
+                _logging.getLogger(__name__).warning(
+                    "[telemetry] trade_comparison CSV missing required columns "
+                    "(need 'pair' + 'entry_slippage_pips' or 'duka_entry_delta_pips') — skipping."
+                )
+    except Exception as exc:  # noqa: BLE001 - intentional best-effort
+        import logging as _logging
+
+        _logging.getLogger(__name__).warning("[telemetry] refresh failed (continuing import anyway): %s", exc)
+
     return 0
 
 

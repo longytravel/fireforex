@@ -16,9 +16,13 @@ dev boxes without MT5 installed, import still succeeds; ``download()``
 raises on first use.
 
 Spread handling: MT5 exposes ``rates.spread`` in *points* (broker-defined
-smallest increment). On modern 5-digit and 3-digit-JPY brokers 1 pip = 10
-points universally — same convention ``ff/live/runner.py:659`` applies to
-live spread telemetry, so we divide by 10 here too.
+smallest increment). The Dukascopy convention is to store spread as a
+*price unit* (e.g. ``0.0001`` = 1 pip on EUR_USD). To stay
+interchangeable, this downloader multiplies the broker points by
+``symbol_info.point`` (price units per point) and writes the result to
+the parquet ``spread`` column — so consumers can read either source with
+the same ``spread / pip_value`` to recover pips. See commit 412edf9 for
+the silent-no-op parity bug that motivated the unit alignment.
 """
 
 from __future__ import annotations
@@ -147,9 +151,22 @@ def _fetch_window(
     else:
         df["volume"] = 0.0
 
-    # Spread: MT5 gives points → /10 = pips on 5-digit / 3-digit-JPY brokers.
+    # Spread: MT5 returns spread in broker "points". Convert to PRICE UNITS to
+    # match the Dukascopy convention — the engine's max-spread filter does
+    # `spread / pip_value` and expects price units (e.g. 0.0001 = 1 pip on
+    # EUR_USD). Storing pips instead would inflate the result by ~10000× on
+    # 5-digit pairs and silently filter out every signal — that bug shipped
+    # for weeks and made MT5 BT replay generate 0 trades on every non-JPY
+    # pair, breaking live↔BT parity. Use the broker's actual point size from
+    # symbol_info so the math is right on any 4/3/5/2-digit instrument.
     if "spread" in df.columns:
-        df["spread"] = df["spread"].astype("float64") / 10.0
+        sym_info = mt5.symbol_info(symbol)
+        # JPY-quoted pairs have a 3-digit broker quote → point_size = 0.001.
+        # Other majors are 5-digit → 0.00001. Hard-coding 0.00001 as the
+        # universal fallback would mis-scale JPY spreads by 100×.
+        default_point = 0.001 if "JPY" in symbol.upper() else 0.00001
+        point_size = sym_info.point if sym_info is not None and sym_info.point > 0 else default_point
+        df["spread"] = df["spread"].astype("float64") * point_size
     else:
         df["spread"] = float("nan")
 

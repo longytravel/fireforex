@@ -145,7 +145,8 @@ Stages 1–6 below.
 | Frozen signal pinning | `ff/live/frozen_signal.py` | Pin a deployed signal fingerprint as single-value `Choice` across pairs (live deploys are calibrated on one pair, traded across many) | ✅ | Memory `Signal Library Now Keeps Zero-Signal Variants for Stable Variant IDs`. |
 | Parity guard | `ff/live/parity_guard.py` | Refuse deploys whose best-trial uses un-portable knobs (`stale`, `session`, `max_bars`) — return 400 with offending groups | ✅ | Earlier impl checked wrong path (`when_on.test`); fixed in 2026-04-21 audit so trials no longer slip through. |
 | Live trade reconciler | `ff/live/reconcile.py` | Join per-trade BT log against MT5 deal history; classify match / missing / extra / mismatched-{entry,exit,pnl}; key `(pair, direction, signal_bar_ts)` with sweep window for clock drift | ✅ | No MT5 dependency — takes pre-fetched data so unit tests can mock both sides. Stage-6 reconcile script calls this. |
-| Live runner main loop | `ff/live/runner.py` | Poll MT5 → detect new closed M1 → roll up to main-TF → on close call `signal_lib.build_signal_library` → fire plan → route order via broker | ✅ | Plain class + single thread + `stop_event`. Skips forming M1 candles (memory `Runner Startup Guard Prevents Refiring Closed Candles`). MT5 order comments now carry the signal family name. |
+| Live execution guard | `ff/live/execution_guard.py` | Pre-submit "3-and-3" mirror of `ff.cost_realism.bt_gate` — refuses plans during rollover or wide spread; fail-closes on unknown spread. Slippage cap is enforced post-fill by the runner, not here. | ✅ | |
+| Live runner main loop | `ff/live/runner.py` | Poll MT5 → detect new closed M1 → roll up to main-TF → on close call `signal_lib.build_signal_library` → fire plan → route order via broker | ✅ | Plain class + single thread + `stop_event`. Skips forming M1 candles (memory `Runner Startup Guard Prevents Refiring Closed Candles`). MT5 order comments now carry the signal family name. Calls `execution_guard.evaluate` before each submit. |
 | Scheduled-task service | `ff/live/runner_service.py` | What the VPS Scheduled Task executes; reads `.env.live` + `service_config.json`; on crash writes JSONL record + exits non-zero so the task restarts every 60s | ✅ | Windows-only; not imported by tests. |
 | State sync (VPS push) | `ff/live/state_sync.py` | Force-push `plans/tickets/state` to a dedicated `live-state` orphan branch every 60s so the laptop can pull state without polluting `main` | ✅ | Best-effort telemetry — failures swallowed, never block trading. |
 
@@ -200,6 +201,10 @@ Stages 1–6 below.
 | Parity calibrator | `scripts/calibrate_for_parity.py` | Multi-pair high-trade-count calibration so live-vs-BT parity can be measured quickly. Optimises `trades / day` (NOT profit) subject to floor sanity. | ✅ | Output: `artifacts/calibration/{pair}_{main_tf}_parity.json` per pair. |
 | End-to-end reconcile stitcher | `scripts/reconcile_live.py` | One command: `replay_service_config` → build live DF → match → write HTML + JSON. Pure glue. | ✅ | The script works; the underlying mismatch is data-source provenance (memory `Reconciliation Mismatch Root Cause`). |
 | Live-day reset | `scripts/reset_live_day.py` | Clean-slate: stop runner, flatten MT5 positions, archive `plans/tickets/state/errors/crashes`. VPS-only. | ✅ | Archives — nothing destroyed; recoverable. Runner stays stopped (deliberate). |
+| Cost-realism package init | `ff/cost_realism/__init__.py` | Package marker for the cost-realism subsystem | ✅ | |
+| Shared 3-and-3 gate rules | `ff/cost_realism/gate_rules.py` | "3-and-3" trade-eligibility filter — 3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, session lookup. Single source of truth shared by BT post-pass and live execution guard so the two can never drift. | ✅ | Used by `bt_gate` (BT post-pass) and `execution_guard` (live runner). |
+| Cost table builder | `ff/cost_realism/cost_table.py` | Build `artifacts/cost_table.json` from MT5 M1 parquets — per-pair × per-session median spread (pips), flat per-side commission, default-then-telemetry-fed slippage. | ✅ | Reads `MT5_DATA_ROOT` parquets; commission is flat 0.35 pips/side until per-pair statement evidence justifies overrides. |
+| Cost table CLI | `scripts/build_cost_table.py` | Operational wrapper around `build_cost_table` for the 28 active pairs | ✅ | Manual refresh: re-run after MT5 history is topped up. |
 | Three-tier data architecture | _(unbuilt)_ | Tag every BT row with provenance (Dukascopy / MT5 / merged) so reconcile can pick the right source per pair | 🔘 | The blocker for 100% match. Cross-listed in Stage 1. |
 | Parity harness as CI gate | _(unbuilt)_ | A PR that drifts live⇄BT beyond threshold fails before merge | 🔘 | Pillar 5. |
 | Drift detector + alert | _(unbuilt)_ | Watch every closed live trade → if drift > threshold, alert (and optionally trigger re-sweep) | 🔘 | Pillar 5. |
@@ -305,6 +310,10 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `tests/test_groups.py` | Pair group headings (Majors, Crosses, Metals…) | ✅ | Static data source of truth for Data tab. |
 | `tests/test_runner_service_multi_instance.py` | Multi-instance deploy pipeline (active.json, deactivation) | ✅ | Covers instance distribution, filename/ID reconciliation. |
 | `tests/test_check_map.py` | Architecture-map completeness checker (substring + glob coverage + self-paths) | ✅ | 8 cases covering `find_unmapped_files` semantics. Hermetic — no repo state required for the unit tests; one smoke test runs `git ls-files`. |
+| `tests/cost_realism/__init__.py` | Package marker for the cost-realism test sub-package | ✅ | |
+| `tests/cost_realism/test_execution_guard.py` | Live guard semantics — rollover, wide spread, NaN fail-closed, quiet pass-through | ✅ | 4 tests; pure unit, hermetic. |
+| `tests/cost_realism/test_gate_rules.py` | 3-and-3 gate semantics — session boundaries, rollover window, spread / slippage caps, naive-timestamp coercion | ✅ | 6 tests; pure unit, hermetic. |
+| `tests/cost_realism/test_cost_table.py` | Cost-table generator — per-session median spreads from MT5 parquet fixture, missing-pair skip, commission lookup | ✅ | 3 tests; uses synthetic parquet fixtures, hermetic. |
 
 **Coverage gaps** (worth flagging for Pillars 2 + 3):
 
@@ -386,6 +395,9 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `scripts/desktop/Show MT5 Status.bat` | Live MT5 status — open positions, pending orders, account balance | ✅ | One-click snapshot of the running terminal; delegates to `scripts/mt5_status.py --save`. |
 | `scripts/import_mt5_report.py` | Pull closed-trade history directly from running MT5 terminal into `artifacts/live/incoming/` | ✅ | Uses `MetaTrader5` Python package — no manual HTML export. Broker→UTC offset applied. SL/TP enriched via `history_orders_get`. Prints per-symbol summary. |
 | `scripts/mt5_status.py` | Live MT5 status dump — account info + open positions + pending orders + spreads | ✅ | Hits the running terminal directly. Optional `--save` writes JSON snapshot to `artifacts/live/incoming/`. |
+| `scripts/finalize_pr.sh` | Format + commit + push in one atomic step (kills the format-then-recommit double-cycle) | ✅ | Refuses to commit directly to `main`. Documented in `.claude/rules/workflow.md` — "Three scripts that kill the mid-task stops". |
+| `scripts/merge_pr.sh` | Resolve unresolved review threads via GraphQL + wait for CI green + squash-merge + delete branch + sync local `main` | ✅ | Assumes comments are addressed substantively; CI / branch protection is the real gate. Documented in `.claude/rules/workflow.md`. |
+| `scripts/sync_main.sh` | Bring local `main` back in sync with `origin/main`; ff-only by default, `--force-reset` is the curated escape hatch when local has stray commits | ✅ | The deny list correctly blocks `git reset --hard` for ad-hoc use; this script is the sanctioned way. Documented in `.claude/rules/workflow.md`. |
 
 ## Appendix G — Root files
 
@@ -404,6 +416,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `ff/__init__.py` | Python package marker for `ff/` | ✅ | Re-route to Stage 2/3 grouping in Phase D (not a root file). |
 | `ff/VERSION.py` | `ff` package version constant | ✅ | Re-route to Stage 2/3 grouping in Phase D (not a root file). |
 | `.gitignore` | git ignore rules (also Appendix H aspect) | ✅ | Standard; expanded recently for laptop-side VPS staging. |
+| `.gitattributes` | Line-ending rules — locks `*.sh` to LF so Git Bash on Windows doesn't choke on CRLF shebang lines | ✅ | Added alongside the three stop-killer scripts in Appendix F. |
 | `.coderabbit.yaml` | CodeRabbit review config (also Appendix H) | ✅ | "chill" profile; cross-referenced. |
 | `.pre-commit-config.yaml` | Pre-commit hooks (also Appendix H) | ✅ | Check-only — auto-fixers removed per Failed-approaches note. |
 | `requirements-web.txt` | Web UI deps (FastAPI, uvicorn, pyyaml…) | ✅ | Lightweight supplemental file; pinned alongside `pyproject.toml`. |

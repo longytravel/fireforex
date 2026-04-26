@@ -1,90 +1,43 @@
-# Handoff — 2026-04-25 (MT5 direct ingest shipped; ready for Pillar 5)
+# Handoff — 2026-04-26 afternoon (PR #31 — fail-open fixes landed, ready to merge)
 
-**Branch:** `feat/refresh-handoff` (this PR); `main` synced through PR #26.
-**Status:** Today landed Pillar 1 (architecture stocktake), cleanup pass 2, PR-system refinements, MT5 direct-query toolkit, and 3 of 10 dependabot bumps. The next move is Pillar 5 (live↔backtest parity) using the new MT5 toolkit.
+**Branch:** `feat/cost-realism-overlay` (PR #31, awaiting CodeRabbit + Gemini on the new commit)
+**Status:** Codex round 3's three fail-open bugs are fixed — harness now writes a `cost_realism_status` marker (`"ok"|"empty"|"failed"`), looks up per-pair slippage from `cost_table.json` (matching `reconcile_live.py`), and the live runner passes `float("nan")` instead of `0.0` on missing spread telemetry so `execution_guard.evaluate` fail-closes via `unknown_spread`. 31 cost-realism tests green, 204 broader tests green, harness smoke test now also asserts `cost_realism_status ∈ {"ok","empty"}` so a silent failure can never slip past CI again. Architectural items #32–#34 remain follow-ups.
 
-## What landed today (12 PRs merged)
+## Goal
+Make Dukascopy backtests show what live IC Markets would actually have made — by adding a post-pass cost-realism overlay (3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, MT5 session-median spreads, per-pair commission, telemetry-fed slippage), with one source of truth (`gate_rules.py`) shared between the backtest gate and the live runner so they can never drift.
 
-### Stocktake (Pillar 1) — DONE
-- **#16, #18, #19** — Phases A/B/C: file inventory, per-stage audit tables, 9 appendices via parallel agents.
-- **#20** — Phases D/E/F: cleanup punch list, Pillars 2–6 roadmap, mermaid flow diagram.
-- **#21** — Phase G: `scripts/check_map.py` + 9 tests + `.claude/hooks/check-architecture-map.sh` stop-hook nag.
-- **#22** — Phase H: 9 high-confidence stale-doc deletions executed.
-- **#23** — Phase I: PROGRESS ticked, HANDOFF refreshed, CLAUDE.md links to map.
+## Completed this session
+- **Codex round 3 fail-open fixes landed** on top of the cost-realism subsystem:
+  - `ff/harness.py` — added `cost_realism_status` field (`"ok"`/`"empty"`/`"failed"`) persisted to NPZ + `history.csv`. A silent overlay exception now publishes `status="failed"` so downstream readers can detect that `adjusted_pnl_total_pips` fell back to raw P&L.
+  - `ff/harness.py` — telemetry slippage is now looked up per-pair from `cost_table.json` (mirrors the `scripts/reconcile_live.py` pattern), with `0.5` only as the final fillna fallback. Harness gating no longer disagrees with reconcile.
+  - `ff/live/runner.py` — `spread_at_fire_pips` defaults to `float("nan")` instead of `0.0` so `execution_guard.evaluate` returns `block=True, reason="unknown_spread"` when telemetry is missing rather than silently passing the 3-pip cap.
+  - `tests/test_harness_cost_realism.py` — asserts `cost_realism_status ∈ {"ok","empty"}` so a regression to silent fail-open trips CI immediately.
+- Pre-existing subsystem context (still applies):
+  - New subsystem `ff/cost_realism/` shipped: shared 3-and-3 gate rules, MT5-backed cost table generator, post-pass overlay, BT trade gate, slippage telemetry feedback loop. All TDD with 31 unit tests.
+  - Live mirror: `ff/live/execution_guard.py` wired into the live runner before broker submit, reusing the spread reading already in scope. Slippage cap is documented as post-fill (the runner enforces after the order returns — see issue #34).
+  - Reconcile script and the harness both default-ON the overlay. Harness wiring is **conservative**: existing headline metrics (`pnl_pips`, `total_pips`) and the metrics dtype are unchanged so baseline-compare and history.csv readers don't shift; new `adjusted_total_pips`, `n_gated_trades`, and `cost_realism_status` columns are appended, and a JSON-encoded enriched-trades blob lands in the NPZ.
+  - 28-pair `artifacts/cost_table.json` smoke-generated successfully from real MT5 history.
+  - Codex rounds 1+2 already folded in: NaN fail-open in the gate, tz-aware non-UTC timestamps coerced to UTC, absurd-spread sanity guard, CLI exits 1 on empty cost-table, None/pd.NA → NaN in bt_gate, raise on missing reconcile columns, zero adjusted P&L on gated rows. `build_comparison_html` `allow_pickle=False` regression also fixed.
 
-### Cleanup + PR system
-- **#24** — cleanup pass 2: deleted 10 more stale docs (`ROADMAP.md`, `rust-wishlist.md`, `CHANGES.md`, `REVIEW.md`, `exec-full-fix-plan.md`, `bug-hunting-research-brief.md`, 3× dated `docs/live/` files, `snapshot-home.md`).
-- **#25** — PR-system refinements (5 changes from the stocktake retrospective):
-  1. CLAUDE.md "Do" — explicit batching rule for tool calls
-  2. `pr-checklist.yml` — auto-skip on docs-only PRs
-  3. `workflow.md` — CodeRabbit named primary, Gemini = second opinion; combine-related-phases policy
-  4. `settings.json` — drop the local force-push deny rules (branch protection on `main` is the real gate)
-  5. `.gitignore` — patterns for `_pre_pr_diff.patch`, `review-*.md`, `_pr_*.md`
-
-### MT5 direct toolkit
-- **#26** — `scripts/import_mt5_report.py` + `scripts/mt5_status.py` + 2 desktop shortcuts.
-  - Both hit the running MT5 terminal directly via `MetaTrader5` Python package — **no manual HTML export needed**.
-  - Broker→UTC offset applied on connect (probe live EURUSD tick vs wall-clock UTC, same pattern as `ff/live/broker_mt5.py`). Avoids the broker-local timezone bug from 2026-04-22.
-  - SL/TP enriched via `history_orders_get` (deals don't carry SL/TP).
-  - Spread calc digit-aware (`info.digits`), works for FX + Gold + Index symbols.
-  - `mt5_status.py` shows: account balance / equity / floating P&L, every open position with unrealised P&L + SL + TP, every pending order, live spread + swap per symbol.
-
-### Dependabot (3 of 10)
-- **#3** actions/checkout v6 · **#6** fastapi · **#7** pytest — all merged.
-- 5 stale (need `@dependabot rebase`): #1 rayon, #2 codeql-action v4, #4 actions/cache v5, #5 dukascopy-python, #8 maturin.
-- 2 with merge conflicts after siblings landed: #9 httpx, #10 pyyaml.
-
-## Live state RIGHT NOW (per `scripts/mt5_status.py` against ICMarkets demo terminal)
-
-- **Account #52754648** (ICMarketsSC-Demo): £2,918 balance, £2,910 equity, **-£8 floating P&L**.
-- **67 currently open positions** across ~20 currency pairs.
-- **14-day actual: 457 closed trades, 41% wins, net -£38**.
-- Mix of `fireforex` (legacy) + per-strategy comments (`ff_ema_cross`, `ff_macd_cross`, `ff_donchian`).
-- The user's earlier 18-trade HTML report (17/18 losses on 2026-04-23/24) was a slice; the broader 14-day picture is bad-but-not-catastrophic.
-
-## What's next — concrete priority order
-
-**The user asked for these three to be top of the list, in this order:**
-
-1. **STOP THE STOPS — fix the mid-task pausing problem.** The user is fed up with me serialising tool calls and triggering "file modified since read" guards. Concrete actions:
-   - Build `scripts/finalize_pr.sh` — runs `ruff format` + `git add` + `git commit` + `git push` in one atomic command (kills the format-then-recommit double-cycle).
-   - Build `scripts/merge_pr.sh <PR#>` — resolves all unresolved review threads via GraphQL + waits for CI green + merges + deletes branch in one command (kills the resolve-merge-check three-step dance).
-   - Tighten the CLAUDE.md "Do" batching rule to be unambiguous: every Read + Edit on the same file MUST be in the same response; every grep + bash + status check MUST be batched. Add a checklist at session start to self-audit batching.
-   - Both helper scripts are ~50 lines of bash each. Land them as ONE PR.
-
-2. **Check MT5 trades — daily.** Use the new toolkit (`scripts/mt5_status.py` and `scripts/import_mt5_report.py`). Each session start: run both, paste-summary into chat. If anything stands out (open-position count drifted, win rate changed, account balance moved unexpectedly), surface it before diving into other work. The 14-day baseline today: 67 open, 41% WR, -£8 floating.
-
-3. **Backtest the MT5 trades (Pillar 5 — live↔backtest parity).** This is the load-bearing one. Take the 14-day MT5 trade history (already in `artifacts/live/incoming/`) and replay backtest for the same window against the active deploy config (`complexity_L10_EUR_USD_M15_*` × 3 instances trading 20+ pairs portfolio-mode). For each closed trade: classify match / better / worse / missing / extra. The 41% WR is the gap to diagnose — backtest probably shows much higher.
-
-### Then (lower priority, in order):
-
-4. **Live trade management toolkit (extends MT5 work):** `mt5.order_send(action=TRADE_ACTION_SLTP, ...)` to adjust SL/TP on open positions; emergency close-all from laptop; live diff "config says trade X pairs, MT5 has positions on Y pairs"; real-time spread monitor. Today the live runner only PLACES orders — it never re-touches them.
-5. **Triage remaining dependabot PRs:** comment `@dependabot rebase` on #1, #2, #4, #5, #8, #9, #10. (Mass-commenting on PRs needs explicit user OK per agent-permission policy.)
-6. **Open issues:** #12 (path-traversal in `app/routes.py`), #13 (sig_bar_index OOB in `core/src/trade_full.rs`), #14 (`win_rate` vs `win_rate_pct` mismatch).
-7. **Pillar 2 (Multi-optimiser bench):** Optuna / CMA-ES / walk-forward — only after parity is healthy.
-
-## Where to look
-
-- **The map:** `docs/ARCHITECTURE_MAP.md` — top-of-file Mermaid + 6 stage tables + 9 appendices + Section 7 (cleanup) + Section 8 (Pillars 2–6 roadmap).
-- **The MT5 toolkit:** `scripts/import_mt5_report.py` (history) + `scripts/mt5_status.py` (live state) + `scripts/desktop/{Import MT5 Report,Show MT5 Status}.bat` (one-click).
-- **Workflow rules:** `.claude/rules/workflow.md` — MT5 conventions are codified in the "MT5 — direct-query conventions" section.
-- **Completeness checker:** `python scripts/check_map.py` — exits 0 when every tracked file is referenced. The Stop-hook nag fires automatically if you change mapped files but not the map.
+## Not yet done
+- **Issue #33** — live guard reads stale closed-bar spread, not the submit-time tick. Architectural; fix needs a fresh `mt5.symbol_info_tick` immediately before order send.
+- **Issue #34** — post-fill slippage cap is not wired. The execution guard docstring promises it; the runner doesn't enforce it. Architectural.
+- **Issue #32** — propagate the new columns through `MatchedRow` and the matched-row HTML/JSON writers so the reconcile report shows the cost-adjusted view, not just the raw view.
+- **Three open scanner findings from prior PRs:** path traversal in routes (#12), out-of-bounds index in trade simulation (#13), metric-key naming mismatch (#14).
+- **Backport the live runner's forming-candle fix** into the BT engine so closed-bar BT matches closed-bar live.
+- **DST and exchange-local sessions** — deliberate v1 deferral. The current session-boundary table is fixed UTC; London / NY shift ±1 hour with DST. Document in spec → consider an exchange-local session module if reconcile drift on DST boundary days proves material.
 
 ## Failed approaches — DON'T REPEAT
+- The original Task 7 plan said to **replace** `pnl_pips` with `adjusted_pnl_pips` as the harness's headline metric and mutate the metrics dtype. That would silently shift every existing baseline-compare result and break `app/baselines.py` + `app/static/app.js` which read fixed column names. The conservative parallel-column approach used instead is the right call here.
+- Storing the enriched best-trial trades as a numpy recarray inside `np.savez_compressed`. Recarrays with datetime64/object columns require pickle, which the existing comparison HTML loader explicitly disallowed. Storing as JSON-encoded uint8 bytes round-trips cleanly without the pickle dependency.
+- Inserting the live execution guard at the top of `_poll_one_pair`. That short-circuits other legitimate early-returns (duplicate-plan dedup, position-cap). Always insert immediately before the broker submit call.
 
-- **Initial PR-system pattern: 7 PRs for one logical task.** The stocktake split into 7 PRs cost ~5–10 min CI/review wait per cycle. New rule (in `workflow.md`): bundle related phases when same file / docs-only / under ~300 lines.
-- **HTML fallback in MT5 importer.** Built it first; user pushed back ("why are we not going direct?"). Removed in PR #26. Lesson: lead with the canonical mechanism, don't ship "and also a fallback" by default.
-- **Forgot broker→UTC offset on first MT5 importer pass.** Same trap as the 2026-04-22 deal-history bug (`MT5 Deal History Query Timezone Corrected to Broker Time` memory). Now codified in `workflow.md`: never trust raw MT5 `time` fields as UTC.
-- **MT5 status script crashed on Windows cp1252 stdout** (used `→` arrow). Now reconfigures stdout to UTF-8 at script start; same pattern in both new scripts.
-- **Phase C audit reported CLAUDE.md as 181 lines** — that was reading the local working tree (with uncommitted session-start mods). Always check `git show origin/main:<path>` for canonical line counts.
-- **Initial cleanup list flagged ALL 6 dated `deploy/instances/*` bundles** for deletion. CodeRabbit caught: 3 of them (the 04-24 set) are listed in `active.json` as live trading instances. Per-file verification against `active.json` is mandatory before flagging deploy bundles for deletion.
-- **Stacked PRs (#17 stacked on Phase A's branch)** auto-closed when Phase A merged via squash. Worked around with a fresh branch (PR #18). Never stack on a branch that's about to merge.
-- **Serial single-tool-call turns** wasted user-visible cycles ("you keep stopping"). Now codified in CLAUDE.md "Do": batch independent edits / reads / bash into ONE response.
+## Exact resume steps for next session
+1. Watch CodeRabbit + Gemini on the new commit; resolve any threads.
+2. Squash-merge PR #31 via `bash scripts/merge_pr.sh 31`; sync local main with `bash scripts/sync_main.sh`.
+3. Tick the two PROGRESS.md items (Cost-realism overlay + Execution Guard module) once the merge lands.
+4. Pick up issue #32 (MatchedRow propagation) as a small follow-up PR — should be the smallest of the three follow-ups.
+5. Then issues #33 (submit-time spread tick) and #34 (post-fill slippage cap) — both architectural live-runner work.
 
-## Resume steps for next session
-
-1. SessionStart hook injects HANDOFF + PROGRESS + recent commits + open issues.
-2. Run `python scripts/mt5_status.py` to see current live state at session start.
-3. Run `python scripts/import_mt5_report.py --days 14` to get fresh trade history into `artifacts/live/incoming/`.
-4. Start Pillar 5 work: build a comparison script that takes that fresh history + replays backtest for the same window with the same EA config + classifies each trade as match/better/worse/missing/extra.
-5. The completeness checker keeps the map honest — don't add a tracked file without a row.
+## In flight
+- PR #31 — open with the round 3 fixes pushed; awaiting CodeRabbit + Gemini re-review.

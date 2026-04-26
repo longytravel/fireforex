@@ -40,11 +40,14 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
 from ff import replay as _replay  # noqa: E402
+from ff.cost_realism import bt_gate  # noqa: E402
+from ff.cost_realism import overlay as _overlay  # noqa: E402
 from ff.live import reconcile as _reconcile  # noqa: E402
 
 LIVE_DIR = REPO_ROOT / "artifacts" / "live"
 REPLAY_DIR = REPO_ROOT / "artifacts" / "replay"
 RECONCILE_DIR = LIVE_DIR / "reconcile"
+COST_TABLE_PATH = REPO_ROOT / "artifacts" / "cost_table.json"
 
 
 def _read_jsonl(path: Path) -> list[dict]:
@@ -191,6 +194,68 @@ def _run_pass(
     return counts
 
 
+def _apply_cost_realism(bt_df: pd.DataFrame) -> pd.DataFrame:
+    """Stamp cost-realism gate + overlay columns onto a replay bt_df.
+
+    Column mapping from the NPZ structured array to the overlay API:
+    - ``spread_entry_pips``  → ``duka_bt_spread_pips``
+    - ``pnl_pips``           → ``raw_pnl_pips``
+    - ``entry_ts`` and ``pair`` are already named correctly.
+
+    ``telemetry_slippage_pips`` falls back to the cost-table default until
+    Task 6 (per-pair telemetry) lands.
+    """
+    if bt_df.empty:
+        return bt_df
+
+    df = bt_df.copy()
+
+    # Map NPZ column names to the overlay API's expected names.
+    if "spread_entry_pips" in df.columns and "duka_bt_spread_pips" not in df.columns:
+        df["duka_bt_spread_pips"] = df["spread_entry_pips"].astype(float)
+    if "pnl_pips" in df.columns and "raw_pnl_pips" not in df.columns:
+        df["raw_pnl_pips"] = df["pnl_pips"].astype(float)
+
+    # Guard: required columns must exist before any per-pair fallback logic
+    # runs. Otherwise the slippage block below would raise KeyError on a
+    # missing ``pair`` column, masking the real "schema mismatch" cause.
+    # Silent skip would let the reconcile report look cost-adjusted while
+    # actually showing raw P&L — refuse to ship the report instead.
+    missing = [c for c in ("duka_bt_spread_pips", "raw_pnl_pips", "pair") if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"[reconcile][cost-realism] required column(s) {missing} missing "
+            f"on the BT trades DataFrame; refusing to write a misleading "
+            f"un-adjusted reconcile report. Check the upstream replay output."
+        )
+
+    # Slippage telemetry fallback: cost-table default until Task 6.
+    if "telemetry_slippage_pips" not in df.columns:
+        table: dict = {}
+        if COST_TABLE_PATH.exists():
+            table = json.loads(COST_TABLE_PATH.read_text())
+        pair_to_slip = {p: e["slippage_per_side_pips"] for p, e in table.get("pairs", {}).items()}
+        df["telemetry_slippage_pips"] = df["pair"].map(pair_to_slip).fillna(0.5)
+
+    df = bt_gate.apply(df)
+    df = _overlay.apply(df, cost_table_path=COST_TABLE_PATH)
+
+    # Only claim the overlay was applied when the cost table was present.
+    # If COST_TABLE_PATH is missing, every overlay_delta_pips is 0.0 and the
+    # report is functionally raw — say so explicitly so users can't misread.
+    overlay_in_effect = df["overlay_delta_pips"].abs().sum() > 0
+    n_gated = int(df["gated_out_reason"].notna().sum())
+    if overlay_in_effect:
+        print(f"[reconcile][cost-realism] overlay applied: {len(df)} rows, gated={n_gated}")
+    else:
+        print(
+            f"[reconcile][cost-realism] WARN — overlay returned zero delta "
+            f"for every row (cost_table.json missing or empty?). "
+            f"Report shows raw P&L. gated={n_gated} rows."
+        )
+    return df
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Fire Forex live vs backtest reconcile")
     parser.add_argument(
@@ -235,7 +300,7 @@ def main() -> int:
             ds,
             skip_replay=args.skip_replay,
         )
-        bt_by_source[ds] = bt_df
+        bt_by_source[ds] = _apply_cost_realism(bt_df)
         stamps[ds] = stamp
 
     # Phase 2 — live side.

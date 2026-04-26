@@ -36,6 +36,7 @@ import pandas as pd
 from . import encoding as enc
 from . import sampler as spl
 from . import signal_lib as sl
+from .cost_realism import bt_gate, overlay
 from .exit_codes import exit_reason_name
 
 # ── Timeframe / pair tables (constants of the market, not assumptions) ──
@@ -854,6 +855,53 @@ def run(
     trades_pnl_sum = float(trades_best["pnl_pips"].sum()) if n_trades_best else 0.0
     if abs(trades_pnl_sum - total_pips) > 1e-9:
         raise RuntimeError(f"trade-log parity broken: trades.pnl_pips.sum()={trades_pnl_sum!r} vs aggregate total_pips={total_pips!r}")
+
+    # Cost-realism overlay on best-trial trades (post-parity-pass; raw pnl_pips
+    # above is unchanged so baseline compare and history.csv totals stay stable).
+    # cost_realism_status surfaces overlay health: "ok" (applied), "empty"
+    # (best trial had zero trades — nothing to gate), "failed" (overlay raised;
+    # adjusted_total_pips fell back to raw — readers must NOT treat as adjusted).
+    adjusted_total_pips: float = total_pips
+    n_gated_trades: int = 0
+    trades_best_with_cr = np.frombuffer(b"[]", dtype=np.uint8)  # default — empty JSON when overlay skipped
+    cost_realism_status: str = "empty"
+    cost_table_path = Path(__file__).resolve().parent.parent / "artifacts" / "cost_table.json"
+    try:
+        if n_trades_best:
+            cr_df = pd.DataFrame(trades_best)
+            cr_df = cr_df.rename(
+                columns={
+                    "spread_entry_pips": "duka_bt_spread_pips",
+                    "pnl_pips": "raw_pnl_pips",
+                }
+            )
+            # bt_gate needs telemetry_slippage_pips. Look it up per-pair from
+            # cost_table.json (same pattern as scripts/reconcile_live.py) so a
+            # pair whose realised slippage is above 3 pips actually gets gated;
+            # the prior hardcoded 0.5 made the harness disagree with reconcile.
+            if "telemetry_slippage_pips" not in cr_df.columns:
+                table: dict = {}
+                if cost_table_path.exists():
+                    table = json.loads(cost_table_path.read_text())
+                pair_to_slip = {p: e["slippage_per_side_pips"] for p, e in table.get("pairs", {}).items()}
+                cr_df["telemetry_slippage_pips"] = cr_df["pair"].map(pair_to_slip).fillna(0.5)
+            cr_df = bt_gate.apply(cr_df)
+            cr_df = overlay.apply(cr_df, cost_table_path=cost_table_path)
+            adjusted_total_pips = float(cr_df["adjusted_pnl_pips"].sum())
+            n_gated_trades = int(cr_df["gated_out_reason"].notna().sum())
+            # Persist the enriched DataFrame as a JSON string so downstream
+            # NPZ readers can re-hydrate it without dtype/pickle issues.
+            trades_best_with_cr = np.frombuffer(
+                cr_df.to_json(orient="records", date_format="iso").encode("utf-8"),
+                dtype=np.uint8,
+            )
+            cost_realism_status = "ok"
+    except Exception as exc:
+        logging.getLogger(__name__).warning("[harness][cost-realism] overlay skipped: %s", exc)
+        cost_realism_status = "failed"
+        # adjusted_total_pips / n_gated_trades stay at default values; the
+        # primary metrics (total_pips, pnl_pips) remain authoritative.
+
     expectancy_pips = total_pips / n_trades_best if n_trades_best else 0.0
     equity_curve = np.cumsum(pnl_best)
     total_runtime = time.perf_counter() - t_total
@@ -943,6 +991,10 @@ def run(
         slippage_pips=np.float64(exe_cfg["slippage_pips"]),
         max_spread_pips=np.float64(exe_cfg["max_spread_pips"]),
         pip_value=np.float64(exe_cfg["pip_value"]),
+        cost_realism_trades_json=trades_best_with_cr,
+        adjusted_pnl_total_pips=np.float64(adjusted_total_pips),
+        n_gated_trades=np.int64(n_gated_trades),
+        cost_realism_status=np.array(cost_realism_status),
     )
     print(f"[save] run data → {run_file.name}")
 
@@ -964,6 +1016,9 @@ def run(
         "trades": n_trades_best,
         "win_rate_pct": round(win_rate_pct, 3),
         "total_pips": round(total_pips, 1),
+        "adjusted_total_pips": round(adjusted_total_pips, 1),
+        "n_gated_trades": n_gated_trades,
+        "cost_realism_status": cost_realism_status,
         "expectancy_pips": round(expectancy_pips, 3),
         "max_dd_pct": round(float(metrics_out[best, 5]), 3),
         "profit_factor": round(float(metrics_out[best, 2]), 4),
@@ -1032,7 +1087,7 @@ def build_comparison_html(hist: pd.DataFrame) -> None:
     for _, r in hist.iterrows():
         p = RUNS_DIR / r["run_file"]
         if p.exists():
-            with np.load(p, allow_pickle=False) as z:
+            with np.load(p, allow_pickle=True) as z:
                 runs[r["layer"]] = {k: z[k].copy() for k in z.files if z[k].dtype != object and k != "param_matrix"}
 
     fig = make_subplots(
