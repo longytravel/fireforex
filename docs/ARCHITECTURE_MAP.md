@@ -15,7 +15,7 @@
 flowchart TD
     D["1 · DATA INGEST<br/>Dukascopy + MT5 broker sync"]
     E["2 · EA DEFINITION<br/>schema + overrides"]
-    S["3 · BACKTEST SWEEP<br/>random today; Pillar 2 adds Bayesian/CMA/walk-forward"]
+    S["3 · BACKTEST SWEEP<br/>random + lean mega sweeps; Pillar 2 adds Bayesian/CMA/walk-forward"]
     I["4 · INSPECT & PICK<br/>Web UI + baseline compare"]
     DE["5 · DEPLOY TO VPS<br/>git push + scheduled task"]
     R["6 · RECONCILE LIVE ⇄ BACKTEST<br/>match/better/worse/missing/extra"]
@@ -82,6 +82,8 @@ Stages 1–6 below.
 
 **Supposed to:** Build the signal library, sample N trial parameter sets, run them through the Rust engine in parallel, compute per-trial metrics, pick the best, and persist run artifacts (`artifacts/runs/*.npz` + `artifacts/history.csv`) for the UI.
 
+**PR #40 update (2026-04-26):** Stage 3 now has a lean mega-sweep path for large random brute-force runs. Signal libraries store contiguous per-variant slices so the Rust evaluator can jump to the selected variant. Lean artifacts store compact per-trial metrics in a `.npy` sidecar, plus a configurable retained top-N candidate bench (`retain_top_per_metric`, default 200) with equity/PnL, metrics, encoded params, and trial JSON. `Trades` retention intentionally means raw highest trade count for live-runner stress testing.
+
 | Component | Path | Supposed to | Verdict | Notes |
 |---|---|---|---|---|
 | Rust crate manifest | `core/Cargo.toml` | Declare `ff_core` crate, deps (pyo3, numpy, rayon), build profile | ✅ | Also referenced from Appendix H. |
@@ -103,6 +105,8 @@ Stages 1–6 below.
 
 **Flows up from Stage 2** via the encoded `(N, NUM_PL)` float64 matrix that `ff.encoding.encode_trial` produces; the harness picks one row per trial and ships it through `ff_core.batch_evaluate`.
 **Flows down to Stage 4** via `artifacts/runs/{layer}_{stamp}.npz` (per-run trial outputs) and `artifacts/history.csv` (one row per run); the Web UI reads both for baseline comparison.
+
+**Known Stage 3 data caveat (2026-04-26):** not every pair currently has full historical parquet coverage. Some pairs only contain recent data even when the UI range is set to Full (`AUD_CHF`, `CAD_CHF`, `NZD_CAD`, `NZD_CHF` start around 2026-03-23). Use long-history pairs such as `AUD_USD`, `USD_JPY`, `USD_CAD`, or `EUR_AUD` for high-trade-count brute-force tests until the short files are repaired.
 
 ## 4 · INSPECT & PICK (Web UI)
 
@@ -279,7 +283,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 
 ## Appendix C — Tests (`tests/`)
 
-**Coverage at a glance:** 38 Python test files + 1 package marker + 1 golden fixture across 9 categories. Suite is green per recent CI on `main` (PR #35 merged with `python` + `rust` jobs passing). Some artifact-backed tests still have conditional skips tied to local data availability.
+**Coverage at a glance:** 39 Python test files + 1 package marker + 1 golden fixture across 9 categories. Suite is green per recent CI on `main` (PR #35 merged with `python` + `rust` jobs passing). Some artifact-backed tests still have conditional skips tied to local data availability.
 
 | File | What it covers | Verdict | Notes |
 |---|---|---|---|
@@ -306,6 +310,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `tests/test_trade_log_roundtrip.py` | Numpy struct array → JSON/parquet round-trip | ⚠️ | `@pytest.mark.skipif` — skipped on CI if trade-log fixture missing. |
 | `tests/test_complexity.py` | Knob complexity scoring (override application, flattening) | ✅ | UI knob → Rust row flatten pipeline. |
 | `tests/test_signal_cache.py` | Signal variant cache + lazy-load memoization | ✅ | Validates load-once-reuse pattern. |
+| `tests/test_lean_artifact_routes.py` | Lean sweep artifact API routes | ✅ | Guards retained-trial metric lookup and equity-curve hydration for mega brute-force sweeps. |
 | `tests/test_tick_to_m1.py` | Tick→M1 aggregation (forex-correct OHLCV, JPY scale) | ✅ | End-to-end tick unpacking and resampling. |
 | `tests/test_resample.py` | M1→M5/H1/D resampling (OHLCV merge, partial handling) | ✅ | Atomic `.partial` writes; multi-TF aggregation. |
 | `tests/test_date_slice.py` | UTC date clipping with end-of-day expansion | ✅ | Pure utility; pandas-version aware. |

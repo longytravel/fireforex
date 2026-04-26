@@ -52,3 +52,10 @@ Living milestone register. Tick boxes as things ship. Never rewritten — only a
 - [x] ATR-driven per-pair, per-TF default ranges + volatility cache
 - [x] Dukascopy M1 via raw `.bi5` downloader
 - [x] MT5 replay mode for parity validation
+
+## 2026-04-26 Addendum
+
+- [x] **Configurable retained brute-force candidate bench** (shipped in PR #40) - lean sweeps retain top-N candidates per objective (`retain_top_per_metric`, default 200, max 10,000) with equity/PnL, metrics, encoded params, and trial JSON for jump-to-best and future walk-forward. `Trades` intentionally retains raw highest-trade candidates for live-runner stress testing.
+- [x] **Mega brute-force UI smoke** - 150,000 CAD_CHF Level 10 trials completed in 24.05s, about 6,237 evals/sec, with 2,422 unique retained candidates.
+- [ ] **Repair short-history parquet files** - several pairs currently only have recent data despite "Full" being selected in the UI (`AUD_CHF`, `CAD_CHF`, `NZD_CAD`, `NZD_CHF` start around 2026-03-23; `EUR_USD` starts 2025-04-20; `GBP_USD` starts 2024-01-15). Long-history pairs such as `AUD_USD`, `USD_JPY`, `USD_CAD`, and `EUR_AUD` remain available.
+- [ ] **Metrics-only Rust sweep kernel** - next speed layer for multi-million brute-force runs; evaluate metrics without per-trial PnL/trade buffers, then replay retained/on-demand candidates for full equity curves.
