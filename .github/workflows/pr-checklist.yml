@@ -99,6 +99,9 @@ jobs:
             if (!changed.has("HANDOFF.md")) {
               problems.push("Durable files changed, but HANDOFF.md was not updated.");
             }
+            if (!changed.has("PROGRESS.md")) {
+              problems.push("Durable files changed, but PROGRESS.md was not updated.");
+            }
             const mapSensitive = durable.some(name =>
               name.startsWith("scripts/") ||
               name.startsWith("app/") ||
