@@ -1496,7 +1496,8 @@ function costRealismBadge(status) {
     empty:  ['bg-slate-500/20 text-slate-400',     'best trial had zero trades'],
     failed: ['bg-rose-500/20 text-rose-300',       'overlay raised — adjusted col fell back to raw'],
   };
-  const [cls, hint] = map[status] || ['bg-slate-500/20 text-slate-400', status];
+  const value = Object.prototype.hasOwnProperty.call(map, status) ? map[status] : null;
+  const [cls, hint] = Array.isArray(value) ? value : ['bg-slate-500/20 text-slate-400', status];
   return `<span class="px-1.5 py-0.5 rounded ${cls}" title="${escapeHtml(hint)}">${escapeHtml(status)}</span>`;
 }
 function costRealismCell(r) {
