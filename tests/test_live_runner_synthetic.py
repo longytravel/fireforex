@@ -312,6 +312,133 @@ def test_max_open_per_pair_blocks_stacking(monkeypatch, cfg, pair_state):
     assert cap_errors[0]["cap"] == 1
 
 
+# ── Fresh-tick guard + post-fill slippage cap (issues #33, #34) ────────
+
+
+def _wire_signal_lib(monkeypatch, pair_state):
+    """Hook signal_lib so the latest main bar fires a +1 EMA-cross plan."""
+    from ff import signal_lib as sl
+
+    monkeypatch.setattr(
+        sl,
+        "build_signal_library",
+        lambda *a, **k: _StubLibrary(latest_bar_idx=len(pair_state.main_buf) - 1),
+    )
+    monkeypatch.setattr(live_runner, "_sl", sl)
+    monkeypatch.setattr(live_runner, "_emit_plan", lambda _c, plan: None)
+    monkeypatch.setattr(live_runner, "_is_duplicate_plan", lambda _c, _pid: False)
+
+
+def test_guard_uses_submit_time_tick_not_closed_bar(monkeypatch, cfg, pair_state):
+    """Issue #33 — the closed M1 bar may say "1.5 pips" while the live tick
+    is 4 pips wide. Guard must read the live spread and block."""
+    m1 = _synth_m1("2026-04-20 10:00", 60)
+    m1["spread"] = 15.0  # 1.5 pips when divided by 10 (closed-bar mean)
+    pair_state.m1_buf = m1.copy()
+    pair_state.main_buf = m1.iloc[-1:].copy()
+
+    _wire_signal_lib(monkeypatch, pair_state)
+    monkeypatch.setattr(live_runner, "_append_jsonl", lambda *a, **k: None)
+
+    submitted: list = []
+    broker = _MockBroker()
+    broker.submit_market_order = lambda plan: submitted.append(plan)  # type: ignore[assignment]
+    # Live tick says 4 pips spread — over the 3-pip cap.
+    broker.current_spread_pips = lambda _pair: 4.0  # type: ignore[attr-defined]
+
+    signal_bar_ts = pair_state.main_buf.index[-1]
+    live_runner._evaluate_and_fire(cfg, pair_state, broker, signal_bar_ts, {"EUR_USD": pair_state})
+
+    assert submitted == [], "fresh-tick guard should have blocked the submit"
+
+
+def test_guard_falls_back_to_closed_bar_when_broker_lacks_method(monkeypatch, cfg, pair_state):
+    """Mock brokers without ``current_spread_pips`` keep the legacy path."""
+    m1 = _synth_m1("2026-04-20 10:00", 60)
+    m1["spread"] = 15.0  # 1.5 pips closed-bar mean — well under cap
+    pair_state.m1_buf = m1.copy()
+    pair_state.main_buf = m1.iloc[-1:].copy()
+
+    _wire_signal_lib(monkeypatch, pair_state)
+    monkeypatch.setattr(live_runner, "_append_jsonl", lambda *a, **k: None)
+
+    submitted: list = []
+    broker = _MockBroker()  # no current_spread_pips attribute
+    broker.submit_market_order = lambda plan: (
+        submitted.append(plan)
+        or live_runner.__import__("ff.live.broker_mt5", fromlist=["Ticket"]).Ticket(  # type: ignore[arg-type]
+            plan["plan_id"], 42, "2026-04-20T10:00Z", None, plan["entry_ref_price"], plan["size_lots"], 10009, ""
+        )
+    )
+
+    signal_bar_ts = pair_state.main_buf.index[-1]
+    live_runner._evaluate_and_fire(cfg, pair_state, broker, signal_bar_ts, {"EUR_USD": pair_state})
+
+    assert len(submitted) == 1, "fallback path should let the plan through"
+
+
+def test_post_fill_slippage_cap_closes_position(monkeypatch, cfg, pair_state):
+    """Issue #34 — when the fill slippage exceeds the 3-pip cap the runner
+    closes the position immediately and never registers it as open."""
+    m1 = _synth_m1("2026-04-20 10:00", 60)
+    m1["spread"] = 5.0  # 0.5 pips closed-bar mean
+    pair_state.m1_buf = m1.copy()
+    pair_state.main_buf = m1.iloc[-1:].copy()
+
+    _wire_signal_lib(monkeypatch, pair_state)
+    monkeypatch.setattr(live_runner, "_append_jsonl", lambda *a, **k: None)
+    monkeypatch.setattr(live_runner, "_persist_state", lambda *a, **k: None)
+
+    closed: list = []
+    broker = _MockBroker()
+    broker.current_spread_pips = lambda _pair: 0.5  # type: ignore[attr-defined]
+    # The stub library fires entry_ref_price=1.10005. Reply with a fill
+    # 0.0005 (5 pips on a 5-digit major) above ref → slippage=+5pips.
+    from ff.live.broker_mt5 import Ticket
+
+    broker.submit_market_order = lambda plan: Ticket(  # type: ignore[assignment]
+        plan["plan_id"], 42, "2026-04-20T10:00Z", "2026-04-20T10:00Z", 1.10055, plan["size_lots"], 10009, "filled"
+    )
+    broker.close_position = lambda ticket, reason="": closed.append((ticket, reason)) or 10009  # type: ignore[attr-defined]
+
+    signal_bar_ts = pair_state.main_buf.index[-1]
+    live_runner._evaluate_and_fire(cfg, pair_state, broker, signal_bar_ts, {"EUR_USD": pair_state})
+
+    assert closed and closed[0][0] == 42, "slippage cap should have triggered close_position"
+    assert closed[0][1] == "slippage_3p"
+    assert pair_state.open_positions == {}, "position must not be registered when slippage-killed"
+
+
+def test_post_fill_slippage_within_cap_keeps_position(monkeypatch, cfg, pair_state):
+    """A modest fill (1 pip) below the cap should be kept normally."""
+    m1 = _synth_m1("2026-04-20 10:00", 60)
+    m1["spread"] = 5.0
+    pair_state.m1_buf = m1.copy()
+    pair_state.main_buf = m1.iloc[-1:].copy()
+
+    _wire_signal_lib(monkeypatch, pair_state)
+    monkeypatch.setattr(live_runner, "_append_jsonl", lambda *a, **k: None)
+    monkeypatch.setattr(live_runner, "_persist_state", lambda *a, **k: None)
+
+    closed: list = []
+    broker = _MockBroker()
+    broker.current_spread_pips = lambda _pair: 0.5  # type: ignore[attr-defined]
+    from ff.live.broker_mt5 import Ticket
+
+    # 1-pip slippage — under the 3-pip cap.
+    broker.submit_market_order = lambda plan: Ticket(  # type: ignore[assignment]
+        plan["plan_id"], 99, "2026-04-20T10:00Z", "2026-04-20T10:00Z", 1.10015, plan["size_lots"], 10009, "filled"
+    )
+    broker.close_position = lambda ticket, reason="": closed.append((ticket, reason)) or 10009  # type: ignore[attr-defined]
+
+    signal_bar_ts = pair_state.main_buf.index[-1]
+    live_runner._evaluate_and_fire(cfg, pair_state, broker, signal_bar_ts, {"EUR_USD": pair_state})
+
+    assert closed == [], "1-pip slippage is below cap — must not close"
+    assert len(pair_state.open_positions) == 1
+    assert next(iter(pair_state.open_positions.values())).ticket == 99
+
+
 # ── Multi-instance ─────────────────────────────────────────────────────
 
 

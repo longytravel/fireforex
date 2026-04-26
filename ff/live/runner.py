@@ -880,16 +880,32 @@ def _evaluate_and_fire(
     # ── Execution guard: 3-and-3 mirror of bt_gate ────────────────────────
     from ff.live.execution_guard import evaluate as _eval_guard  # lazy — MT5-free path
 
+    # Issue #33: read spread from a submit-time tick rather than the
+    # closed-M1 mean — the latter can be 30+ seconds stale and lets a
+    # spike-time fire through the 3-pip cap. Falls back to the closed-bar
+    # value when the broker shim does not expose ``current_spread_pips``
+    # (synthetic/mock brokers in tests).
+    submit_spread_pips = spread_at_fire_pips
+    if hasattr(broker, "current_spread_pips"):
+        try:
+            # Wrap in `_with_broker_cfg` so multi-instance setups read the
+            # tick through this instance's `symbol_map` (CodeRabbit PR #44).
+            fresh = float(_with_broker_cfg(broker, cfg, lambda: broker.current_spread_pips(state.pair)))
+        except Exception:  # noqa: BLE001 — broker errors must not block guard logic
+            fresh = float("nan")
+        if fresh == fresh:  # finite
+            submit_spread_pips = fresh
+
     _guard = _eval_guard(
         ts=pd.Timestamp.now("UTC"),
-        live_spread_pips=spread_at_fire_pips,
+        live_spread_pips=submit_spread_pips,
     )
     if _guard.block:
         LOG.info(
             "[guard] blocked %s plan: reason=%s spread=%.2fpips",
             state.pair,
             _guard.reason,
-            spread_at_fire_pips,
+            submit_spread_pips,
         )
         return
 
@@ -931,6 +947,21 @@ def _evaluate_and_fire(
         _log_error(cfg, {"pair": state.pair, "stage": "submit", "plan_id": plan_id, "error": repr(exc)})
         return
 
+    # Post-fill slippage check (issue #34). Slippage convention matches
+    # ff.live.reconcile.build_live_df: positive = price moved against us
+    # (long filled higher than ref / short filled lower). When the realised
+    # value exceeds SLIPPAGE_CAP_PIPS the position is immediately closed
+    # so a single bad fill cannot bleed past the 3-pip cap that backtest
+    # gating already enforces.
+    fill_slippage_pips = float("nan")
+    try:
+        fill_slippage_pips = (ticket.fill_price - entry_ref_price) / pip_value * float(direction)
+    except (TypeError, ValueError, ZeroDivisionError):
+        fill_slippage_pips = float("nan")
+
+    from ff.cost_realism.gate_rules import is_slippage_too_wide as _slip_too_wide
+
+    slippage_killed = _slip_too_wide(fill_slippage_pips)
     _append_jsonl(
         cfg.tickets_file,
         {
@@ -942,8 +973,67 @@ def _evaluate_and_fire(
             "fill_volume": ticket.fill_volume,
             "retcode": ticket.retcode,
             "comment": ticket.comment,
+            "fill_slippage_pips": fill_slippage_pips,
+            "slippage_killed": slippage_killed,
         },
     )
+
+    if slippage_killed:
+        LOG.warning(
+            "[live] instance=%s %s plan=%s slippage=%.2fpips exceeds cap — closing immediately",
+            cfg.instance_id,
+            state.pair,
+            plan_id,
+            fill_slippage_pips,
+        )
+        # If close_position fails, the position remains open on broker but
+        # `submit_market_order` already set SL/TP server-side, so risk is
+        # bounded. The orphan is tagged via stage=`slippage_orphan` so
+        # the reconciler can surface it for manual cleanup. Not adding to
+        # `state.open_positions` is intentional: we don't want
+        # exit_manager to retry trailing/breakeven on a position the
+        # runner has decided to disown.
+        close_rc: int = -1
+        try:
+            close_rc = int(_with_broker_cfg(broker, cfg, lambda: broker.close_position(ticket.ticket, reason="slippage_3p")))
+        except Exception as exc:  # noqa: BLE001
+            _log_error(
+                cfg,
+                {
+                    "pair": state.pair,
+                    "stage": "slippage_close",
+                    "plan_id": plan_id,
+                    "ticket": ticket.ticket,
+                    "fill_slippage_pips": fill_slippage_pips,
+                    "error": repr(exc),
+                },
+            )
+        if close_rc != 10009:  # MT5 TRADE_RETCODE_DONE
+            _log_error(
+                cfg,
+                {
+                    "pair": state.pair,
+                    "stage": "slippage_orphan",
+                    "plan_id": plan_id,
+                    "ticket": ticket.ticket,
+                    "fill_slippage_pips": fill_slippage_pips,
+                    "close_retcode": close_rc,
+                    "note": "broker SL/TP still active; manual cleanup required",
+                },
+            )
+        _log_error(
+            cfg,
+            {
+                "pair": state.pair,
+                "stage": "slippage_killed",
+                "plan_id": plan_id,
+                "ticket": ticket.ticket,
+                "fill_slippage_pips": fill_slippage_pips,
+                "close_retcode": close_rc,
+            },
+        )
+        return
+
     state.open_positions[plan_id] = OpenPosition(
         plan_id=plan_id,
         ticket=ticket.ticket,

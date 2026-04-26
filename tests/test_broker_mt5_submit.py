@@ -166,6 +166,29 @@ def test_copy_rates_m1_skips_current_forming_bar(monkeypatch):
     assert df.iloc[0]["close"] == 1.15
 
 
+def test_current_spread_pips_reads_live_tick(monkeypatch):
+    """Issue #33 — guard must read submit-time tick, not closed-bar mean."""
+    fake = _FakeMT5([])  # ask=1.1002 bid=1.1000 → 2.0 pips on a 5-digit major
+    monkeypatch.setattr(broker_mt5, "_mt5", fake)
+
+    broker = broker_mt5.MT5Broker(BrokerCfg(login=1, password="x", server="x", deviation_pips=3))
+    assert broker.current_spread_pips("EUR_USD") == pytest.approx(2.0, abs=1e-6)
+
+
+def test_current_spread_pips_returns_nan_when_no_tick(monkeypatch):
+    """Missing tick fails closed via NaN — guard treats as unknown_spread."""
+
+    class _NoTick(_FakeMT5):
+        def symbol_info_tick(self, _symbol):
+            return None
+
+    fake = _NoTick([])
+    monkeypatch.setattr(broker_mt5, "_mt5", fake)
+    broker = broker_mt5.MT5Broker(BrokerCfg(login=1, password="x", server="x"))
+    spread = broker.current_spread_pips("EUR_USD")
+    assert spread != spread  # NaN
+
+
 def test_fetch_recent_deals_queries_broker_time_and_stores_utc(monkeypatch):
     fake = _FakeMT5History()
     monkeypatch.setattr(broker_mt5, "_mt5", fake)
