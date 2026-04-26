@@ -28,7 +28,7 @@ Living milestone register. Tick boxes as things ship. Never rewritten — only a
 - [x] **MT5 direct toolkit** (shipped 2026-04-25, PR #26) — `scripts/import_mt5_report.py` + `scripts/mt5_status.py` + 2 desktop shortcuts. Hits the running MT5 terminal directly (no manual HTML export). Broker→UTC offset, SL/TP enrichment, digit-aware spread.
 - [x] **Dependabot triage (3 of 10)** (2026-04-25, PRs #3, #6, #7) — actions/checkout v6, fastapi, pytest merged. Remaining 7 need `@dependabot rebase`.
 - [ ] **Address review-flagged bugs**:
-  - [ ] #12 Path-traversal validation in `app/routes.py`
+  - [x] #12 Path-traversal validation in `app/routes.py` — `_resolve_run_npz` now resolves the joined path and asserts it lives under `artifacts/runs` (defends against symlink escape); `/runs/{run_id}/trades.csv` reuses the helper instead of its ad-hoc string check. Regression tests in `tests/test_path_traversal_routes.py`.
   - [ ] #13 Out-of-bounds bounds check on `sig_bar_index`
   - [ ] #14 Metric key mismatch (`win_rate` vs `win_rate_pct`)
 - [ ] **Triage 10 dependabot PRs** auto-opened on 2026-04-25

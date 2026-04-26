@@ -413,6 +413,8 @@ def clear_baseline() -> dict[str, Any]:
 # ── Scatter (per-trial results) ────────────────────────────────────────
 
 _RUN_FILE_RE = re.compile(r"^[A-Za-z0-9_\-]+\.npz$")
+# `/runs/{run_id}/trades.csv` accepts either the bare stem or the .npz suffix.
+_RUN_ID_RE = re.compile(r"^[A-Za-z0-9_\-]+(?:\.npz)?$")
 
 # Scatter API schema. The harness registry covers the Rust metric columns;
 # ``total_pips`` is appended by this endpoint from the per-trial PnL buffer.
@@ -425,10 +427,25 @@ _SCATTER_MAX_POINTS = 5000
 
 
 def _resolve_run_npz(run_file: str) -> Path:
+    """Validate and resolve ``artifacts/runs/<run_file>``.
+
+    Defence-in-depth path-traversal guard (issue #12):
+
+    1. The regex rejects anything that isn't a plain ``[A-Za-z0-9_-]+.npz``
+       — no separators, no dots beyond the suffix, no whitespace.
+    2. After joining the validated name to ``ARTIFACTS_DIR/runs``, the
+       resolved path is checked to live under the resolved runs dir so a
+       symlinked entry cannot escape the directory.
+    """
     if not _RUN_FILE_RE.match(run_file):
         raise HTTPException(status_code=400, detail="bad run_file name")
-    path = ARTIFACTS_DIR / "runs" / run_file
-    if not path.exists() or path.parent != (ARTIFACTS_DIR / "runs"):
+    runs_dir = (ARTIFACTS_DIR / "runs").resolve()
+    path = (ARTIFACTS_DIR / "runs" / run_file).resolve()
+    try:
+        path.relative_to(runs_dir)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="bad run_file name") from exc
+    if not path.exists() or path.parent != runs_dir:
         raise HTTPException(status_code=404, detail="run file not found")
     return path
 
@@ -549,15 +566,13 @@ def get_run_trades_csv(run_id: str) -> Response:
     Consumed by the live-parity reconciler to join against MT5 deals.
     """
     # run_id is the stem of the npz file (e.g. "baseline_v2_random_20260420_200445").
-    # Resist path traversal.
-    if "/" in run_id or "\\" in run_id or ".." in run_id:
+    # Path-traversal: route through `_resolve_run_npz` so the same regex +
+    # resolved-parent check defends every /runs endpoint (issue #12).
+    if not _RUN_ID_RE.match(run_id):
         raise HTTPException(status_code=400, detail="invalid run id")
     if run_id.endswith(".npz"):
         run_id = run_id[:-4]
-
-    run_file = ARTIFACTS_DIR / "runs" / f"{run_id}.npz"
-    if not run_file.exists():
-        raise HTTPException(status_code=404, detail=f"no run: {run_id}")
+    run_file = _resolve_run_npz(f"{run_id}.npz")
 
     import numpy as np
     import pandas as pd
