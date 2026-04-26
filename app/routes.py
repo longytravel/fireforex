@@ -421,6 +421,14 @@ _METRIC_COLUMN_LABELS: tuple[str, ...] = tuple(lbl for _, lbl, _ in _HARNESS_MET
 _METRIC_COLUMN_GROUPS: tuple[str, ...] = tuple(grp for _, _, grp in _HARNESS_METRIC_COLUMNS) + ("Return",)
 _METRIC_COLUMNS = _METRIC_COLUMN_KEYS  # back-compat alias
 
+# Engine columns whose stored value is a fraction (0..1) but whose key
+# implies a percentage. The scatter/trial endpoints multiply these by 100
+# before serialising so the UI never needs to guess at the unit.
+# `max_dd_pct` and `return_pct` are NOT here — the Rust engine already
+# emits them as percentages and history.csv stores them as-is.
+_PCT_KEY_TO_RUST_INDEX = {k: i for i, (k, _, _) in enumerate(_HARNESS_METRIC_COLUMNS)}
+_FRACTION_TO_PCT_COLS: tuple[int, ...] = (_PCT_KEY_TO_RUST_INDEX["win_rate_pct"],)
+
 _SCATTER_MAX_POINTS = 5000
 
 
@@ -475,6 +483,19 @@ def get_scatter(run_file: str) -> dict[str, Any]:
         if metrics.shape[1] < n_rust_cols:
             pad = np.full((metrics.shape[0], n_rust_cols - metrics.shape[1]), np.nan, dtype=metrics.dtype)
             metrics = np.concatenate([metrics, pad], axis=1)
+        # Convert stored fractions to percentages where the column key
+        # implies a percentage. Operate on a copy so legacy NPZ files on
+        # disk are never mutated. Defensive guard: only multiply values
+        # that look like a fraction (≤ 1.0); already-percentage rows in
+        # legacy or replay-mode NPZs pass through untouched.
+        if _FRACTION_TO_PCT_COLS:
+            metrics = metrics.astype(np.float64, copy=True)
+            for col in _FRACTION_TO_PCT_COLS:
+                if col < metrics.shape[1]:
+                    column = metrics[:, col]
+                    mask = np.isfinite(column) & (column <= 1.0)
+                    column[mask] *= 100.0
+                    metrics[:, col] = column
         # Derive total_pips per trial — appended as the final column.
         if "per_trial_pnl" in z.files and "per_trial_n_trades" in z.files:
             pnl = z["per_trial_pnl"]
@@ -527,7 +548,13 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
     for i, name in enumerate(rust_keys):
         if i < len(metrics_row):
             v = float(metrics_row[i])
-            metric_dict[name] = None if v != v else v  # NaN → None for JSON
+            if v != v:  # NaN → None for JSON
+                metric_dict[name] = None
+                continue
+            # Convert fraction → percentage for keys that imply pct.
+            if i in _FRACTION_TO_PCT_COLS and v <= 1.0:
+                v = v * 100.0
+            metric_dict[name] = v
         else:
             metric_dict[name] = None
     metric_dict["total_pips"] = total_pips
