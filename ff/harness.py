@@ -701,6 +701,7 @@ def _run_lean_random_sweep(
         "omega": 1.0,
         "psr": 1.0,
         "total_pips": 1.0,
+        "quality_profitable": 1.0,
         "max_dd_pct": -1.0,
         "ulcer": -1.0,
         "max_consec_loss": -1.0,
@@ -717,13 +718,18 @@ def _run_lean_random_sweep(
             "params": pm[local_idx].copy(),
             "metrics": metrics[local_idx].astype(np.float32, copy=True),
             "pnl": pnl[local_idx, :n_tr].copy(),
-            "trade_record": recs[local_idx].copy(),
+            "trade_record": recs[local_idx, : n_tr * bc.NUM_TRADE_FIELDS].copy(),
             "n_trades": n_tr,
         }
 
     def objective_values(key: str, metrics: np.ndarray) -> np.ndarray:
         if key == "total_pips":
             return metrics[:, METRIC_INDEX["trades"]] * metrics[:, METRIC_INDEX["expectancy_pips"]]
+        if key == "quality_profitable":
+            total_pips = metrics[:, METRIC_INDEX["trades"]] * metrics[:, METRIC_INDEX["expectancy_pips"]]
+            profit_factor = metrics[:, METRIC_INDEX["profit_factor"]]
+            profitable = (total_pips > 0.0) | (profit_factor > 1.0)
+            return np.where(profitable, metrics[:, METRIC_INDEX["quality"]], -np.inf)
         return metrics[:, METRIC_INDEX[key]]
 
     def track_top_candidates(
@@ -816,6 +822,10 @@ def _run_lean_random_sweep(
         # because pick_best has profitability and tie-break rules.
         local_pick = pick_best(metrics_chunk, objective="quality", tie_break=("return_pct", "trades"))
         retain(done + local_pick, local_pick, trials, pm, metrics_chunk, pnl_buffers, trade_records)
+        active_retained = {idx for heap in top_heaps.values() for _score, idx in heap}
+        active_retained.add(done + local_pick)
+        for stale_idx in set(retained) - active_retained:
+            del retained[stale_idx]
 
         done += this_n
         frac = 0.45 + 0.40 * (done / n_trials)
@@ -836,7 +846,7 @@ def _run_lean_random_sweep(
         # Extremely rare: global pick differs from every retained chunk winner.
         # Fall back to the retained quality winner so the artifact still has a
         # detailed trade view. The metric ledger still contains every row.
-        best = max(top_heaps["quality"])[1]
+        best = max(top_heaps.get("quality_profitable") or top_heaps["quality"])[1]
     best_retained = retained[int(best)]
     plot_idx = _plot_sample_indices(n_trials, required=int(best))
     n_trades_best = int(best_retained["n_trades"])
@@ -901,8 +911,9 @@ def _run_lean_random_sweep(
     final_retained: set[int] = {int(best)}
     for key, heap in top_heaps.items():
         ranked = [idx for _score, idx in sorted(heap, reverse=True) if idx in retained]
-        retained_objectives[key] = [int(idx) for idx in ranked]
-        final_retained.update(retained_objectives[key])
+        if key != "quality_profitable":
+            retained_objectives[key] = [int(idx) for idx in ranked]
+        final_retained.update(int(idx) for idx in ranked)
     if "psr" in retained_objectives:
         # DSR is finalised after the sweep and is monotonic with PSR for a
         # fixed n_trials, so the same retained bench serves both objectives.
@@ -912,10 +923,14 @@ def _run_lean_random_sweep(
     retained_pnl = np.zeros((retained_indices.size, retained_max_trades), dtype=np.float32)
     retained_n_trades = np.zeros(retained_indices.size, dtype=np.int32)
     retained_metrics = np.zeros((retained_indices.size, bc.NUM_METRICS), dtype=np.float32)
+    retained_params = np.zeros((retained_indices.size, param_layout.size), dtype=np.float64)
+    retained_trials: list[dict[str, Any]] = []
     for out_i, trial_idx in enumerate(retained_indices):
         item = retained[int(trial_idx)]
         retained_n_trades[out_i] = item["n_trades"]
         retained_metrics[out_i] = item["metrics"]
+        retained_params[out_i] = item["params"]
+        retained_trials.append(item["trial"])
         if item["n_trades"]:
             retained_pnl[out_i, : item["n_trades"]] = item["pnl"].astype(np.float32, copy=False)
 
@@ -934,6 +949,8 @@ def _run_lean_random_sweep(
         retained_trial_indices=retained_indices,
         retained_top_per_metric=np.int64(retain_top),
         retained_objectives_json=np.array(json.dumps(retained_objectives, default=_json_default)),
+        retained_params=retained_params,
+        retained_trials_json=np.array(json.dumps(retained_trials, default=_json_default)),
         retained_pnl=retained_pnl,
         retained_n_trades=retained_n_trades,
         retained_metrics=retained_metrics,

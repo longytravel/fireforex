@@ -576,6 +576,7 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
         if not (0 <= trial_idx < n_trials):
             raise HTTPException(status_code=404, detail=f"trial_idx out of range 0..{n_trials - 1}")
         metrics_row = all_metrics[trial_idx]
+        trial_payload: dict[str, Any] | None = None
         if "per_trial_pnl" in z.files and "per_trial_n_trades" in z.files:
             n_trades = int(z["per_trial_n_trades"][trial_idx])
             pnl = z["per_trial_pnl"][trial_idx, :n_trades].astype(np.float64)
@@ -588,6 +589,13 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
                 n_trades = int(z["retained_n_trades"][pos])
                 pnl = z["retained_pnl"][pos, :n_trades].astype(np.float64)
                 detail_available = True
+                if "retained_trials_json" in z.files:
+                    try:
+                        trials = json.loads(str(z["retained_trials_json"]))
+                        if pos < len(trials):
+                            trial_payload = trials[pos]
+                    except Exception:
+                        trial_payload = None
             else:
                 n_trades = int(metrics_row[_METRIC_COLUMN_KEYS.index("trades")])
                 pnl = np.empty(0, dtype=np.float64)
@@ -613,6 +621,7 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
         "n_trades": n_trades,
         "equity": equity,
         "detail_available": detail_available,
+        "trial": trial_payload,
         "metrics": metric_dict,
     }
 

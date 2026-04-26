@@ -58,6 +58,7 @@ def test_trial_uses_retained_pnl_when_lean_artifact_has_it(tmp_path, monkeypatch
         retained_trial_indices=np.array([7], dtype=np.int64),
         retained_n_trades=np.array([3], dtype=np.int32),
         retained_pnl=np.array([[1.0, -0.5, 2.5]], dtype=np.float32),
+        retained_trials_json=np.array('[{"signal_variant": 4}]'),
     )
 
     retained = c.get("/api/runs/lean_run.npz/trial/7")
@@ -65,6 +66,7 @@ def test_trial_uses_retained_pnl_when_lean_artifact_has_it(tmp_path, monkeypatch
     retained_body = retained.json()
     assert retained_body["equity"] == [1.0, 0.5, 3.0]
     assert retained_body["detail_available"] is True
+    assert retained_body["trial"]["signal_variant"] == 4
     assert retained_body["metrics"]["total_pips"] == 3.0
 
     unretained = c.get("/api/runs/lean_run.npz/trial/8")
