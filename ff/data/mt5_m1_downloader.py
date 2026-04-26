@@ -161,7 +161,11 @@ def _fetch_window(
     # symbol_info so the math is right on any 4/3/5/2-digit instrument.
     if "spread" in df.columns:
         sym_info = mt5.symbol_info(symbol)
-        point_size = sym_info.point if sym_info is not None and sym_info.point > 0 else 0.00001
+        # JPY-quoted pairs have a 3-digit broker quote → point_size = 0.001.
+        # Other majors are 5-digit → 0.00001. Hard-coding 0.00001 as the
+        # universal fallback would mis-scale JPY spreads by 100×.
+        default_point = 0.001 if "JPY" in symbol.upper() else 0.00001
+        point_size = sym_info.point if sym_info is not None and sym_info.point > 0 else default_point
         df["spread"] = df["spread"].astype("float64") * point_size
     else:
         df["spread"] = float("nan")

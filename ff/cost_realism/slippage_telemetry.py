@@ -12,6 +12,7 @@ import json
 import logging
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 LOG = logging.getLogger(__name__)
@@ -45,13 +46,23 @@ def update_from_forensic(
 
     for pair in list(pairs_block.keys()):
         pair_rows = df[df["pair"] == pair]
-        n_total = len(pair_rows)
-        if n_total < min_trades:
+        # Count VALID numeric telemetry points, not raw rows — otherwise a
+        # batch full of NaN slippages can pass min_trades and then write a
+        # NaN slippage to the cost table (invalid JSON).
+        slip = pd.to_numeric(pair_rows["entry_slippage_pips"], errors="coerce")
+        slip = slip.replace([np.inf, -np.inf], np.nan).dropna()
+        n_valid = int(slip.size)
+        if n_valid < min_trades:
             continue
-        recent = pair_rows.tail(rolling_window)["entry_slippage_pips"]
-        new_slip = float(round(recent.median(), 4))
+        recent = slip.tail(rolling_window)
+        median = recent.median()
+        if not np.isfinite(median):
+            # Defensive: with the dropna above this should be unreachable, but
+            # if a future change reintroduces NaN we refuse to write it.
+            continue
+        new_slip = float(round(median, 4))
         pairs_block[pair]["slippage_per_side_pips"] = new_slip
-        pairs_block[pair]["slippage_source"] = f"telemetry_n={n_total}"
+        pairs_block[pair]["slippage_source"] = f"telemetry_n={n_valid}"
 
     cost_table_path.write_text(json.dumps(table, indent=2))
     LOG.info("[telemetry] updated %s", cost_table_path)

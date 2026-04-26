@@ -11,7 +11,6 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import json
 import logging
 import sys
 from pathlib import Path
@@ -67,14 +66,24 @@ def main() -> int:
     )
     args = p.parse_args()
     pairs = [s.strip() for s in args.pairs.split(",") if s.strip()]
+    if not pairs and not args.allow_empty:
+        print(
+            "[cost_table] FAIL: --pairs resolved to an empty list. "
+            "Pass --allow-empty to permit overwriting the cost table with empty content.",
+            file=sys.stderr,
+        )
+        return 1
     out_path = Path(args.out)
-    build_cost_table(pairs=pairs, mt5_root=MT5_DATA_ROOT, out_path=out_path)
-
-    table = json.loads(out_path.read_text())
-    n_built = len(table.get("pairs", {}))
+    n_built = build_cost_table(
+        pairs=pairs,
+        mt5_root=MT5_DATA_ROOT,
+        out_path=out_path,
+        allow_empty=args.allow_empty,
+    )
     if n_built == 0 and not args.allow_empty:
         print(
             "[cost_table] FAIL: zero pairs were built. "
+            f"Existing cost table at {out_path} was NOT overwritten. "
             f"Check MT5_DATA_ROOT={MT5_DATA_ROOT} and that the requested "
             f"parquets exist. Pass --allow-empty to override.",
             file=sys.stderr,

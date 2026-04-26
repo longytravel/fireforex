@@ -12,9 +12,12 @@ import logging
 from datetime import datetime, timezone
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 from .gate_rules import session_of_hour
+
+_HOUR_TO_SESSION: dict[int, str] = {h: session_of_hour(h) for h in range(24)}
 
 LOG = logging.getLogger(__name__)
 
@@ -66,13 +69,17 @@ def _per_session_median_spread_pips(df: pd.DataFrame, pair: str) -> dict[str, fl
     else:
         ts = ts.dt.tz_convert("UTC")
     df["hour"] = ts.dt.hour
-    df["session"] = df["hour"].map(session_of_hour)
+    df["session"] = df["hour"].map(_HOUR_TO_SESSION)
     df["spread_pips"] = df["spread"] / pip
-    df = df[df["spread_pips"].notna() & (df["spread_pips"] >= 0)]
+    # Drop NaN AND +/-inf — the docstring promised non-finite values are
+    # excluded, and a trailing +inf median would poison the JSON output.
+    df = df[np.isfinite(df["spread_pips"]) & (df["spread_pips"] >= 0)]
     if df.empty:
         return {}
     grouped = df.groupby("session")["spread_pips"].median()
-    out = {session: float(round(val, 4)) for session, val in grouped.items()}
+    # Filter NaN out of the dict — json.dumps emits a bare `NaN` token that
+    # is not valid JSON and breaks downstream parsers.
+    out = {session: float(round(val, 4)) for session, val in grouped.items() if pd.notna(val)}
     # Catch the pre-412 "spread already in pips" regression early.
     extreme = {s: v for s, v in out.items() if v > _ABSURD_SPREAD_PIPS}
     if extreme:
@@ -89,11 +96,22 @@ def build_cost_table(
     pairs: list[str],
     mt5_root: Path,
     out_path: Path,
-) -> None:
+    allow_empty: bool = False,
+) -> int:
     """Write a fresh ``cost_table.json`` covering ``pairs`` from MT5 parquets.
 
     Pairs without an MT5 parquet are silently skipped with a logged warning.
+    Returns the number of pairs that were built.
+
+    If ``allow_empty`` is ``False`` (default) and zero pairs were built, the
+    function refuses to overwrite ``out_path`` — a previous valid cost table
+    on disk is preserved instead of being clobbered with an empty stub.
     """
+    if not pairs:
+        if not allow_empty:
+            raise ValueError(
+                "[cost_table] empty `pairs` list and allow_empty=False; refusing to overwrite existing cost table with an empty one."
+            )
     pairs_block: dict[str, dict] = {}
     earliest, latest = None, None
 
@@ -119,6 +137,15 @@ def build_cost_table(
         earliest = ts_min if earliest is None else min(earliest, ts_min)
         latest = ts_max if latest is None else max(latest, ts_max)
 
+    if not pairs_block and not allow_empty:
+        # Never clobber an existing cost table with an empty one — a transient
+        # MT5 outage would otherwise wipe live coverage. Caller must opt in
+        # via allow_empty=True.
+        LOG.warning(
+            "[cost_table] zero pairs built; refusing to overwrite %s (pass allow_empty=True to override).",
+            out_path,
+        )
+        return 0
     table = {
         "schema_version": 1,
         "generated_at": datetime.now(tz=timezone.utc).isoformat(),
@@ -131,3 +158,4 @@ def build_cost_table(
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(table, indent=2))
     LOG.info("[cost_table] wrote %d pairs to %s", len(pairs_block), out_path)
+    return len(pairs_block)

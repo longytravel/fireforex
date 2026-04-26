@@ -73,13 +73,41 @@ def test_missing_parquet_pair_skipped(tmp_path):
     mt5_root = tmp_path / "BackTestData_MT5"
     mt5_root.mkdir()
     out_path = tmp_path / "cost_table.json"
-    ct.build_cost_table(
+    # Default behaviour now refuses to overwrite the file when no pairs were
+    # built — preserves prior valid coverage. Set ``allow_empty=True`` to opt
+    # into the empty-stub for this isolation test.
+    n_built = ct.build_cost_table(
         pairs=["DOES_NOT_EXIST"],
         mt5_root=mt5_root,
         out_path=out_path,
+        allow_empty=True,
     )
+    assert n_built == 0
     table = json.loads(out_path.read_text())
     assert table["pairs"] == {}
+
+
+def test_zero_pairs_built_does_not_clobber_existing_table(tmp_path):
+    """If MT5 is offline / parquets missing, build_cost_table must NOT
+    overwrite a previously valid cost_table.json with an empty stub.
+    Codex round 3 finding."""
+    mt5_root = tmp_path / "BackTestData_MT5"
+    mt5_root.mkdir()
+    out_path = tmp_path / "cost_table.json"
+    # Plant a "previous valid" cost table on disk.
+    out_path.write_text('{"schema_version": 1, "pairs": {"EUR_USD": {"sentinel": true}}}')
+
+    n_built = ct.build_cost_table(
+        pairs=["DOES_NOT_EXIST"],
+        mt5_root=mt5_root,
+        out_path=out_path,
+        # Default: allow_empty=False — refuses to overwrite.
+    )
+
+    assert n_built == 0
+    # Existing file must be untouched.
+    table = json.loads(out_path.read_text())
+    assert table["pairs"]["EUR_USD"]["sentinel"] is True
 
 
 def _write_tz_aware_parquet(path: Path, *, broker_tz: str = "Etc/GMT-2") -> None:

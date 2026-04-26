@@ -55,6 +55,12 @@ def apply(
             continue
         entry = pairs_block[pair]
         ts = row["entry_ts"]
+        # NaT / invalid timestamp → can't pick a session. Pass the row
+        # through unchanged rather than crashing the whole overlay.
+        if pd.isna(ts):
+            LOG.warning("[overlay] invalid entry_ts for %s — passing through unchanged", pair)
+            deltas.append(0.0)
+            continue
         if ts.tzinfo is None:
             ts = ts.tz_localize("UTC")
         else:

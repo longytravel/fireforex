@@ -216,6 +216,19 @@ def _apply_cost_realism(bt_df: pd.DataFrame) -> pd.DataFrame:
     if "pnl_pips" in df.columns and "raw_pnl_pips" not in df.columns:
         df["raw_pnl_pips"] = df["pnl_pips"].astype(float)
 
+    # Guard: required columns must exist before any per-pair fallback logic
+    # runs. Otherwise the slippage block below would raise KeyError on a
+    # missing ``pair`` column, masking the real "schema mismatch" cause.
+    # Silent skip would let the reconcile report look cost-adjusted while
+    # actually showing raw P&L — refuse to ship the report instead.
+    missing = [c for c in ("duka_bt_spread_pips", "raw_pnl_pips", "pair") if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"[reconcile][cost-realism] required column(s) {missing} missing "
+            f"on the BT trades DataFrame; refusing to write a misleading "
+            f"un-adjusted reconcile report. Check the upstream replay output."
+        )
+
     # Slippage telemetry fallback: cost-table default until Task 6.
     if "telemetry_slippage_pips" not in df.columns:
         table: dict = {}
@@ -223,17 +236,6 @@ def _apply_cost_realism(bt_df: pd.DataFrame) -> pd.DataFrame:
             table = json.loads(COST_TABLE_PATH.read_text())
         pair_to_slip = {p: e["slippage_per_side_pips"] for p, e in table.get("pairs", {}).items()}
         df["telemetry_slippage_pips"] = df["pair"].map(pair_to_slip).fillna(0.5)
-
-    # Guard: both required columns must exist before calling gate/overlay.
-    # Silent skip would let the reconcile report look cost-adjusted while
-    # actually showing raw P&L — refuse to ship the report instead.
-    missing = [c for c in ("duka_bt_spread_pips", "raw_pnl_pips") if c not in df.columns]
-    if missing:
-        raise ValueError(
-            f"[reconcile][cost-realism] required column(s) {missing} missing "
-            f"on the BT trades DataFrame; refusing to write a misleading "
-            f"un-adjusted reconcile report. Check the upstream replay output."
-        )
 
     df = bt_gate.apply(df)
     df = _overlay.apply(df, cost_table_path=COST_TABLE_PATH)
