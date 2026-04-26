@@ -335,3 +335,68 @@ def test_usd_major_can_quote_below_cross_floor(tmp_path):
     ct.build_cost_table(pairs=["EUR_USD"], mt5_root=mt5_root, out_path=out_path)
     london = json.loads(out_path.read_text())["pairs"]["EUR_USD"]["sessions"]["London"]["spread_pips"]
     assert 0.05 < london < 0.5
+
+
+def _write_tick_parquet(
+    path: Path,
+    pair: str,
+    *,
+    spread_pips: float,
+    n_ticks: int = 1000,
+) -> None:
+    """Synthesise an MT5-shaped tick parquet with a uniform bid/ask spread."""
+    pip = 0.01 if "JPY" in pair else 0.0001
+    base_price = 100.0 if "JPY" in pair else 1.0
+    base = pd.Timestamp("2026-03-02 10:00:00", tz="UTC")  # Monday, London
+    rows = []
+    for i in range(n_ticks):
+        bid = base_price
+        ask = bid + spread_pips * pip
+        rows.append(
+            {
+                "timestamp": base + pd.Timedelta(milliseconds=i * 100),
+                "bid": bid,
+                "ask": ask,
+                "bid_volume": 1.0,
+                "ask_volume": 1.0,
+            }
+        )
+    pd.DataFrame(rows).to_parquet(path, index=False)
+
+
+def test_tick_parquet_preferred_over_m1(tmp_path):
+    """When both ``{pair}_TICK.parquet`` and ``{pair}_M1.parquet`` exist,
+    the builder must read the tick file (real bid/ask, no floor bias) and
+    tag the entry ``spread_source: "tick"``. Issue #39 motivation: M1
+    ``spread`` is bar-close-tick only and bottoms out at the broker's
+    1-point quote-rounding floor."""
+    mt5_root = tmp_path / "BackTestData_MT5"
+    mt5_root.mkdir()
+    # M1 with a 5-pip spread (intentionally wrong/loud number to prove tick
+    # was preferred, not M1).
+    _write_fixture_parquet(mt5_root / "EUR_USD_M1.parquet", "EUR_USD")
+    # Tick with a clean 0.4-pip uniform spread (realistic IC Markets EUR_USD).
+    _write_tick_parquet(mt5_root / "EUR_USD_TICK.parquet", "EUR_USD", spread_pips=0.4)
+
+    out_path = tmp_path / "cost_table.json"
+    ct.build_cost_table(pairs=["EUR_USD"], mt5_root=mt5_root, out_path=out_path)
+    entry = json.loads(out_path.read_text())["pairs"]["EUR_USD"]
+    assert entry["spread_source"] == "tick"
+    london = entry["sessions"]["London"]["spread_pips"]
+    assert london == pytest.approx(0.4, abs=0.01), (
+        f"expected ~0.4 from tick fixture, got {london} — likely M1 path was used (would have produced 0.1-0.5 from the M1 fixture)"
+    )
+
+
+def test_m1_fallback_when_no_tick_parquet(tmp_path):
+    """When only M1 parquet is present, builder falls back and tags
+    ``spread_source: "m1"`` so downstream readers can distinguish the
+    legacy floor-biased path from the trustworthy tick-derived path."""
+    mt5_root = tmp_path / "BackTestData_MT5"
+    mt5_root.mkdir()
+    _write_fixture_parquet(mt5_root / "EUR_USD_M1.parquet", "EUR_USD")
+
+    out_path = tmp_path / "cost_table.json"
+    ct.build_cost_table(pairs=["EUR_USD"], mt5_root=mt5_root, out_path=out_path)
+    entry = json.loads(out_path.read_text())["pairs"]["EUR_USD"]
+    assert entry["spread_source"] == "m1"

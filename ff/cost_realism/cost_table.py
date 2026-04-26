@@ -1,8 +1,14 @@
-"""Build ``artifacts/cost_table.json`` from MT5 M1 parquets.
+"""Build ``artifacts/cost_table.json`` from MT5 tick or M1 parquets.
 
-Per-pair × per-session median spread (pips), plus a static commission lookup
-keyed by the quote currency, plus a default 0.5 pips slippage that the
-telemetry module overrides as live trades close.
+Prefers ``{pair}_TICK.parquet`` (real bid/ask per quote change — no
+floor bias). Falls back to ``{pair}_M1.parquet`` when ticks aren't on
+disk yet, but flags the resulting entries with ``spread_source: "m1"``
+so downstream readers can distinguish realistic data from the legacy
+floor-biased path. See issue #39 for why M1 ``spread`` is unreliable.
+
+Per-pair × per-session **mean** spread (pips), plus a static commission
+lookup keyed by the quote currency, plus a default 0.5 pips slippage
+that the telemetry module overrides as live trades close.
 """
 
 from __future__ import annotations
@@ -54,16 +60,23 @@ def _pip_value(pair: str) -> float:
 _ABSURD_SPREAD_PIPS: float = 50.0
 #
 # Lower bounds: real IC Markets Raw spreads are bounded below by physical
-# broker quotes. USD-quoted majors can run as tight as ~0.05 pips average;
-# crosses and exotics never undercut ~0.3 pips. Below those floors means
-# the input data is bottoming out at a quote-rounding floor (the symptom of
-# the median-on-floor-biased-distribution bug shipped 2026-04-26 in
-# cost_table.json: every survivor of every pair received a positive
-# overlay_delta because per-session "median" returned the broker's 1-point
-# minimum quote increment, not the realistic typical spread).
+# broker quotes. Below these floors means the input data is bottoming out
+# at a quote-rounding floor — the symptom of the median-on-M1-bar-close
+# bug shipped 2026-04-26, where every cross/exotic session pinned to ~0.1
+# pips because over half of M1 bars closed on the broker's 1-point quote
+# increment.
+#
+# Empirically calibrated against 90-day IC Markets tick history:
+# - USD-majors: liquid-hour means run 0.07-0.18 pips (EUR_USD 0.07,
+#   USD_JPY 0.10, GBP_USD 0.18). Floor 0.05 catches the M1-floor bug
+#   without false-rejecting realistic ultra-tight quotes.
+# - Crosses/exotics: liquid-hour means run 0.18-0.60 pips (EUR_GBP 0.19,
+#   AUD_CAD 0.27, AUD_NZD 0.58). Floor 0.15 catches the M1-floor bug
+#   (which produced ~0.10-0.14 means on every cross) without rejecting
+#   real tight-cross tick data.
 _USD_MAJORS: frozenset[str] = frozenset({"EUR_USD", "GBP_USD", "USD_JPY", "AUD_USD", "USD_CHF", "USD_CAD", "NZD_USD"})
 _TIGHT_SPREAD_FLOOR_USD_MAJOR_PIPS: float = 0.05
-_TIGHT_SPREAD_FLOOR_OTHER_PIPS: float = 0.3
+_TIGHT_SPREAD_FLOOR_OTHER_PIPS: float = 0.15
 
 
 def _tight_spread_floor_pips(pair: str) -> float:
@@ -135,6 +148,41 @@ def _per_session_mean_spread_pips(df: pd.DataFrame, pair: str) -> dict[str, floa
     return out
 
 
+def _load_pair_spread_frame(pair: str, mt5_root: Path) -> tuple[pd.DataFrame, str] | None:
+    """Return ``(df, spread_source)`` for ``pair``, preferring tick data.
+
+    Tick parquet (``{pair}_TICK.parquet``) has bid/ask per tick; spread
+    is computed as ``ask - bid``. When ticks are unavailable, falls back
+    to M1 OHLC (``{pair}_M1.parquet``) which already carries a ``spread``
+    column from the broker bar-close (floor-biased; see issue #39).
+
+    Returns ``None`` if neither parquet exists or both are empty.
+    """
+    tick_path = mt5_root / f"{pair}_TICK.parquet"
+    if tick_path.exists():
+        try:
+            df = pd.read_parquet(tick_path, columns=["timestamp", "bid", "ask"])
+        except Exception as exc:
+            LOG.warning("[cost_table] %s tick parquet unreadable (%s) — falling back to M1", pair, exc)
+        else:
+            if not df.empty:
+                df = df.copy()
+                df["spread"] = df["ask"].astype("float64") - df["bid"].astype("float64")
+                return df[["timestamp", "spread"]], "tick"
+
+    m1_path = mt5_root / f"{pair}_M1.parquet"
+    if m1_path.exists():
+        try:
+            df = pd.read_parquet(m1_path, columns=["timestamp", "spread"])
+        except Exception as exc:
+            LOG.warning("[cost_table] %s M1 parquet unreadable (%s) — skipping", pair, exc)
+            return None
+        if not df.empty:
+            return df, "m1"
+
+    return None
+
+
 def build_cost_table(
     pairs: list[str],
     mt5_root: Path,
@@ -159,14 +207,11 @@ def build_cost_table(
     earliest, latest = None, None
 
     for pair in pairs:
-        path = mt5_root / f"{pair}_M1.parquet"
-        if not path.exists():
-            LOG.warning("[cost_table] missing %s — skipping", path)
+        loaded = _load_pair_spread_frame(pair, mt5_root)
+        if loaded is None:
+            LOG.warning("[cost_table] missing tick/M1 parquet for %s — skipping", pair)
             continue
-        df = pd.read_parquet(path)
-        if df.empty:
-            LOG.warning("[cost_table] empty parquet %s — skipping", path)
-            continue
+        df, spread_source = loaded
         try:
             sessions = _per_session_mean_spread_pips(df, pair)
         except ValueError as exc:
@@ -182,6 +227,7 @@ def build_cost_table(
             "commission_per_side_pips": commission_per_side_pips(pair),
             "slippage_per_side_pips": DEFAULT_SLIPPAGE_PIPS,
             "slippage_source": "default",
+            "spread_source": spread_source,  # "tick" (preferred) or "m1" (legacy floor-biased fallback, see issue #39)
         }
         ts_min, ts_max = pd.to_datetime(df["timestamp"]).min(), pd.to_datetime(df["timestamp"]).max()
         earliest = ts_min if earliest is None else min(earliest, ts_min)

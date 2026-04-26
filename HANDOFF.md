@@ -7,6 +7,16 @@
 ## Goal
 Make Dukascopy backtests show what live IC Markets would actually have made — cost-realism overlay (3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, MT5 session-median spreads, per-pair commission, telemetry-fed slippage), with one source of truth (`gate_rules.py`) shared between the backtest gate and live runner. The UI now decomposes adjusted P&L so users can see *why* adjusted differs from raw.
 
+## Late-afternoon update — MT5 tick downloader resolves cost-realism data quality (PR #42)
+
+The structural floor-bias in MT5 M1 `spread` (issue #39) is sidestepped by switching the cost-table source to **MT5 tick data**. New `ff/data/mt5_tick_downloader.py` pulls per-pair tick history (bid/ask per quote change) via `mt5.copy_ticks_range()` into `{MT5_DATA_ROOT}/{pair}_TICK.parquet`. `ff/cost_realism/cost_table.py` now prefers tick parquets and computes `spread = ask − bid`; entries tagged `spread_source: "tick"` (preferred) or `"m1"` (legacy fallback).
+
+`scripts/fetch_mt5_ticks.py` is the bulk downloader. Verified end-to-end: 28/28 default pairs downloaded (90-day window, 5-7M ticks per major), all 28 in `artifacts/cost_table.json` with realistic per-session spreads. Cross-pair lower-bound floor relaxed from 0.3 to 0.15 pips after calibration against IC Markets tick history.
+
+Last-run summary panel (`app/static/app.js` KPI grid) now shows Adj. pips / Gate save / Cost / Gated cards alongside the raw KPIs, so cost-realism decomposition is visible on the run summary, not just in the History tab.
+
+The earlier 0.1-pip cost-table bug is fully resolved as far as user-visible UI is concerned. The M1 path remains as a documented fallback.
+
 ## Late-afternoon update — paperwork gate now enforces PROGRESS.md too
 
 `.github/workflows/pr-checklist.yml` previously required `HANDOFF.md` (always) and `docs/ARCHITECTURE_MAP.md` (on map-sensitive paths) on any PR touching durable paths. After today's session it caught me forgetting `PROGRESS.md` and `ARCHITECTURE_MAP.md`. Added a parallel rule for `PROGRESS.md` so it is now CI-enforced alongside `HANDOFF.md` on durable PRs. `.claude/rules/workflow.md` Paperwork section updated to match.

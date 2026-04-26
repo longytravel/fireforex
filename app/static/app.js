@@ -933,6 +933,18 @@ function finishRun() {
 
 // ── results ────────────────────────────────────────────────────────────
 
+// Plain-text signed pips for the KPI cards (the History tab uses
+// signedPipsCell for in-table HTML with red/green tint; the cards keep
+// the same format but without colour, to stay consistent with the rest
+// of the summary tiles).
+function fmtSignedPips(v) {
+  if (v == null || Number.isNaN(Number(v))) return '—';
+  const n = Number(v);
+  if (n === 0) return '0';
+  const sign = n > 0 ? '+' : '';
+  return `${sign}${n.toFixed(1)}`;
+}
+
 const KPI_DEFS = [
   { key: 'trades',            label: 'Trades',        fmt: (v) => fmtNum(v, 0) },
   { key: 'win_rate_pct',      label: 'Win rate',      fmt: (v) => v == null ? '—' : `${Number(v).toFixed(1)}%` },
@@ -942,6 +954,13 @@ const KPI_DEFS = [
   { key: 'profit_factor',     label: 'Profit factor', fmt: (v) => v == null ? '—' : Number(v).toFixed(2) },
   { key: 'sharpe',            label: 'Sharpe',        fmt: (v) => v == null ? '—' : Number(v).toFixed(2) },
   { key: 'return_pct',        label: 'Return %',      fmt: (v) => v == null ? '—' : `${Number(v).toFixed(1)}%` },
+  // Cost-realism cards — same fields as the History tab columns, surfaced
+  // on the Last-run summary panel so users do not have to scroll to see
+  // adjusted P&L vs raw on the run they just executed.
+  { key: 'adjusted_total_pips', label: 'Adj. pips', fmt: (v) => fmtNum(v, 1) },
+  { key: 'gate_save_pips',      label: 'Gate save', fmt: (v) => fmtSignedPips(v) },
+  { key: 'cost_overhead_pips',  label: 'Cost',      fmt: (v) => fmtSignedPips(v) },
+  { key: 'n_gated_trades',      label: 'Gated',     fmt: (v) => fmtNum(v, 0) },
 ];
 
 function renderResults(job) {
