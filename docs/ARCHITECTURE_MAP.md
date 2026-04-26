@@ -200,6 +200,10 @@ Stages 1–6 below.
 | Parity calibrator | `scripts/calibrate_for_parity.py` | Multi-pair high-trade-count calibration so live-vs-BT parity can be measured quickly. Optimises `trades / day` (NOT profit) subject to floor sanity. | ✅ | Output: `artifacts/calibration/{pair}_{main_tf}_parity.json` per pair. |
 | End-to-end reconcile stitcher | `scripts/reconcile_live.py` | One command: `replay_service_config` → build live DF → match → write HTML + JSON. Pure glue. | ✅ | The script works; the underlying mismatch is data-source provenance (memory `Reconciliation Mismatch Root Cause`). |
 | Live-day reset | `scripts/reset_live_day.py` | Clean-slate: stop runner, flatten MT5 positions, archive `plans/tickets/state/errors/crashes`. VPS-only. | ✅ | Archives — nothing destroyed; recoverable. Runner stays stopped (deliberate). |
+| Cost-realism package init | `ff/cost_realism/__init__.py` | Package marker for the cost-realism subsystem | ✅ | |
+| Shared 3-and-3 gate rules | `ff/cost_realism/gate_rules.py` | "3-and-3" trade-eligibility filter — 3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, session lookup. Single source of truth shared by BT post-pass and live execution guard so the two can never drift. | ✅ | Used by `bt_gate` (BT post-pass) and `execution_guard` (live runner). |
+| Cost table builder | `ff/cost_realism/cost_table.py` | Build `artifacts/cost_table.json` from MT5 M1 parquets — per-pair × per-session median spread (pips), flat per-side commission, default-then-telemetry-fed slippage. | ✅ | Reads `MT5_DATA_ROOT` parquets; commission is flat 0.35 pips/side until per-pair statement evidence justifies overrides. |
+| Cost table CLI | `scripts/build_cost_table.py` | Operational wrapper around `build_cost_table` for the 28 active pairs | ✅ | Manual refresh: re-run after MT5 history is topped up. |
 | Three-tier data architecture | _(unbuilt)_ | Tag every BT row with provenance (Dukascopy / MT5 / merged) so reconcile can pick the right source per pair | 🔘 | The blocker for 100% match. Cross-listed in Stage 1. |
 | Parity harness as CI gate | _(unbuilt)_ | A PR that drifts live⇄BT beyond threshold fails before merge | 🔘 | Pillar 5. |
 | Drift detector + alert | _(unbuilt)_ | Watch every closed live trade → if drift > threshold, alert (and optionally trigger re-sweep) | 🔘 | Pillar 5. |
@@ -305,6 +309,9 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `tests/test_groups.py` | Pair group headings (Majors, Crosses, Metals…) | ✅ | Static data source of truth for Data tab. |
 | `tests/test_runner_service_multi_instance.py` | Multi-instance deploy pipeline (active.json, deactivation) | ✅ | Covers instance distribution, filename/ID reconciliation. |
 | `tests/test_check_map.py` | Architecture-map completeness checker (substring + glob coverage + self-paths) | ✅ | 8 cases covering `find_unmapped_files` semantics. Hermetic — no repo state required for the unit tests; one smoke test runs `git ls-files`. |
+| `tests/cost_realism/__init__.py` | Package marker for the cost-realism test sub-package | ✅ | |
+| `tests/cost_realism/test_gate_rules.py` | 3-and-3 gate semantics — session boundaries, rollover window, spread / slippage caps, naive-timestamp coercion | ✅ | 6 tests; pure unit, hermetic. |
+| `tests/cost_realism/test_cost_table.py` | Cost-table generator — per-session median spreads from MT5 parquet fixture, missing-pair skip, commission lookup | ✅ | 3 tests; uses synthetic parquet fixtures, hermetic. |
 
 **Coverage gaps** (worth flagging for Pillars 2 + 3):
 
