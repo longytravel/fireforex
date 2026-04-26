@@ -8,6 +8,13 @@
 Make Dukascopy backtests show what live IC Markets would actually have made — cost-realism overlay (3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, MT5 session-median spreads, per-pair commission, telemetry-fed slippage), with one source of truth (`gate_rules.py`) shared between the backtest gate and live runner. The UI now decomposes adjusted P&L so users can see *why* adjusted differs from raw.
 
 ## Completed this session
+- **PR #40 opened** — mega brute-force sweep foundation:
+  - Signal libraries now cache contiguous per-variant slices (`variant_start` / `variant_end`).
+  - Rust `batch_evaluate` auto-detects variant-contiguous arrays and evaluates only the chosen variant slice instead of scanning the whole pooled library.
+  - Lean chunked sweep mode now handles large runs with compact `.npy` metrics sidecars and retained best-by-metric PnL/trial details.
+  - Web/API trial cap is raised to 50M; rich artifacts remain capped at 50k and `auto` switches large runs to lean mode.
+  - Run page scatter/trial APIs read lean metrics sidecars and retained trial curves.
+  - Verification: focused pytest suite `34 passed, 6 skipped`, Rust `cargo test` `12 passed`, lean smoke run on temp parquet/artifacts, synthetic scan-heavy benchmark about `7.7x` faster for variant-sorted vs interleaved fallback.
 - **PR #31 merged** as commit `63a3faa` — full cost-realism subsystem (5 PRs bundled): BT post-pass gate/overlay, cost table, telemetry-fed slippage, live execution guard sharing `ff/cost_realism/gate_rules.py`.
 - **PR #35 merged** as commit `c6c66da` — History tab now shows:
   - `Adj. pips` — `adjusted_total_pips` after overlay
@@ -26,6 +33,7 @@ Make Dukascopy backtests show what live IC Markets would actually have made — 
 - **Issue #32** — `MatchedRow` propagation in `ff/live/reconcile.py:82`. This is the smallest cost-realism follow-up: matched live-vs-BT rows still need the new overlay/gate columns carried into the reconcile headline report.
 - **Issue #33** — live guard reads stale closed-bar spread, not the submit-time tick. Needs fresh `mt5.symbol_info_tick` immediately before broker submit.
 - **Issue #34** — post-fill slippage cap is documented but not enforced after order fill.
+- **Mega brute-force follow-ups** — lean mode currently retains detailed PnL for best-by-metric candidates, but arbitrary non-retained trial clicks show metrics with an empty equity curve. Next speed layer is a metrics-only Rust kernel plus deterministic trial reconstruction for exact replay of any trial ID.
 - **Three older scanner findings:** #12 path traversal in `app/routes.py`, #13 out-of-bounds `sig_bar_index`, #14 metric key mismatch (`win_rate` vs `win_rate_pct`).
 - **Backport the live runner's forming-candle fix** into the BT engine.
 - **Docs sweep** — markdownlint MD040 in `docs/superpowers/specs/*` and `docs/superpowers/plans/*`, stale `is_news_window` placeholder reference, session-name canonicalisation.
@@ -42,7 +50,8 @@ Make Dukascopy backtests show what live IC Markets would actually have made — 
 2. Run `git checkout main && git pull --ff-only origin main` before new work. If local runtime artifacts are dirty, stash them first.
 3. Pick up issue #32 (`MatchedRow` cost-realism column propagation).
 4. Then issues #33 and #34.
-5. Then the deferred docs sweep.
+5. If PR #40 has merged, smoke a real Level 10 run from the Run page with `n_trials > 50_000` so `artifact_mode=auto` exercises lean mode on real data.
+6. Then the deferred docs sweep.
 
 ## Useful Commands
 - Merge a green PR safely: `bash scripts/merge_pr.sh <PR#>`
@@ -50,4 +59,4 @@ Make Dukascopy backtests show what live IC Markets would actually have made — 
 - Sync main safely: `bash scripts/sync_main.sh`
 
 ## In Flight
-- Docs/tooling guardrail refresh only (`docs/pr35-handoff-automerge-guardrails`).
+- PR #40 (`feat/mega-brute-sweep-engine`) — mega brute-force implementation branch, separate from Claude's cost-table/live-reconcile worktree.
