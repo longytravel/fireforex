@@ -1,4 +1,5 @@
-"""Build ``artifacts/cost_table.json`` from MT5 tick or M1 parquets.
+"""Build ``artifacts/cost_table.json`` from MT5 tick or M1 parquets,
+and expose lookup helpers for the optimiser.
 
 Prefers ``{pair}_TICK.parquet`` (real bid/ask per quote change — no
 floor bias). Falls back to ``{pair}_M1.parquet`` when ticks aren't on
@@ -181,6 +182,69 @@ def _load_pair_spread_frame(pair: str, mt5_root: Path) -> tuple[pd.DataFrame, st
             return df, "m1"
 
     return None
+
+
+# Liquid sessions used for the optimiser's per-trade overlay-charge
+# proxy. NY is excluded because IC spreads widen sharply during the US
+# afternoon (e.g. AUD_NZD: 0.6 pips Asian/London, 3.4 pips NY) and that
+# tail would dominate the aggregate. Rollover is excluded because
+# trades there are blocked by the 3-and-3 gate anyway.
+_LIQUID_SESSIONS_FOR_PROXY: tuple[str, ...] = ("Asian", "London", "Lon-NY")
+
+# Aggregate Dukascopy commission proxy used by the optimiser pick-best
+# overlay charge. Per-bar Dukascopy spread varies trial-by-trial and is
+# not available at the time of pick_best, so we treat the bt-cost side
+# as commission-only (the engine already applies Dukascopy spread
+# inside the fills). The signed difference between this constant and
+# the IC real-cost-RT captures the trial-invariant part of the overlay.
+_BT_COMMISSION_PROXY_RT_PIPS: float = 2 * 0.3
+
+
+def per_trade_overlay_charge_pips(pair: str, cost_table_path: Path) -> float:
+    """Aggregate per-trade overlay charge (RT pips) for ``pair``.
+
+    Returns ``bt_cost_rt − real_cost_rt`` averaged across the liquid
+    sessions in ``cost_table.json``. Sign matches the cost-realism
+    overlay's ``Cost`` column: positive means Dukascopy was over-charging
+    vs IC (so the realistic P&L is *higher* than the BT P&L); negative
+    means under-charging (realistic P&L is *lower*).
+
+    Used by ``ff.harness.pick_best`` to rank trials by IC-aligned
+    adjusted P&L (``total_pnl + n_trades * charge``) instead of raw
+    Dukascopy quality. Returns ``0.0`` — and lets ``pick_best`` fall
+    back to its default objective — if the cost table is missing or
+    has no entry for the pair.
+
+    The exact per-trade overlay (``ff.cost_realism.overlay``) varies
+    by Dukascopy bar spread, which is not observable from
+    summary metrics. This aggregate proxy ranks trials nearly
+    identically to the true overlay because the per-trial cost
+    adjustment is roughly constant within a single-pair sweep.
+    """
+    if not cost_table_path.exists():
+        return 0.0
+    try:
+        table = json.loads(cost_table_path.read_text())
+    except (OSError, ValueError) as exc:
+        LOG.warning("[cost_table] cannot read %s for pick_best charge: %s", cost_table_path, exc)
+        return 0.0
+
+    pair_block = (table.get("pairs") or {}).get(pair)
+    if pair_block is None:
+        return 0.0
+    sessions = pair_block.get("sessions") or {}
+    spreads = [
+        sessions[s].get("spread_pips")
+        for s in _LIQUID_SESSIONS_FOR_PROXY
+        if s in sessions and isinstance(sessions[s].get("spread_pips"), (int, float))
+    ]
+    if not spreads:
+        return 0.0
+    real_spread_rt = float(sum(spreads) / len(spreads))
+    commission_rt = 2 * float(pair_block.get("commission_per_side_pips", commission_per_side_pips(pair)))
+    slippage_rt = 2 * float(pair_block.get("slippage_per_side_pips", DEFAULT_SLIPPAGE_PIPS))
+    real_cost_rt = real_spread_rt + commission_rt + slippage_rt
+    return _BT_COMMISSION_PROXY_RT_PIPS - real_cost_rt
 
 
 def build_cost_table(

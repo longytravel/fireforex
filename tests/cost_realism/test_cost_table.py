@@ -400,3 +400,114 @@ def test_m1_fallback_when_no_tick_parquet(tmp_path):
     ct.build_cost_table(pairs=["EUR_USD"], mt5_root=mt5_root, out_path=out_path)
     entry = json.loads(out_path.read_text())["pairs"]["EUR_USD"]
     assert entry["spread_source"] == "m1"
+
+
+# ── per_trade_overlay_charge_pips ──────────────────────────────────────
+
+
+def _write_charge_fixture_table(path: Path, *, pair: str, sessions: dict[str, float]) -> None:
+    """Minimal cost-table-shaped JSON for the optimiser charge helper."""
+    payload = {
+        "schema_version": 1,
+        "pairs": {
+            pair: {
+                "sessions": {s: {"spread_pips": v} for s, v in sessions.items()},
+                "commission_per_side_pips": 0.35,
+                "slippage_per_side_pips": 0.5,
+                "slippage_source": "default",
+                "spread_source": "tick",
+            }
+        },
+    }
+    path.write_text(json.dumps(payload))
+
+
+def test_charge_helper_returns_zero_when_table_missing(tmp_path):
+    """No cost_table.json on disk → helper returns 0.0 so pick_best
+    falls back to the legacy Quality objective."""
+    assert ct.per_trade_overlay_charge_pips("AUD_NZD", tmp_path / "missing.json") == 0.0
+
+
+def test_charge_helper_returns_zero_when_pair_missing(tmp_path):
+    """Cost table exists but pair has no entry → 0.0."""
+    path = tmp_path / "cost_table.json"
+    _write_charge_fixture_table(
+        path,
+        pair="EUR_USD",
+        sessions={"Asian": 0.1, "London": 0.1, "Lon-NY": 0.1, "NY": 0.1, "Rollover": 0.5},
+    )
+    assert ct.per_trade_overlay_charge_pips("AUD_NZD", path) == 0.0
+
+
+def test_charge_helper_returns_zero_when_no_liquid_sessions(tmp_path):
+    """Only NY/Rollover present → no liquid sessions → 0.0 (safe fallback)."""
+    path = tmp_path / "cost_table.json"
+    _write_charge_fixture_table(
+        path,
+        pair="AUD_NZD",
+        sessions={"NY": 3.0, "Rollover": 1.0},
+    )
+    assert ct.per_trade_overlay_charge_pips("AUD_NZD", path) == 0.0
+
+
+def test_charge_helper_aud_nzd_is_negative_with_real_session_means(tmp_path):
+    """AUD_NZD with the empirically observed 90-day session means produces
+    a charge near ``0.6 - (0.61 + 0.7 + 1.0) ≈ -1.71`` pips/trade.
+
+    Sign matches the cost-realism overlay's ``Cost`` column convention:
+    negative means Dukascopy under-charged the BT (so realistic-live
+    P&L is *lower* than the BT P&L). Optimiser correctly penalises
+    high-trade-count strategies.
+    """
+    path = tmp_path / "cost_table.json"
+    _write_charge_fixture_table(
+        path,
+        pair="AUD_NZD",
+        sessions={"Asian": 0.58, "London": 0.58, "Lon-NY": 0.67, "NY": 3.37, "Rollover": 0.60},
+    )
+    charge = ct.per_trade_overlay_charge_pips("AUD_NZD", path)
+    expected = 2 * 0.3 - ((0.58 + 0.58 + 0.67) / 3 + 2 * 0.35 + 2 * 0.5)
+    assert charge == pytest.approx(expected, abs=1e-9)
+    assert charge < 0.0
+
+
+def test_charge_helper_positive_when_bt_overcharges(tmp_path):
+    """Hypothetical scenario: zero IC spread and zero IC slippage →
+    bt_commission_proxy_rt (0.6) - real_cost_rt (0 + 0.7 + 0) = -0.1.
+
+    Build a fixture with negligible real cost (slippage=0,
+    commission=0.05/side, spread≈0) and check the helper returns a
+    positive charge — i.e. it would credit the BT P&L because IC is
+    cheaper than the BT proxy. Confirms sign mechanics across the
+    domain, not just on the realistic AUD_NZD case.
+    """
+    path = tmp_path / "cost_table.json"
+    payload = {
+        "schema_version": 1,
+        "pairs": {
+            "TST_PAIR": {
+                "sessions": {
+                    "Asian": {"spread_pips": 0.01},
+                    "London": {"spread_pips": 0.01},
+                    "Lon-NY": {"spread_pips": 0.01},
+                },
+                "commission_per_side_pips": 0.05,
+                "slippage_per_side_pips": 0.0,
+                "slippage_source": "default",
+                "spread_source": "tick",
+            }
+        },
+    }
+    path.write_text(json.dumps(payload))
+    charge = ct.per_trade_overlay_charge_pips("TST_PAIR", path)
+    expected = 2 * 0.3 - (0.01 + 2 * 0.05 + 2 * 0.0)
+    assert charge == pytest.approx(expected, abs=1e-9)
+    assert charge > 0.0
+
+
+def test_charge_helper_handles_corrupt_json(tmp_path):
+    """Corrupt cost_table.json → log a warning and return 0.0 (do not
+    abort the harness)."""
+    path = tmp_path / "cost_table.json"
+    path.write_text("{not valid json")
+    assert ct.per_trade_overlay_charge_pips("AUD_NZD", path) == 0.0
