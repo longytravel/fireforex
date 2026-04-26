@@ -1497,7 +1497,7 @@ function costRealismBadge(status) {
     failed: ['bg-rose-500/20 text-rose-300',       'overlay raised — adjusted col fell back to raw'],
   };
   const [cls, hint] = map[status] || ['bg-slate-500/20 text-slate-400', status];
-  return `<span class="px-1.5 py-0.5 rounded ${cls}" title="${hint}">${status}</span>`;
+  return `<span class="px-1.5 py-0.5 rounded ${cls}" title="${escapeHtml(hint)}">${escapeHtml(status)}</span>`;
 }
 function costRealismCell(r) {
   // Tint the adjusted-pips cell red if the overlay failed — otherwise
@@ -1512,9 +1512,11 @@ function signedPipsCell(v) {
   if (v === undefined || v === '' || v === null) return '<span class="text-slate-500">—</span>';
   const n = +v;
   if (!Number.isFinite(n)) return '<span class="text-slate-500">—</span>';
-  const cls = n > 0 ? 'text-emerald-300' : (n < 0 ? 'text-rose-300' : 'text-slate-400');
-  const sign = n > 0 ? '+' : '';
-  return `<span class="${cls}">${sign}${n.toFixed(0)}</span>`;
+  const rounded = Math.round(n);
+  const display = Object.is(rounded, -0) ? 0 : rounded;
+  const cls = display > 0 ? 'text-emerald-300' : (display < 0 ? 'text-rose-300' : 'text-slate-400');
+  const sign = display > 0 ? '+' : '';
+  return `<span class="${cls}">${sign}${display}</span>`;
 }
 function integerCell(v) {
   if (v === undefined || v === '' || v === null) return '—';
@@ -1540,7 +1542,7 @@ async function refreshHistory() {
         <td class="px-3 py-1.5 text-slate-400">${escapeHtml(r.pair)}/${escapeHtml(r.main_tf)}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${escapeHtml(r.n_trials || '')}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${r.total_pips ? (+r.total_pips).toFixed(0) : '—'}</td>
-        <td class="px-3 py-1.5 text-right tabular-nums ${costRealismCell(r)}">${r.adjusted_total_pips !== undefined && r.adjusted_total_pips !== '' ? (+r.adjusted_total_pips).toFixed(0) : '—'}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums ${costRealismCell(r)}">${integerCell(r.adjusted_total_pips)}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${signedPipsCell(r.gate_save_pips)}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${signedPipsCell(r.cost_overhead_pips)}</td>
         <td class="px-3 py-1.5 text-right tabular-nums text-slate-400">${integerCell(r.n_gated_trades)}</td>
