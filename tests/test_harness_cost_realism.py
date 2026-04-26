@@ -51,6 +51,18 @@ def test_harness_npz_carries_cost_realism_keys(tmp_path):
     assert "adjusted_pnl_total_pips" in npz.files, "missing adjusted_pnl_total_pips"
     assert "n_gated_trades" in npz.files, "missing n_gated_trades"
     assert "cost_realism_status" in npz.files, "missing cost_realism_status"
+    assert "gate_save_pips" in npz.files, "missing gate_save_pips"
+    assert "cost_overhead_pips" in npz.files, "missing cost_overhead_pips"
+
+    # Decomposition identity: adjusted = total + gate_save + cost_overhead.
+    # Tolerate float-arithmetic noise but flag any structural drift.
+    total = float(npz["pnl"].sum())
+    adj = float(npz["adjusted_pnl_total_pips"])
+    gate = float(npz["gate_save_pips"])
+    overhead = float(npz["cost_overhead_pips"])
+    assert abs(adj - (total + gate + overhead)) < 0.05, (
+        f"decomposition broken: adj={adj!r} total={total!r} gate={gate!r} overhead={overhead!r}"
+    )
 
     assert np.isfinite(float(npz["adjusted_pnl_total_pips"])), "adjusted_pnl_total_pips is not finite"
 

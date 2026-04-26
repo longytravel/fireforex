@@ -1505,6 +1505,17 @@ function costRealismCell(r) {
   // what the cost_realism_status="failed" marker is there to flag.
   return r.cost_realism_status === 'failed' ? 'text-rose-300' : '';
 }
+function signedPipsCell(v) {
+  // Render gate_save / cost_overhead as a signed integer with green/red
+  // tint. Empty / NaN show "—". A leading + sign on positives makes the
+  // sign visible at a glance — these columns can swing either way.
+  if (v === undefined || v === '' || v === null) return '<span class="text-slate-500">—</span>';
+  const n = +v;
+  if (!Number.isFinite(n)) return '<span class="text-slate-500">—</span>';
+  const cls = n > 0 ? 'text-emerald-300' : (n < 0 ? 'text-rose-300' : 'text-slate-400');
+  const sign = n > 0 ? '+' : '';
+  return `<span class="${cls}">${sign}${n.toFixed(0)}</span>`;
+}
 
 async function refreshHistory() {
   try {
@@ -1525,6 +1536,8 @@ async function refreshHistory() {
         <td class="px-3 py-1.5 text-right tabular-nums">${escapeHtml(r.n_trials || '')}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${r.total_pips ? (+r.total_pips).toFixed(0) : '—'}</td>
         <td class="px-3 py-1.5 text-right tabular-nums ${costRealismCell(r)}">${r.adjusted_total_pips !== undefined && r.adjusted_total_pips !== '' ? (+r.adjusted_total_pips).toFixed(0) : '—'}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums">${signedPipsCell(r.gate_save_pips)}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums">${signedPipsCell(r.cost_overhead_pips)}</td>
         <td class="px-3 py-1.5 text-right tabular-nums text-slate-400">${r.n_gated_trades !== undefined && r.n_gated_trades !== '' ? r.n_gated_trades : '—'}</td>
         <td class="px-3 py-1.5 text-center text-[11px]">${costRealismBadge(r.cost_realism_status)}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${r.max_dd_pct ? (+r.max_dd_pct).toFixed(1) : '—'}</td>

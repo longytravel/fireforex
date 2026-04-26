@@ -863,6 +863,15 @@ def run(
     # adjusted_total_pips fell back to raw — readers must NOT treat as adjusted).
     adjusted_total_pips: float = total_pips
     n_gated_trades: int = 0
+    # Decomposition fields so the UI can show *why* adjusted differs from raw.
+    # gate_save_pips = -sum(raw_pnl on gated trades) — positive when gated trades
+    #                  were net losers (the gate "saved" you from them).
+    # cost_overhead_pips = sum(overlay_delta_pips on survivors) — typically
+    #                  negative because real costs (IC Markets spread + commission
+    #                  + slippage) exceed BT engine costs.
+    # Identity: adjusted = total + gate_save + cost_overhead.
+    gate_save_pips: float = 0.0
+    cost_overhead_pips: float = 0.0
     trades_best_with_cr = np.frombuffer(b"[]", dtype=np.uint8)  # default — empty JSON when overlay skipped
     cost_realism_status: str = "empty"
     cost_table_path = Path(__file__).resolve().parent.parent / "artifacts" / "cost_table.json"
@@ -889,6 +898,9 @@ def run(
             cr_df = overlay.apply(cr_df, cost_table_path=cost_table_path)
             adjusted_total_pips = float(cr_df["adjusted_pnl_pips"].sum())
             n_gated_trades = int(cr_df["gated_out_reason"].notna().sum())
+            gated_mask = cr_df["gated_out_reason"].notna()
+            gate_save_pips = -float(cr_df.loc[gated_mask, "raw_pnl_pips"].sum())
+            cost_overhead_pips = float(cr_df.loc[~gated_mask, "overlay_delta_pips"].sum())
             # Persist the enriched DataFrame as a JSON string so downstream
             # NPZ readers can re-hydrate it without dtype/pickle issues.
             trades_best_with_cr = np.frombuffer(
@@ -995,6 +1007,8 @@ def run(
         adjusted_pnl_total_pips=np.float64(adjusted_total_pips),
         n_gated_trades=np.int64(n_gated_trades),
         cost_realism_status=np.array(cost_realism_status),
+        gate_save_pips=np.float64(gate_save_pips),
+        cost_overhead_pips=np.float64(cost_overhead_pips),
     )
     print(f"[save] run data → {run_file.name}")
 
@@ -1019,6 +1033,8 @@ def run(
         "adjusted_total_pips": round(adjusted_total_pips, 1),
         "n_gated_trades": n_gated_trades,
         "cost_realism_status": cost_realism_status,
+        "gate_save_pips": round(gate_save_pips, 1),
+        "cost_overhead_pips": round(cost_overhead_pips, 1),
         "expectancy_pips": round(expectancy_pips, 3),
         "max_dd_pct": round(float(metrics_out[best, 5]), 3),
         "profit_factor": round(float(metrics_out[best, 2]), 4),

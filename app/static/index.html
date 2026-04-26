@@ -408,6 +408,8 @@
                 <th class="text-right px-3 py-2">Trials</th>
                 <th class="text-right px-3 py-2">Total pips</th>
                 <th class="text-right px-3 py-2" title="Total pips after the cost-realism overlay (3-pip spread cap, 3-pip slippage cap, 21–24 UTC rollover skip, MT5 session-median spreads, per-pair commission)">Adj. pips</th>
+                <th class="text-right px-3 py-2" title="Pips saved by the gate dropping bad-cost trades. = -sum(raw pnl on gated trades). Positive when gated trades were net losers.">Gate save</th>
+                <th class="text-right px-3 py-2" title="Real-cost overhead on surviving trades. = sum(bt_cost - real_cost) on non-gated trades. Typically negative — IC Markets spread+commission+slippage exceeds Dukascopy BT defaults.">Cost</th>
                 <th class="text-right px-3 py-2" title="Number of trades dropped by the cost-realism gate (rollover / spread / slippage)">Gated</th>
                 <th class="text-center px-3 py-2" title="Cost-realism overlay status: ok = applied, empty = no trades on best trial, failed = overlay raised; adjusted column fell back to raw">CR</th>
                 <th class="text-right px-3 py-2">DD %</th>
