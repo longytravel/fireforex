@@ -22,6 +22,7 @@ fi
 REPO=$(gh repo view --json nameWithOwner -q .nameWithOwner)
 OWNER="${REPO%/*}"
 NAME="${REPO#*/}"
+HEAD_BRANCH=$(gh pr view "$PR" --json headRefName -q .headRefName)
 
 echo ">> fetching review threads on PR #$PR"
 THREADS=$(gh api graphql -f query='
@@ -56,7 +57,32 @@ echo ">> waiting for CI on PR #$PR"
 gh pr checks "$PR" --watch --fail-fast
 
 echo ">> squash-merging PR #$PR"
-gh pr merge "$PR" --squash --delete-branch
+if gh pr merge "$PR" --squash --delete-branch; then
+  echo "   merged directly"
+else
+  echo "   direct merge blocked; enabling/queueing auto-merge"
+  if [[ "$(gh repo view "$REPO" --json viewerCanAdminister -q .viewerCanAdminister)" == "true" ]]; then
+    gh repo edit "$REPO" --enable-auto-merge >/dev/null
+  fi
+  gh pr merge "$PR" --squash --delete-branch --auto
+
+  echo ">> waiting for auto-merge to land"
+  for _ in {1..60}; do
+    STATE=$(gh pr view "$PR" --json state -q .state)
+    [[ "$STATE" == "MERGED" ]] && break
+    sleep 10
+  done
+  if [[ "$(gh pr view "$PR" --json state -q .state)" != "MERGED" ]]; then
+    echo "error: PR #$PR is queued for auto-merge but has not merged yet" >&2
+    gh pr view "$PR" --json mergeStateStatus,autoMergeRequest,url
+    exit 1
+  fi
+fi
+
+if [[ -n "$HEAD_BRANCH" ]] && git ls-remote --exit-code --heads origin "$HEAD_BRANCH" >/dev/null 2>&1; then
+  echo ">> deleting merged remote branch $HEAD_BRANCH"
+  git push origin --delete "$HEAD_BRANCH" >/dev/null || true
+fi
 
 git checkout main
 git pull --ff-only origin main

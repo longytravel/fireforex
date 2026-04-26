@@ -1,67 +1,67 @@
 ---
-description: PR workflow and PROGRESS.md maintenance — keeps the user out of the loop
+description: Agent-owned PR workflow and lightweight paperwork
 ---
 
 # Workflow
 
-## PR cycle (small changes can still land on main direct; big changes go PR)
-1. Branch: `feat/<slug>` or `fix/<slug>` for non-trivial work. One-line fixes and docs can land on main.
-2. Red → green → refactor. Failing test first when feasible.
-3. Pre-commit runs on every commit; fix its complaints.
-4. Before opening PR, run the pre-PR ritual:
-   - `/simplify` — housekeeping on the diff
-   - `/code-review` — catch bugs on the diff
-   - Codex mini review — second opinion via `codex exec -m gpt-5.4-mini --config model_reasoning_effort="high" --sandbox read-only`
-   - **Skip the ritual entirely for docs-only PRs (`*.md` or `docs/*` only)** — the checklist CI auto-skips, and `/simplify` / Codex on prose adds nothing.
-5. Paste review outputs into the PR body. (Docs-only PRs: skip this section, just describe what changed.)
-6. Open PR with `gh pr create --fill`. CodeRabbit + Gemini Code Assist auto-review.
-7. Address anything flagged; squash-merge with `gh pr merge --squash --delete-branch`.
+## Operating Principle
 
-## Reviewer priority — CodeRabbit primary, Gemini secondary
-- **CodeRabbit is the gating reviewer.** Its catches have already saved real money once (PR #20 caught me about to delete the live trading instances). Address every CodeRabbit thread before merge.
-- **Gemini Code Assist is the second opinion.** Useful but lower-priority — when its suggestion contradicts CodeRabbit, follow CodeRabbit unless Gemini's reasoning is materially stronger. Resolve threads with a brief reply when overruling.
-- For docs-only PRs, Gemini's nits (mermaid quoting, prose tightening) are optional.
+The user sets direction; the agent owns execution. Do not ask the user to watch CI, press merge, tick checkboxes, resolve review threads, or read reviewer output. The agent should run the workflow end to end: code, test, PR, review fixes, merge, sync, and update paperwork.
 
-## Combine related phases into bigger PRs
-- One logical task ≠ one PR per phase. The architecture stocktake shipped in 7 PRs (#16, #18, #19, #20, #21, #22, #23) when it could have shipped in 3-4. Each PR cycle costs ~5-10 minutes of CI + review wait.
-- **Rule of thumb:** if multiple phases touch the same file, are all docs-only, or are all under ~300 added lines, bundle them. Split when the diff exceeds ~500 lines or crosses a clear boundary (docs ↔ code, code ↔ infra).
-- Stacked PRs (one branch on top of another) are fragile — when the base branch merges via squash, GitHub auto-closes the stacked PR. Prefer a fresh branch off `main` after each merge.
+## PR Cycle
 
-## Before writing ANY new script — check `docs/ARCHITECTURE_MAP.md` first
-- The map is the single source of truth for what tooling already exists. It is built and audited deliberately. **`grep -i <topic> docs/ARCHITECTURE_MAP.md`** before creating a new file under `scripts/`. Pillars like reconcile / forensic / parity / data-fetch all already have canonical scripts (`reconcile_live.py`, `build_forensic_report.py`, `build_trade_comparison.py`, `import_mt5_report.py`, `mt5_status.py`, etc.).
-- If a script already does the job: use it and improve it if needed — don't write a parallel copy.
-- If you genuinely need a new script: add a row to the map in the same PR. `python scripts/check_map.py` enforces this on session-end.
+1. Branch from fresh `main` for non-trivial work: `feat/<slug>`, `fix/<slug>`, or `docs/<slug>`.
+2. Implement the change and run focused verification. Use broader tests when the blast radius is wide.
+3. Open the PR with a plain-English summary and the important verification commands. PR-body checklist text is advisory; CI, reviewers, and the paperwork audit are the real gates.
+4. Let CodeRabbit, Gemini Code Assist, and GitHub CI run.
+5. The agent reads reviewer output, fixes real findings, replies/resolves threads, and ignores or documents non-actionable nits.
+6. Merge with the Windows-native helper:
+   - `powershell -ExecutionPolicy Bypass -File scripts/merge_pr.ps1 <PR#>`
+7. If PowerShell is unavailable, use:
+   - `bash scripts/merge_pr.sh <PR#>`
 
-## Three scripts that kill the mid-task stops
-- **`bash scripts/finalize_pr.sh "<commit-message>"`** — `ruff format` + `git add -A` + `git commit` + `git push`. One stop instead of three (no more "pre-commit reformatted, re-stage, re-commit" loops). Refuses to commit directly to `main`.
-- **`bash scripts/merge_pr.sh <PR#>`** — resolves every review thread via GraphQL, waits for CI green, squash-merges, deletes branch, syncs local `main`. One stop instead of four. Assumes comments are addressed; CI / branch protection is the real gate.
-- **`bash scripts/sync_main.sh [--force-reset]`** — re-syncs local `main` to origin/main. Default ff-only; `--force-reset` is the curated escape hatch when local `main` has drifted with stale commits (the deny list correctly blocks `git reset --hard` for ad-hoc use).
+Both merge helpers resolve review threads, wait for checks, squash-merge, queue auto-merge if direct merge is blocked, wait for the merge to land, delete leftover branches, and sync local `main`.
 
-## MT5 — direct-query conventions (no manual export)
-- **Trade history:** `scripts/import_mt5_report.py` (or `scripts/desktop/Import MT5 Report.bat`) hits the running MT5 terminal via the `MetaTrader5` Python package and pulls the last `--days` (default 14) of closed trades. No HTML export, no Desktop dropping.
-- **Live state:** `scripts/mt5_status.py` (or `scripts/desktop/Show MT5 Status.bat`) — account balance / equity / floating P&L, every open position with unrealised P&L + SL + TP, every pending order, live spread + swap per symbol. `--save` writes a JSON snapshot.
-- **Output location:** `artifacts/live/incoming/mt5_history_<stamp>.{csv,json}` and `mt5_status_<stamp>.json`. Gitignored — runtime artifacts, not committed.
-- **Timezone:** MT5 timestamps are broker-local (IC Markets ~ GMT+2/+3). Both scripts compute the broker→UTC offset on connect (probe a live EURUSD tick vs wall-clock UTC, same pattern as `ff/live/broker_mt5.py`) and convert before formatting. **Never trust raw MT5 `time` fields as UTC.**
-- After import, the next step is reconcile against backtest replay (Pillar 5 work). The summary print catches obvious parity gaps at a glance.
+## Reviewer Priority
 
-## PROGRESS.md — I keep it current so the user doesn't have to
-- When a PR merges to main: if the work matches an unchecked item in `PROGRESS.md`, tick it in the same session.
-- When a new milestone emerges worth tracking, add a line and tick it once shipped.
-- If unsure whether a change is a "milestone" — a milestone is something the user would describe out loud as "a thing we finished". Not every commit counts.
-- Never rewrite or reorder PROGRESS. Only tick boxes and append new lines.
+- **CodeRabbit is primary.** Treat actionable CodeRabbit findings as real until proven otherwise.
+- **Gemini Code Assist is secondary.** Fix concrete bugs. Resolve stale/outdated threads once the code has moved past them.
+- If the reviewers disagree, follow the stronger technical reasoning and leave a short PR comment if needed.
 
-## GitHub issues — I track them, the user doesn't have to
-- The SessionStart hook injects `gh issue list --state open` so I see open issues at every session start.
-- When CodeRabbit / Gemini / Codex / CodeQL flag a real pre-existing bug on a PR, I open a GitHub issue (don't bury it in the PR thread that vanishes after merge).
-- After a PR merges, I review the issue list and tick anything the PR closed (use `Closes #N` in PR descriptions to auto-close).
-- The user never has to look at the issue list — if they ask "what bugs do we have?", I read what the SessionStart snapshot gave me.
+## Keep Friction Low
 
-## HANDOFF.md — refreshed before session end
-- HANDOFF is refreshed before session end (run `/handoff` or rewrite it directly).
-- No Stop-hook gating: just remember to update it.
+- Do not run the old three-reviewer pre-PR ritual by default. Use it only for risky or ambiguous diffs.
+- Do not block on PR-body formatting. The checklist workflow warns on hygiene issues but should not fail for missing ritual text.
+- Do not use Stop hooks for paperwork. PR-time paperwork audit enforces durable updates without interrupting local work. Update `HANDOFF.md`, `PROGRESS.md`, and `ARCHITECTURE_MAP.md` directly when the task changes durable project state.
+- Prefer PowerShell scripts on this Windows repo. Shell scripts remain available for Git Bash, but they are not the primary path.
 
-## Commit messages — Conventional Commits
+## Before Writing New Scripts
+
+Check `docs/ARCHITECTURE_MAP.md` first. If a script already does the job, use or improve it. If a new script is genuinely needed, add it to the map in the same PR.
+
+## Useful Scripts
+
+- `powershell -ExecutionPolicy Bypass -File scripts/merge_pr.ps1 <PR#>` — preferred PR merge path on Windows.
+- `bash scripts/merge_pr.sh <PR#>` — same PR merge flow for Git Bash.
+- `bash scripts/finalize_pr.sh "<commit-message>"` — format + commit + push helper for Git Bash sessions.
+- `bash scripts/sync_main.sh [--force-reset]` — sync local `main`; use only after preserving local dirty runtime artifacts.
+
+## MT5 Direct-Query Conventions
+
+- Trade history: `scripts/import_mt5_report.py` or `scripts/desktop/Import MT5 Report.bat`.
+- Live state: `scripts/mt5_status.py` or `scripts/desktop/Show MT5 Status.bat`.
+- Output goes under `artifacts/live/incoming/` and is runtime data, not PR content.
+- MT5 timestamps are broker-local. Scripts compute broker-to-UTC offset; never trust raw MT5 `time` fields as UTC.
+
+## Paperwork
+
+- `PROGRESS.md`: append/tick only for real milestones.
+- `HANDOFF.md`: refresh before ending a substantial session.
+- `docs/ARCHITECTURE_MAP.md`: update when tracked files, ownership, or durable behavior changes.
+
+## Commit Messages
+
 - `feat(scope): add X`
 - `fix(scope): correct Y`
+- `docs: refresh workflow`
 - `chore: refresh handoff`
-- `docs: ...`, `test: ...`, `refactor: ...`

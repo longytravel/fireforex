@@ -93,7 +93,7 @@ Stages 1–6 below.
 | SL/TP computation | `core/src/sl_tp.rs` | `compute_sl_tp` — derive SL/TP prices from mode codes + ATR pips + entry price | ✅ | NaN sentinel for missing swing_sl handled correctly. |
 | Trade simulator | `core/src/trade_full.rs` | `simulate_trade_full` — one trade end-to-end with trailing, breakeven, partial close, stale exit, max bars | ⚠️ | Issue #13 — out-of-bounds risk on `sig_bar_index` (CodeRabbit critical + minor). Tracked. |
 | Exit-code translation | `ff/exit_codes.py` | Numeric exit-reason codes → human names (`SL`, `TP`, `TRAILING`, ...) | ✅ | Mirrors `core/src/constants.rs` EXIT_* — must stay in sync; defensive `UNKNOWN` fallback. |
-| Run harness | `ff/harness.py` | End-to-end orchestrator: load data → build signal library → sample → encode → call `ff_core.batch_evaluate` → save NPZ + history.csv → regenerate `comparison.html` | ⚠️ | The 11-step flow defined in module docstring. Heartbeat thread + parallel build (≥500 trials) per memory `project_speed_phases_1_2_3.md`. Issue #14 (`win_rate` mismatch) affects reporting. |
+| Run harness | `ff/harness.py` | End-to-end orchestrator: load data → build signal library → sample → encode → call `ff_core.batch_evaluate` → save NPZ + history.csv → regenerate `comparison.html` | ⚠️ | The 11-step flow defined in module docstring. Heartbeat thread + parallel build (≥500 trials) per memory `project_speed_phases_1_2_3.md`. Cost-realism fields persist raw + adjusted P&L plus `gate_save_pips` / `cost_overhead_pips` decomposition. Issue #14 (`win_rate` mismatch) affects reporting. |
 | Pre-flight estimator | `ff/preflight.py` | Estimate library combo count + sweep time + effective dimensionality before paying for a long run | ✅ | Heuristic; `SIGNAL_BUILD_SEC_PER_COMBO = 0.25` may drift over time. |
 | Signal library | `ff/signal_lib.py` | Family registry + Cartesian-product expansion of per-family parameter grids → pooled `SignalSet` with stable variant IDs sorted by bar index | ✅ | Now keeps zero-signal variants so variant IDs stay stable across builds (memory `Signal Library Now Keeps Zero-Signal Variants for Stable Variant IDs`). |
 | Bayesian sweep (Optuna) | _(unbuilt)_ | Plug-in optimiser feeding the harness — same trial budget, smarter sampling | 🔘 | Pillar 2. |
@@ -117,8 +117,8 @@ Stages 1–6 below.
 | API request/response shapes | `app/models.py` | Pydantic models for `RunRequest`, `JobProgress`, `DefaultsRequest`, etc. | ✅ | Type-safe API surface. |
 | Pair / TF scanner | `app/pairs_scan.py` | Thin adapter around `ff.data.inventory` so legacy callers don't break | ✅ | Cached scan; lives outside `ff/` because it's HTTP-adjacent. |
 | HTTP endpoints | `app/routes.py` | All `/api/*` endpoints — defaults, run, jobs, baseline, instances, EA catalog, docs proxy | ⚠️ | Issue #12 — path traversal vulnerability (CodeQL × 3 + CodeRabbit major on `instance_id`). Real bug, tracked. |
-| Frontend JS | `app/static/app.js` | Vanilla JS — recipe + override builder, run launch, job progress polling, baseline compare | ✅ | No framework, no build step. |
-| Frontend HTML | `app/static/index.html` | Single-page UI scaffold | ✅ | |
+| Frontend JS | `app/static/app.js` | Vanilla JS — recipe + override builder, run launch, job progress polling, baseline compare, History table rendering | ✅ | No framework, no build step. History tab renders cost-realism columns and escapes status badge text from `/api/history`. |
+| Frontend HTML | `app/static/index.html` | Single-page UI scaffold | ✅ | History header includes adjusted pips, gate save, cost overhead, gated count, and CR status columns. |
 | Frontend CSS | `app/static/styles.css` | Tailwind / vanilla CSS for the local UI | ✅ | |
 | EA inspect report | `ff/inspect.py` | `inspect_dict` (structured) + `inspect_report` (human-readable) — every knob, TF choice, step size visible | ✅ | The "non-coder can read every parameter" guarantee. Powers `--inspect` CLI and the UI's EA preview. |
 | Experiment tracker | _(unbuilt)_ | History of every sweep, not just the latest one — tag, compare, archive | 🔘 | Pillar 2 — currently `history.csv` is one row per run, no rich provenance. |
@@ -203,6 +203,9 @@ Stages 1–6 below.
 | Live-day reset | `scripts/reset_live_day.py` | Clean-slate: stop runner, flatten MT5 positions, archive `plans/tickets/state/errors/crashes`. VPS-only. | ✅ | Archives — nothing destroyed; recoverable. Runner stays stopped (deliberate). |
 | Cost-realism package init | `ff/cost_realism/__init__.py` | Package marker for the cost-realism subsystem | ✅ | |
 | Shared 3-and-3 gate rules | `ff/cost_realism/gate_rules.py` | "3-and-3" trade-eligibility filter — 3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, session lookup. Single source of truth shared by BT post-pass and live execution guard so the two can never drift. | ✅ | Used by `bt_gate` (BT post-pass) and `execution_guard` (live runner). |
+| Backtest gate adapter | `ff/cost_realism/bt_gate.py` | Apply shared gate rules to best-trial backtest trades before the cost overlay | ✅ | Marks gated-out trades with reasons while keeping raw P&L available for decomposition. |
+| Cost overlay | `ff/cost_realism/overlay.py` | Convert BT trade rows into adjusted P&L using session-median spread, commission, and slippage assumptions | ✅ | Produces `adjusted_pnl_pips` and `overlay_delta_pips`; gated trades contribute zero adjusted P&L. |
+| Slippage telemetry | `ff/cost_realism/slippage_telemetry.py` | Summarise realised live slippage so future cost tables can use observed execution costs | ✅ | NaN-protected; feeds per-pair default slippage when live samples exist. |
 | Cost table builder | `ff/cost_realism/cost_table.py` | Build `artifacts/cost_table.json` from MT5 M1 parquets — per-pair × per-session median spread (pips), flat per-side commission, default-then-telemetry-fed slippage. | ✅ | Reads `MT5_DATA_ROOT` parquets; commission is flat 0.35 pips/side until per-pair statement evidence justifies overrides. |
 | Cost table CLI | `scripts/build_cost_table.py` | Operational wrapper around `build_cost_table` for the 28 active pairs | ✅ | Manual refresh: re-run after MT5 history is topped up. |
 | Three-tier data architecture | _(unbuilt)_ | Tag every BT row with provenance (Dukascopy / MT5 / merged) so reconcile can pick the right source per pair | 🔘 | The blocker for 100% match. Cross-listed in Stage 1. |
@@ -226,6 +229,8 @@ Stages 1–6 below.
 | `docs/next-session-handover.md` | Handover template for new Claude sessions | ✅ | Reusable handover scaffold. |
 | `docs/superpowers/plans/2026-04-25-architecture-stocktake.md` | This stocktake's plan | ✅ | Active. |
 | `docs/superpowers/specs/2026-04-25-architecture-stocktake-design.md` | This stocktake's spec | ✅ | Approved. |
+| `docs/superpowers/plans/2026-04-25-cost-realism-overlay.md` | Cost-realism overlay implementation plan | ✅ | Shipped by PR #31; keep as design history for future cost/parity work. |
+| `docs/superpowers/specs/2026-04-25-cost-realism-design.md` | Cost-realism overlay design spec | ✅ | Source design for spread/slippage/commission overlay and 3-and-3 gate. |
 | `docs/2026-04-19-adding-the-chandelier-knob.md` | Chandelier stop knob narrative | ✅ | Feature implementation narrative for 2026-04-19 build. |
 | `docs/2026-04-19-the-breakeven-offset-bug.md` | Post-mortem: 78% win-rate anomaly | ⚠️ | Historical bug-hunt narrative; useful for future patterns. |
 | `docs/2026-04-19-the-exec-basic-bug.md` | Post-mortem: EXEC_BASIC mode issue | ⚠️ | Historical context; related to planned mode removal. |
@@ -274,7 +279,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 
 ## Appendix C — Tests (`tests/`)
 
-**Coverage at a glance:** 30 test files + 1 golden fixture across 9 categories. Suite is green per recent CI on `main` (PRs #16, #18 merged with `python` + `rust` jobs passing). Two test files have conditional skips tied to artifact availability.
+**Coverage at a glance:** 38 Python test files + 1 package marker + 1 golden fixture across 9 categories. Suite is green per recent CI on `main` (PR #35 merged with `python` + `rust` jobs passing). Some artifact-backed tests still have conditional skips tied to local data availability.
 
 | File | What it covers | Verdict | Notes |
 |---|---|---|---|
@@ -308,12 +313,16 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `tests/test_data_inventory.py` | Parquet headers-only scan with TTL cache | ✅ | Drives Data tab list. |
 | `tests/test_routes_data.py` | Web API data routes (list, health, inventory) | ✅ | FastAPI route serialization + response schemas. |
 | `tests/test_groups.py` | Pair group headings (Majors, Crosses, Metals…) | ✅ | Static data source of truth for Data tab. |
+| `tests/test_harness_cost_realism.py` | Harness cost-realism smoke: NPZ keys, JSON payload, and adjusted-P&L decomposition identity | ✅ | Skips only if `ff_core`, `artifacts/cost_table.json`, or the EA fixture is unavailable. |
 | `tests/test_runner_service_multi_instance.py` | Multi-instance deploy pipeline (active.json, deactivation) | ✅ | Covers instance distribution, filename/ID reconciliation. |
 | `tests/test_check_map.py` | Architecture-map completeness checker (substring + glob coverage + self-paths) | ✅ | 8 cases covering `find_unmapped_files` semantics. Hermetic — no repo state required for the unit tests; one smoke test runs `git ls-files`. |
 | `tests/cost_realism/__init__.py` | Package marker for the cost-realism test sub-package | ✅ | |
 | `tests/cost_realism/test_execution_guard.py` | Live guard semantics — rollover, wide spread, NaN fail-closed, quiet pass-through | ✅ | 4 tests; pure unit, hermetic. |
 | `tests/cost_realism/test_gate_rules.py` | 3-and-3 gate semantics — session boundaries, rollover window, spread / slippage caps, naive-timestamp coercion | ✅ | 6 tests; pure unit, hermetic. |
 | `tests/cost_realism/test_cost_table.py` | Cost-table generator — per-session median spreads from MT5 parquet fixture, missing-pair skip, commission lookup | ✅ | 3 tests; uses synthetic parquet fixtures, hermetic. |
+| `tests/cost_realism/test_bt_gate.py` | Backtest post-pass gate wrapper around shared 3-and-3 rules | ✅ | Covers gated-out reason assignment and pass-through cases. |
+| `tests/cost_realism/test_overlay.py` | Cost-realism overlay P&L adjustment and gated-trade handling | ✅ | Pure pandas fixtures; guards adjusted/raw/decomposition semantics. |
+| `tests/cost_realism/test_slippage_telemetry.py` | Live slippage telemetry aggregation and NaN protection | ✅ | Hermetic JSON/temporary-path coverage. |
 
 **Coverage gaps** (worth flagging for Pillars 2 + 3):
 
@@ -331,16 +340,16 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `.github/workflows/ci.yml` | Python (pytest, ruff lint/format) + Rust (cargo fmt, clippy, test) on `push:main` and `pull_request` | ✅ | Skips 4 data-dependent tests (MT5-touching, golden_baseline, trade_log_roundtrip). ~45s python, ~30s rust per run. Cache on pip/cargo/Rust build artifacts. |
 | `.github/workflows/codeql.yml` | Python CodeQL security analysis on `push:main`, `pull_request`, weekly schedule (Mon 6am UTC) | ✅ | `fail-fast: false`. No issues surfaced in recent merges. |
 | `.github/workflows/gitleaks.yml` | Secret scanning via gitleaks on `push:main` and `pull_request` | ✅ | Full fetch depth. No leaks on PRs #16, #18. |
-| `.github/workflows/pr-checklist.yml` | Validates PR body has filled Summary, Review outputs, and Self-review checklist | ✅ | Skips dependabot[bot] and draft PRs. Fired on PRs #16, #17, #18 — all passed. |
+| `.github/workflows/pr-checklist.yml` | PR-body hygiene warnings + PR-time paperwork audit | ✅ | PR-body ritual text is advisory; durable code/tooling changes must update HANDOFF, and architecture-map-sensitive changes must update `docs/ARCHITECTURE_MAP.md`. Replaces Stop-hook paperwork enforcement. |
 | `.github/dependabot.yml` | Version updates: pip (weekly, limit 5), cargo (weekly, limit 5), github-actions (monthly, limit 3) | ✅ | Assigns to `longytravel`. Recently opened 10 PRs. |
-| `.github/pull_request_template.md` | Template with Summary, Self-review checklist (10 items), Review outputs sections | ✅ | Drives `pr-checklist.yml` gate. |
+| `.github/pull_request_template.md` | Lightweight Summary / Verification / advisory checklist template | ✅ | The agent fills it; the user should not need to read or tick boxes. |
 | `.github/CODEOWNERS` | Empty (no pattern-based owners) | ⚠️ | All changes require owner review, but no per-path ownership rules. Fine for small team; consider adding as repo scales. |
 | `.github/ISSUE_TEMPLATE/bug.md` | Bug report template | ✅ | Standard. |
 | `.github/ISSUE_TEMPLATE/feature.md` | Feature request template | ✅ | Standard. |
 
-## Appendix E — `.claude/` rules and hooks
+## Appendix E — `.claude/` rules and settings
 
-**Scope:** Project-level Claude Code workspace — 5 rules + 2 hooks + 1 command + settings.
+**Scope:** Project-level Claude Code workspace — 5 rules + 1 command + empty settings. Stop hooks were retired on 2026-04-26 because they interrupted agent-owned work and made the user babysit paperwork.
 
 ### Rules
 
@@ -349,16 +358,8 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `.claude/rules/python-style.md` | Python style guide (no bare floats in assertions, snake_case, ruff imports, project venv) | ✅ | Enforced in pre-commit; hard rules are CI-checked. |
 | `.claude/rules/rust-style.md` | Rust style guide (`ff_core` patterns, idioms, performance notes) | ✅ | Active during Rust work. |
 | `.claude/rules/testing.md` | Test discipline (approx for floats, signal fixtures, pytest-first, knob validation via skills) | ✅ | Knob changes require `add-forex-knob` + `validate-forex-knob`. |
-| `.claude/rules/trading.md` | Live-trading discipline (no uvicorn spawn, signal-ID migration, MT5 reconciliation, no creds) | ✅ | Hard blocks in `settings.json` prevent accidental uvicorn spawn. |
-| `.claude/rules/workflow.md` | PR cycle + paperwork (branches, pre-PR ritual, PROGRESS/HANDOFF tickbox, GitHub issue tracking) | ✅ | Stop hook blocks session end if paperwork stale. |
-
-### Hooks
-
-| File | Fires on | Action | Verdict | Notes |
-|---|---|---|---|---|
-| `.claude/hooks/session-start.sh` | SessionStart (startup, resume, clear, compact) | Load HANDOFF + PROGRESS; show git log, branch, status, open issues | ✅ | Gracefully degrades if files missing or git unavailable; logs firings to `.claude/hooks/log.txt`. |
-| `.claude/hooks/update-paperwork.sh` | Stop (session end) | HARD BLOCK if HANDOFF stale vs HEAD or real work uncommitted; SOFT WARN if commits landed but PROGRESS untouched | ✅ | Reentry guard avoids re-trigger on same stop event. |
-| `.claude/hooks/check-architecture-map.sh` | Stop | Nag if mapped files changed in session but `ARCHITECTURE_MAP.md` didn't | ✅ | Wired alongside `update-paperwork.sh` in `settings.json`. Filters changes to mapped dirs (`deploy/`, `app/`, `core/`, `ff/`, `scripts/`, `docs/`, `eas/`, `tests/`, `.claude/`, `.github/`) plus any tracked root file. |
+| `.claude/rules/trading.md` | Live-trading discipline (no uvicorn spawn, signal-ID migration, MT5 reconciliation, no creds) | ✅ | Rule file only; no Stop-hook enforcement. |
+| `.claude/rules/workflow.md` | Agent-owned PR lifecycle: user sets direction, agent codes/tests/opens PR/fixes review/merges/syncs/paperworks | ✅ | Explicitly says not to ask the user to watch CI, press merge, tick checkboxes, or read reviewer output. |
 
 ### Commands
 
@@ -370,11 +371,11 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 
 | File | Purpose | Verdict | Notes |
 |---|---|---|---|
-| `.claude/settings.json` | Register SessionStart + Stop hooks; grant Bash/PowerShell perms (git/gh/pytest/python/maturin/cargo/rustfmt/clippy/pre-commit/ruff); deny force-push, `git --no-verify`, uvicorn spawn, dangerous `rm` | ✅ | Hard deny list actively prevents `trading.md` violations. |
+| `.claude/settings.json` | Empty project settings object | ✅ | No project hooks. Do not reintroduce Stop hooks for paperwork enforcement. |
 
 ## Appendix F — Scripts (`scripts/`)
 
-**Scope:** 12 scripts not already routed to Stage 1/5/6. Operational scripts ✅, dev/release helpers ✅, cleanup candidates ❌. Stage-routed scripts (`fetch_mt5_history.py`, `diagnose_vps.py`, `runner_launcher.bat`, `vps_bootstrap.ps1`, `build_*_report.py`, `build_trade_comparison.py`, `calibrate_for_parity.py`, `reconcile_live.py`, `reset_live_day.py`) are audited under their respective stages.
+**Scope:** operational scripts, dev/release helpers, and desktop wrappers not already routed to Stage 1/5/6. Stage-routed scripts (`fetch_mt5_history.py`, `diagnose_vps.py`, `runner_launcher.bat`, `vps_bootstrap.ps1`, `build_*_report.py`, `build_trade_comparison.py`, `calibrate_for_parity.py`, `reconcile_live.py`, `reset_live_day.py`) are audited under their respective stages.
 
 | File | What it does | Verdict | Notes |
 |---|---|---|---|
@@ -396,7 +397,8 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `scripts/import_mt5_report.py` | Pull closed-trade history directly from running MT5 terminal into `artifacts/live/incoming/` | ✅ | Uses `MetaTrader5` Python package — no manual HTML export. Broker→UTC offset applied. SL/TP enriched via `history_orders_get`. Prints per-symbol summary. |
 | `scripts/mt5_status.py` | Live MT5 status dump — account info + open positions + pending orders + spreads | ✅ | Hits the running terminal directly. Optional `--save` writes JSON snapshot to `artifacts/live/incoming/`. |
 | `scripts/finalize_pr.sh` | Format + commit + push in one atomic step (kills the format-then-recommit double-cycle) | ✅ | Refuses to commit directly to `main`. Documented in `.claude/rules/workflow.md` — "Three scripts that kill the mid-task stops". |
-| `scripts/merge_pr.sh` | Resolve unresolved review threads via GraphQL + wait for CI green + squash-merge + delete branch + sync local `main` | ✅ | Assumes comments are addressed substantively; CI / branch protection is the real gate. Documented in `.claude/rules/workflow.md`. |
+| `scripts/merge_pr.ps1` | Windows-native PR closer: resolve review threads, wait for CI, squash-merge or queue auto-merge, wait for merge, delete leftover branch, sync local `main` | ✅ | Preferred on this Windows repo; supports the user goal that agents complete PRs without manual button pressing. |
+| `scripts/merge_pr.sh` | Git Bash equivalent of `merge_pr.ps1` | ✅ | Same auto-merge fallback and branch-cleanup behaviour for shell sessions. |
 | `scripts/sync_main.sh` | Bring local `main` back in sync with `origin/main`; ff-only by default, `--force-reset` is the curated escape hatch when local has stray commits | ✅ | The deny list correctly blocks `git reset --hard` for ad-hoc use; this script is the sanctioned way. Documented in `.claude/rules/workflow.md`. |
 
 ## Appendix G — Root files
@@ -407,8 +409,8 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 |---|---|---|---|
 | `README.md` | Top-level project intro | ✅ | Describes Fire Forex as local optimisation workbench for forex strategies. |
 | `CLAUDE.md` | Operating manual for Claude (≤150 lines discipline) | ✅ | Current line count: 118 (verified against `main`). Within the 150-line discipline; the earlier Phase C audit report of 181 lines was confused by uncommitted local session-start modifications. |
-| `HANDOFF.md` | Session-end state — refreshed by Stop hook | ✅ | Last updated 2026-04-25. |
-| `PROGRESS.md` | Milestone register (tick-only, never rewrite) | ✅ | Last updated 2026-04-25. |
+| `HANDOFF.md` | Session-end state — refreshed directly by the agent before finishing substantial work | ✅ | Stop-hook enforcement was retired 2026-04-26. |
+| `PROGRESS.md` | Milestone register (tick-only, never rewrite) | ✅ | Updated when durable milestones ship. |
 | `run.py` | CLI entry — `web` for UI, positional EA path for sweep | ✅ | Per CLAUDE.md run-commands section. |
 | `pyproject.toml` | Python deps + ruff config (config aspect in Appendix H) | ✅ | Cross-referenced. |
 | `demo_speed.py` | Multi-timeframe speed demo (H1 entries, M1 fills) | ✅ | 20-year EUR/USD backtest demo; reference. |
@@ -437,7 +439,7 @@ No non-dependabot PRs are currently open (other than this PR if you're reading i
 | `eas/baseline.json`, `eas/complex01.json` | EA schemas (consumed by UI) | ↗ | Audited in Stage 2. |
 | `ff/defaults/pair_tf.yaml` | Per-(pair, main_tf) knob ranges fallback | ↗ | Audited in Stage 2. |
 | `deploy/live_config.json`, `deploy/live_config.json.example` | Live-runner active-instance config | ↗ | Audited in Stage 5. |
-| `.claude/settings.json` | Hook + permission registration | ↗ | Audited in Appendix E. |
+| `.claude/settings.json` | Empty project-level settings; no hooks | ↗ | Audited in Appendix E. |
 | `.github/dependabot.yml` | Version-update cadence | ↗ | Audited in Appendix D. |
 
 ## Appendix I — Artifacts (`artifacts/`)
