@@ -59,3 +59,6 @@ artifacts/live_archive_*/
 artifacts/_*_rerun_*.log
 artifacts/diag_*.txt
 scripts/_tmp_*.py
+
+# Cost-realism runtime artifact (rebuilt by scripts/build_cost_table.py)
+artifacts/cost_table.json
