@@ -16,9 +16,13 @@ dev boxes without MT5 installed, import still succeeds; ``download()``
 raises on first use.
 
 Spread handling: MT5 exposes ``rates.spread`` in *points* (broker-defined
-smallest increment). On modern 5-digit and 3-digit-JPY brokers 1 pip = 10
-points universally — same convention ``ff/live/runner.py:659`` applies to
-live spread telemetry, so we divide by 10 here too.
+smallest increment). The Dukascopy convention is to store spread as a
+*price unit* (e.g. ``0.0001`` = 1 pip on EUR_USD). To stay
+interchangeable, this downloader multiplies the broker points by
+``symbol_info.point`` (price units per point) and writes the result to
+the parquet ``spread`` column — so consumers can read either source with
+the same ``spread / pip_value`` to recover pips. See commit 412edf9 for
+the silent-no-op parity bug that motivated the unit alignment.
 """
 
 from __future__ import annotations

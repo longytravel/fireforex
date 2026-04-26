@@ -41,8 +41,21 @@ def _pip_value(pair: str) -> float:
     return 0.01 if "JPY" in pair.upper() else 0.0001
 
 
+# Sanity-check threshold. Real-world per-session medians are sub-pip on majors,
+# a few pips at most on JPY exotics. Anything beyond 50 pips means the upstream
+# parquet's ``spread`` column is in pips (pre-commit 412edf9) rather than price
+# units, and the per-pip division has multiplied the value by 1/pip. Bail
+# rather than silently shipping a poisoned cost table.
+_ABSURD_SPREAD_PIPS: float = 50.0
+
+
 def _per_session_median_spread_pips(df: pd.DataFrame, pair: str) -> dict[str, float]:
-    """Return {session_name: median_spread_pips} from an MT5 M1 parquet."""
+    """Return {session_name: median_spread_pips} from an MT5 M1 parquet.
+
+    Timestamps are coerced to UTC so broker-local tz-aware data (e.g. MT5
+    server time at +02:00 / +03:00) is bucketed by UTC hour, not local hour.
+    Non-finite spreads are dropped before the per-session median.
+    """
     if df.empty:
         return {}
     pip = _pip_value(pair)
@@ -50,11 +63,26 @@ def _per_session_median_spread_pips(df: pd.DataFrame, pair: str) -> dict[str, fl
     ts = pd.to_datetime(df["timestamp"])
     if ts.dt.tz is None:
         ts = ts.dt.tz_localize("UTC")
+    else:
+        ts = ts.dt.tz_convert("UTC")
     df["hour"] = ts.dt.hour
     df["session"] = df["hour"].map(session_of_hour)
     df["spread_pips"] = df["spread"] / pip
+    df = df[df["spread_pips"].notna() & (df["spread_pips"] >= 0)]
+    if df.empty:
+        return {}
     grouped = df.groupby("session")["spread_pips"].median()
-    return {session: float(round(val, 4)) for session, val in grouped.items()}
+    out = {session: float(round(val, 4)) for session, val in grouped.items()}
+    # Catch the pre-412 "spread already in pips" regression early.
+    extreme = {s: v for s, v in out.items() if v > _ABSURD_SPREAD_PIPS}
+    if extreme:
+        raise ValueError(
+            f"[cost_table] {pair}: implausible per-session spreads {extreme} "
+            f"(threshold {_ABSURD_SPREAD_PIPS} pips). "
+            f"Likely the upstream parquet's `spread` column is in pips, "
+            f"not price units — re-fetch with the post-412 MT5 downloader."
+        )
+    return out
 
 
 def build_cost_table(

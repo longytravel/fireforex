@@ -47,3 +47,22 @@ def test_should_block_returns_reason_or_none():
 def test_naive_timestamp_treated_as_utc():
     ts = pd.Timestamp("2026-04-24 22:00:00")  # no tz
     assert gr.is_rollover(ts) is True
+
+
+def test_should_block_unknown_inputs_fail_closed():
+    """NaN / inf must NOT pass — the gate fails closed on missing readings."""
+    ts_quiet = pd.Timestamp("2026-04-24 10:00:00", tz="UTC")
+    assert gr.should_block(ts_quiet, spread_pips=float("nan"), slippage_pips=0.5) == "unknown_spread"
+    assert gr.should_block(ts_quiet, spread_pips=float("inf"), slippage_pips=0.5) == "unknown_spread"
+    assert gr.should_block(ts_quiet, spread_pips=0.5, slippage_pips=float("nan")) == "unknown_slippage"
+    assert gr.should_block(ts_quiet, spread_pips=0.5, slippage_pips=float("-inf")) == "unknown_slippage"
+
+
+def test_is_spread_too_wide_rejects_non_finite():
+    assert gr.is_spread_too_wide(float("nan")) is True
+    assert gr.is_spread_too_wide(float("inf")) is True
+
+
+def test_is_slippage_too_wide_rejects_non_finite():
+    assert gr.is_slippage_too_wide(float("nan")) is True
+    assert gr.is_slippage_too_wide(float("inf")) is True

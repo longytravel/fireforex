@@ -5,9 +5,21 @@ One source of truth imported by:
 - ``ff.live.execution_guard`` (live runner pre-submission)
 
 So BT and live can never drift on what counts as a "do not fire" condition.
+
+Note on the slippage cap: pre-submit live callers cannot know realised
+slippage, so the slippage component of ``should_block`` is meaningful only
+in BT post-pass (where ``telemetry_slippage_pips`` reflects historical
+fills) and in the live runner's *post-fill* enforcement path (when the
+runner inspects the actual fill price and may close out a trade that
+slipped beyond the cap). Pre-submit guards rely on rollover + spread.
+
+Non-finite (NaN / inf) inputs are treated as *unknown* and fail closed —
+the gate refuses to assume safety in the absence of data.
 """
 
 from __future__ import annotations
+
+import math
 
 import pandas as pd
 
@@ -52,12 +64,23 @@ def is_rollover(ts: pd.Timestamp) -> bool:
 
 
 def is_spread_too_wide(spread_pips: float) -> bool:
-    """True when spread strictly exceeds the 3-pip cap."""
+    """True when spread strictly exceeds the 3-pip cap.
+
+    Non-finite inputs (NaN / inf) return True so the gate fails closed —
+    a missing reading is not a green light.
+    """
+    if not math.isfinite(spread_pips):
+        return True
     return spread_pips > SPREAD_CAP_PIPS
 
 
 def is_slippage_too_wide(slippage_pips: float) -> bool:
-    """True when realised slippage strictly exceeds the 3-pip cap."""
+    """True when realised slippage strictly exceeds the 3-pip cap.
+
+    Non-finite inputs (NaN / inf) return True so the gate fails closed.
+    """
+    if not math.isfinite(slippage_pips):
+        return True
     return slippage_pips > SLIPPAGE_CAP_PIPS
 
 
@@ -69,12 +92,18 @@ def should_block(
     """Return the block reason or None.
 
     Order of evaluation matters for diagnostics — rollover first because
-    the reason is most informative for the user.
+    the reason is most informative for the user; ``unknown_*`` reasons
+    surface separately from the explicit-cap reasons so dashboards can
+    distinguish "we said no" from "we couldn't tell".
     """
     if is_rollover(ts):
         return "rollover"
-    if is_spread_too_wide(spread_pips):
+    if not math.isfinite(spread_pips):
+        return "unknown_spread"
+    if spread_pips > SPREAD_CAP_PIPS:
         return "spread_3p"
-    if is_slippage_too_wide(slippage_pips):
+    if not math.isfinite(slippage_pips):
+        return "unknown_slippage"
+    if slippage_pips > SLIPPAGE_CAP_PIPS:
         return "slippage_3p"
     return None

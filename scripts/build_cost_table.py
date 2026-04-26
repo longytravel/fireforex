@@ -1,5 +1,9 @@
 """Generate artifacts/cost_table.json from MT5 M1 parquets.
 
+Exits non-zero (and writes nothing) when zero pairs would be built — a
+silent empty cost table makes the entire overlay subsystem look installed
+while doing nothing.
+
 Usage:
     .\\.venv\\Scripts\\python.exe scripts/build_cost_table.py [--pairs EUR_USD,GBP_USD]
 """
@@ -7,6 +11,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import sys
 from pathlib import Path
@@ -50,15 +55,33 @@ DEFAULT_PAIRS = [
 ]
 
 
-def main() -> None:
+def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     p = argparse.ArgumentParser()
     p.add_argument("--pairs", default=",".join(DEFAULT_PAIRS))
     p.add_argument("--out", default=str(REPO_ROOT / "artifacts" / "cost_table.json"))
+    p.add_argument(
+        "--allow-empty",
+        action="store_true",
+        help="exit 0 even when zero pairs were built (default: exit 1)",
+    )
     args = p.parse_args()
     pairs = [s.strip() for s in args.pairs.split(",") if s.strip()]
-    build_cost_table(pairs=pairs, mt5_root=MT5_DATA_ROOT, out_path=Path(args.out))
+    out_path = Path(args.out)
+    build_cost_table(pairs=pairs, mt5_root=MT5_DATA_ROOT, out_path=out_path)
+
+    table = json.loads(out_path.read_text())
+    n_built = len(table.get("pairs", {}))
+    if n_built == 0 and not args.allow_empty:
+        print(
+            "[cost_table] FAIL: zero pairs were built. "
+            f"Check MT5_DATA_ROOT={MT5_DATA_ROOT} and that the requested "
+            f"parquets exist. Pass --allow-empty to override.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
