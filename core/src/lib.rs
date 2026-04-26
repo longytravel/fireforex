@@ -227,6 +227,12 @@ fn batch_evaluate<'py>(
     let mut variant_end: Vec<usize> = Vec::new();
     if variant_slices_enabled && max_variant_id >= 0 {
         let n_variants = (max_variant_id as usize) + 1;
+        if n_variants > 1_000_000 {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Too many signal variants: {} (max 1,000,000)",
+                n_variants
+            )));
+        }
         variant_start = vec![usize::MAX; n_variants];
         variant_end = vec![0; n_variants];
         let mut closed = vec![false; n_variants];

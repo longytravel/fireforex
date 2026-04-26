@@ -600,6 +600,16 @@ def _choose_lean_chunk_size(max_trades: int, requested: int | None = None) -> in
     return max(10, int((target_mb * 1024 * 1024) // per_trial_bytes))
 
 
+def _plot_sample_indices(n: int, limit: int = 2_000, required: int | None = None) -> np.ndarray:
+    if n <= limit:
+        return np.arange(n, dtype=np.int64)
+    idx = np.linspace(0, n - 1, limit, dtype=np.int64)
+    if required is not None and 0 <= required < n and required not in set(idx.tolist()):
+        idx[-1] = int(required)
+        idx.sort()
+    return np.unique(idx)
+
+
 def _run_lean_random_sweep(
     ea: dict,
     *,
@@ -759,6 +769,7 @@ def _run_lean_random_sweep(
         # detailed trade view. The metric ledger still contains every row.
         best = best_scores["quality"][1]
     best_retained = retained[int(best)]
+    plot_idx = _plot_sample_indices(n_trials, required=int(best))
     n_trades_best = int(best_retained["n_trades"])
     pnl_best = best_retained["pnl"].copy()
     total_pips = float(pnl_best.sum())
@@ -833,8 +844,10 @@ def _run_lean_random_sweep(
         run_file,
         artifact_mode=np.array("lean"),
         lean_metrics_file=np.array(metrics_file.name),
-        quality=np.asarray(quality, dtype=np.float32),
-        running_best=np.asarray(running_best, dtype=np.float32),
+        quality=np.asarray(quality[plot_idx], dtype=np.float32),
+        quality_max=np.float32(np.nanmax(quality)),
+        running_best=np.asarray(running_best[plot_idx], dtype=np.float32),
+        running_best_indices=plot_idx,
         pnl=pnl_best.astype(np.float32, copy=False),
         equity=equity_curve.astype(np.float32, copy=False),
         best_trial_json=np.array(json.dumps(best_trial, default=_json_default)),

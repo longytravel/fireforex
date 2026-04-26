@@ -430,6 +430,7 @@ def clear_baseline() -> dict[str, Any]:
 # ── Scatter (per-trial results) ────────────────────────────────────────
 
 _RUN_FILE_RE = re.compile(r"^[A-Za-z0-9_\-]+\.npz$")
+_METRICS_FILE_RE = re.compile(r"^[A-Za-z0-9_\-]+\.npy$")
 
 # Scatter API schema. The harness registry covers the Rust metric columns;
 # ``total_pips`` is appended by this endpoint from the per-trial PnL buffer.
@@ -450,6 +451,15 @@ def _resolve_run_npz(run_file: str) -> Path:
     return path
 
 
+def _resolve_lean_metrics_path(run_npz: Path, metrics_name: str) -> Path:
+    if not _METRICS_FILE_RE.match(metrics_name):
+        raise HTTPException(status_code=400, detail="bad lean metrics file name")
+    path = run_npz.parent / metrics_name
+    if not path.exists() or path.parent != (ARTIFACTS_DIR / "runs"):
+        raise HTTPException(status_code=404, detail="lean metrics sidecar not found")
+    return path
+
+
 def _baseline_quality() -> float | None:
     """Best-quality score of the pinned baseline's run, if any. Used as the
     zero-point of the scatter colour gradient."""
@@ -466,6 +476,8 @@ def _baseline_quality() -> float | None:
         return None
     try:
         with np.load(path, allow_pickle=False) as z:
+            if "quality_max" in z.files:
+                return float(z["quality_max"])
             if "quality" in z.files:
                 return float(z["quality"].max())
     except Exception:
@@ -486,9 +498,7 @@ def get_scatter(run_file: str) -> dict[str, Any]:
         if "per_trial_metrics" in z.files:
             metrics = z["per_trial_metrics"]  # (n_trials, N_rust_cols) float32
         elif "lean_metrics_file" in z.files:
-            metrics_path = path.parent / str(z["lean_metrics_file"])
-            if not metrics_path.exists() or metrics_path.parent != path.parent:
-                raise HTTPException(status_code=404, detail="lean metrics sidecar not found")
+            metrics_path = _resolve_lean_metrics_path(path, str(z["lean_metrics_file"]))
             metrics = np.load(metrics_path, mmap_mode="r")
         else:
             raise HTTPException(status_code=409, detail="this run predates the scatter feature; re-run to enable")
@@ -540,9 +550,7 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
         if "per_trial_metrics" in z.files:
             all_metrics = z["per_trial_metrics"]
         elif "lean_metrics_file" in z.files:
-            metrics_path = path.parent / str(z["lean_metrics_file"])
-            if not metrics_path.exists() or metrics_path.parent != path.parent:
-                raise HTTPException(status_code=404, detail="lean metrics sidecar not found")
+            metrics_path = _resolve_lean_metrics_path(path, str(z["lean_metrics_file"]))
             all_metrics = np.load(metrics_path, mmap_mode="r")
         else:
             raise HTTPException(status_code=409, detail="this run predates the scatter feature; re-run to enable")
