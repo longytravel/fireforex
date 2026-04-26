@@ -1516,6 +1516,11 @@ function signedPipsCell(v) {
   const sign = n > 0 ? '+' : '';
   return `<span class="${cls}">${sign}${n.toFixed(0)}</span>`;
 }
+function integerCell(v) {
+  if (v === undefined || v === '' || v === null) return '—';
+  const n = +v;
+  return Number.isFinite(n) ? n.toFixed(0) : '—';
+}
 
 async function refreshHistory() {
   try {
@@ -1538,7 +1543,7 @@ async function refreshHistory() {
         <td class="px-3 py-1.5 text-right tabular-nums ${costRealismCell(r)}">${r.adjusted_total_pips !== undefined && r.adjusted_total_pips !== '' ? (+r.adjusted_total_pips).toFixed(0) : '—'}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${signedPipsCell(r.gate_save_pips)}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${signedPipsCell(r.cost_overhead_pips)}</td>
-        <td class="px-3 py-1.5 text-right tabular-nums text-slate-400">${r.n_gated_trades !== undefined && r.n_gated_trades !== '' ? r.n_gated_trades : '—'}</td>
+        <td class="px-3 py-1.5 text-right tabular-nums text-slate-400">${integerCell(r.n_gated_trades)}</td>
         <td class="px-3 py-1.5 text-center text-[11px]">${costRealismBadge(r.cost_realism_status)}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${r.max_dd_pct ? (+r.max_dd_pct).toFixed(1) : '—'}</td>
         <td class="px-3 py-1.5 text-right tabular-nums">${r.profit_factor ? (+r.profit_factor).toFixed(2) : '—'}</td>
