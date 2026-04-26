@@ -874,6 +874,22 @@ def _evaluate_and_fire(
         )
         return
 
+    # ── Execution guard: 3-and-3 mirror of bt_gate ────────────────────────
+    from ff.live.execution_guard import evaluate as _eval_guard  # lazy — MT5-free path
+
+    _guard = _eval_guard(
+        ts=pd.Timestamp.now("UTC"),
+        live_spread_pips=spread_at_fire_pips,
+    )
+    if _guard.block:
+        LOG.info(
+            "[guard] blocked %s plan: reason=%s spread=%.2fpips",
+            state.pair,
+            _guard.reason,
+            spread_at_fire_pips,
+        )
+        return
+
     plan = {
         "plan_id": plan_id,
         "created_at_ts": pd.Timestamp.now("UTC").isoformat(),
