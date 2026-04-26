@@ -57,12 +57,19 @@ def _print(msg: str) -> None:
     print(msg, flush=True)
 
 
+def _positive_days(value: str) -> int:
+    n = int(value)
+    if n <= 0:
+        raise argparse.ArgumentTypeError("--days must be > 0")
+    return n
+
+
 def main() -> int:
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     p = argparse.ArgumentParser()
     p.add_argument(
         "--days",
-        type=int,
+        type=_positive_days,
         default=90,
         help="how many days of history to ensure on disk (default: 90)",
     )

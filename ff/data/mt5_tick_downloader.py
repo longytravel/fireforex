@@ -42,9 +42,75 @@ CancelCallback = Callable[[], bool]
 
 _TICK_SCHEMA = ["timestamp", "bid", "ask", "bid_volume", "ask_volume"]
 
+# Distinct same-ms ticks share `timestamp` but differ on bid/ask/volume,
+# so dedupe must compare the full tick identity. Collapsing on timestamp
+# alone biases per-session spread aggregation downward in liquid markets.
+_TICK_DEDUPE_SUBSET = ["timestamp", "bid", "ask", "bid_volume", "ask_volume"]
+
+# Largest plausible broker→UTC offset. FX brokers cluster around UTC±3h
+# (IC Markets, Pepperstone, FXCM live demo all sit at GMT+2/+3 with DST
+# shuffles). On weekends or holidays the broker stops quoting and
+# ``tick.time`` freezes at the last quote — typically days stale, which
+# blows past this bound. Anything beyond it is treated as stale and the
+# offset falls back to 0 with a warning.
+_MAX_PLAUSIBLE_BROKER_OFFSET_SEC = 14 * 3600
+
 
 def _target_path(pair: str) -> Path:
     return MT5_DATA_ROOT / f"{pair}_TICK.parquet"
+
+
+def _broker_utc_offset_sec(
+    mt5: Any,
+    symbol: str,
+    log_cb: LogCallback | None = None,
+) -> int:
+    """Return broker→UTC offset in seconds, or 0 if it can't be trusted.
+
+    Brokers serve ``tick.time`` as broker-local epoch seconds, so a live
+    tick produces ``tick.time - utc_now`` equal to the broker's UTC
+    offset (e.g. +10800 for GMT+3). On weekends/holidays the broker
+    stops quoting and ``tick.time`` freezes at the last quote — usually
+    days stale, far outside the plausible-offset bound. Anything past
+    that bound falls back to 0 so we don't ship downloads with a
+    multi-day timestamp shift.
+    """
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None or not tick.time:
+        _emit(log_cb, f"  WARN: no broker tick for {symbol}; assuming broker=UTC")
+        return 0
+    drift = int(tick.time) - int(_time.time())
+    if abs(drift) > _MAX_PLAUSIBLE_BROKER_OFFSET_SEC:
+        _emit(
+            log_cb,
+            f"  WARN: broker tick {drift}s from local time (market closed/stale); "
+            "falling back to broker=UTC. Re-run during market hours to confirm offset.",
+        )
+        return 0
+    return -drift
+
+
+def _merge_tick_frames(existing: pd.DataFrame, new_df: pd.DataFrame) -> pd.DataFrame:
+    """Concatenate existing + new tick rows and dedupe on full tick identity.
+
+    Matches the on-disk schema, then drops only exact-row duplicates created
+    by overlapping fetches. Rows that share a millisecond but differ on
+    bid/ask/volume are preserved — those are legitimate distinct quotes.
+    """
+    existing = existing.copy()
+    existing["timestamp"] = pd.to_datetime(
+        existing["timestamp"],
+        utc=True,
+        errors="coerce",
+    )
+    existing = existing.dropna(subset=["timestamp"])
+    for c in new_df.columns:
+        if c not in existing.columns:
+            existing[c] = pd.NA
+    existing = existing[new_df.columns]
+    combined = pd.concat([existing, new_df], ignore_index=True)
+    combined = combined.drop_duplicates(subset=_TICK_DEDUPE_SUBSET, keep="last")
+    return combined.sort_values("timestamp").reset_index(drop=True)
 
 
 def _fetch_window(
@@ -84,12 +150,7 @@ def _fetch_window(
 
     df = pd.concat(chunks, ignore_index=True)
 
-    # MT5 ticks expose `time_msc` in broker-local milliseconds. Same UTC
-    # offset probe as the M1 downloader.
-    offset_sec = 0
-    tick = mt5.symbol_info_tick(symbol)
-    if tick is not None and tick.time:
-        offset_sec = -(int(tick.time) - int(_time.time()))
+    offset_sec = _broker_utc_offset_sec(mt5, symbol, log_cb=log_cb)
     offset_ms = int(offset_sec) * 1000
     if "time_msc" in df.columns:
         df["timestamp"] = pd.to_datetime(
@@ -194,20 +255,7 @@ def download(
     new_ticks = int(len(new_df))
 
     if existing is not None and not new_df.empty:
-        existing["timestamp"] = pd.to_datetime(
-            existing["timestamp"],
-            utc=True,
-            errors="coerce",
-        )
-        existing = existing.dropna(subset=["timestamp"])
-        for c in new_df.columns:
-            if c not in existing.columns:
-                existing[c] = pd.NA
-        existing = existing[new_df.columns]
-        combined = pd.concat([existing, new_df], ignore_index=True)
-        combined = combined.drop_duplicates(subset=["timestamp"], keep="last")
-        combined = combined.sort_values("timestamp").reset_index(drop=True)
-        final_df = combined
+        final_df = _merge_tick_frames(existing, new_df)
     elif existing is not None:
         final_df = existing
     else:
