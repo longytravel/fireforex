@@ -55,7 +55,7 @@ Check `docs/ARCHITECTURE_MAP.md` first. If a script already does the job, use or
 
 ## Paperwork
 
-All three are CI-enforced by the PR-checklist workflow on any PR that touches durable paths (`ff/`, `core/`, `app/`, `tests/`, `scripts/`, `.claude/`, `.github/`, etc.). Forgetting any of them blocks merge.
+Paperwork updates are CI-enforced by the PR-checklist workflow on any PR that touches durable paths (`ff/`, `core/`, `app/`, `tests/`, `scripts/`, `.claude/`, `.github/`, etc.). Forgetting a required update blocks merge.
 
 - `PROGRESS.md`: append/tick only for real milestones. Required on every durable PR.
 - `HANDOFF.md`: refresh before ending a substantial session. Required on every durable PR.

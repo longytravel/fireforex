@@ -9,7 +9,7 @@ Make Dukascopy backtests show what live IC Markets would actually have made — 
 
 ## Late-afternoon update — paperwork gate now enforces PROGRESS.md too
 
-`.github/workflows/pr-checklist.yml` previously required `HANDOFF.md` (always) and `docs/ARCHITECTURE_MAP.md` (on map-sensitive paths) on any PR touching durable paths. After today's session it caught me forgetting `PROGRESS.md` and `ARCHITECTURE_MAP.md`. Added a parallel rule for `PROGRESS.md` so all three are CI-enforced equally on durable PRs. `.claude/rules/workflow.md` Paperwork section updated to match.
+`.github/workflows/pr-checklist.yml` previously required `HANDOFF.md` (always) and `docs/ARCHITECTURE_MAP.md` (on map-sensitive paths) on any PR touching durable paths. After today's session it caught me forgetting `PROGRESS.md` and `ARCHITECTURE_MAP.md`. Added a parallel rule for `PROGRESS.md` so it is now CI-enforced alongside `HANDOFF.md` on durable PRs. `.claude/rules/workflow.md` Paperwork section updated to match.
 
 ## Late-afternoon update (cost-table validator + structural data-source finding)
 
