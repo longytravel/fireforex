@@ -7,7 +7,10 @@ MT5 — inputs are hand-built DataFrames so CI has no broker dependency.
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
+import pytest
 
 from ff.live.reconcile import Tolerances, reconcile, render_report_html, render_report_json
 
@@ -418,3 +421,147 @@ def test_by_pair_rollup_across_multiple_pairs():
     assert rollup["EUR_USD"]["matched"] == 1
     assert rollup["USD_JPY"]["missing_in_live"] == 1
     assert rollup["EUR_USD"]["delta_pips"] != 0.0  # bt 30 vs live 29.9
+
+
+# ── Cost-realism propagation (issue #32) ───────────────────────────────
+
+
+def _bt_with_cost_realism(
+    pair: str,
+    sig: str,
+    *,
+    raw_pnl: float = 30.0,
+    overlay_delta: float = -1.5,
+    adjusted_pnl: float | None = None,
+    gated_out_reason: str = "",
+):
+    """BT row carrying the columns the harness writes after PR #31/#35."""
+    if adjusted_pnl is None:
+        adjusted_pnl = raw_pnl + overlay_delta
+    # When a trade is gated out the harness zeroes the effective pnl;
+    # otherwise effective == adjusted.
+    effective_pnl = 0.0 if gated_out_reason else adjusted_pnl
+    return {
+        "pair": pair,
+        "direction": 1,
+        "signal_bar_ts": _sig_ts(sig),
+        "entry_ts": _sig_ts(sig),
+        "exit_ts": _sig_ts("2026-04-20T17:00:00Z"),
+        "entry_price": 1.0850,
+        "exit_price": 1.0880,
+        "pnl_pips": raw_pnl,
+        # Cost-realism columns the harness persists per PR #31/#35.
+        "raw_pnl_pips": raw_pnl,
+        "overlay_delta_pips": overlay_delta,
+        "adjusted_pnl_pips": adjusted_pnl,
+        "gated_out_reason": gated_out_reason,
+        "effective_pnl_pips": effective_pnl,
+    }
+
+
+def test_matched_row_carries_cost_realism_columns():
+    """A matched trade must surface raw / overlay / adjusted / gated / effective.
+
+    Issue #32: MatchedRow previously dropped these columns, hiding the
+    cost-realism overlay from the matched-row report (the headline
+    user-visible reconcile output).
+    """
+    sig = "2026-04-20T15:00:00Z"
+    bt = _bt(
+        [
+            _bt_with_cost_realism(
+                "EUR_USD",
+                sig,
+                raw_pnl=30.0,
+                overlay_delta=-1.7,
+                adjusted_pnl=28.3,
+                gated_out_reason="",
+            )
+        ]
+    )
+    live = _live([_pairv2_live("EUR_USD", sig)])
+    rep = reconcile(bt, live)
+    assert len(rep.matched) == 1
+    m = rep.matched[0]
+    assert m.bt_raw_pnl_pips == pytest.approx(30.0)
+    assert m.bt_overlay_delta_pips == pytest.approx(-1.7)
+    assert m.bt_adjusted_pnl_pips == pytest.approx(28.3)
+    assert m.bt_gated_out_reason == ""
+    assert m.bt_effective_pnl_pips == pytest.approx(28.3)
+
+
+def test_matched_row_zero_effective_pnl_when_gated():
+    """A trade gated out by the BT post-pass surfaces effective_pnl == 0."""
+    sig = "2026-04-20T15:00:00Z"
+    bt = _bt(
+        [
+            _bt_with_cost_realism(
+                "EUR_USD",
+                sig,
+                raw_pnl=30.0,
+                overlay_delta=-1.0,
+                adjusted_pnl=29.0,
+                gated_out_reason="rollover",
+            )
+        ]
+    )
+    live = _live([_pairv2_live("EUR_USD", sig)])
+    rep = reconcile(bt, live)
+    m = rep.matched[0]
+    assert m.bt_gated_out_reason == "rollover"
+    assert m.bt_effective_pnl_pips == pytest.approx(0.0)
+
+
+def test_by_pair_rollup_uses_effective_pnl_when_present():
+    """The pair rollup must total bt_effective_pnl_pips (not raw) so a gated trade reads as zero."""
+    sig_a = "2026-04-20T15:00:00Z"
+    sig_b = "2026-04-20T16:00:00Z"
+    bt = _bt(
+        [
+            _bt_with_cost_realism("EUR_USD", sig_a, raw_pnl=30.0, overlay_delta=-1.0, adjusted_pnl=29.0),
+            _bt_with_cost_realism(
+                "EUR_USD",
+                sig_b,
+                raw_pnl=20.0,
+                overlay_delta=-0.5,
+                adjusted_pnl=19.5,
+                gated_out_reason="rollover",
+            ),
+        ]
+    )
+    live = _live([_pairv2_live("EUR_USD", sig_a), _pairv2_live("EUR_USD", sig_b)])
+    rep = reconcile(bt, live)
+    rollup = rep.by_pair()
+    # Effective bt total = 29.0 (kept) + 0.0 (gated) = 29.0.
+    assert rollup["EUR_USD"]["matched_effective_pnl_pips_bt"] == pytest.approx(29.0)
+    # Raw stays available for the side-by-side display.
+    assert rollup["EUR_USD"]["matched_pnl_pips_bt"] == pytest.approx(50.0)
+
+
+def test_render_report_json_includes_cost_realism_fields():
+    """JSON output must serialise the new MatchedRow fields so downstream consumers see them."""
+    sig = "2026-04-20T15:00:00Z"
+    bt = _bt([_bt_with_cost_realism("EUR_USD", sig, raw_pnl=30.0, overlay_delta=-1.7, adjusted_pnl=28.3)])
+    live = _live([_pairv2_live("EUR_USD", sig)])
+    rep = reconcile(bt, live)
+    payload = json.loads(render_report_json(rep))
+    row = payload["matched"][0]
+    assert "bt_raw_pnl_pips" in row
+    assert "bt_overlay_delta_pips" in row
+    assert "bt_adjusted_pnl_pips" in row
+    assert "bt_gated_out_reason" in row
+    assert "bt_effective_pnl_pips" in row
+
+
+def test_legacy_bt_without_cost_realism_columns_does_not_crash():
+    """A backtest run from before PR #31 has no cost-realism columns. Reconcile must still succeed."""
+    sig = "2026-04-20T15:00:00Z"
+    bt = _bt([_pairv2_bt("EUR_USD", sig)])  # no raw/overlay/adjusted/gated/effective
+    live = _live([_pairv2_live("EUR_USD", sig)])
+    rep = reconcile(bt, live)
+    assert len(rep.matched) == 1
+    m = rep.matched[0]
+    # Legacy rows surface as NaN/empty so the column exists but signals "absent".
+    assert m.bt_gated_out_reason == ""
+    # bt_raw_pnl_pips falls back to bt_pnl_pips so the matched view still has a number.
+    assert m.bt_raw_pnl_pips == pytest.approx(m.bt_pnl_pips)

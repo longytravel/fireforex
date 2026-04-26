@@ -1,6 +1,18 @@
-# Handoff — 2026-04-26 evening (cost-realism UI shipped + merge guardrails)
+# Handoff — 2026-04-26 night (live reconcile + execution guards)
 
-**Branch:** `docs/pr35-handoff-automerge-guardrails` while this refresh is in review. If this file is on `main`, the docs/tooling refresh has merged.
+**Branch:** `fix/live-reconcile-and-guards` while this refresh is in review. If this file is on `main`, the bundle has merged.
+
+## Tonight's work — issues #32, #33, #34 closed in one branch
+
+`fix/live-reconcile-and-guards` bundles three live/reconcile follow-ups that all touch the cost-realism story:
+
+- **#32 — `MatchedRow` carries cost-realism columns.** `ff/live/reconcile.py` now propagates `bt_raw_pnl_pips`, `bt_overlay_delta_pips`, `bt_adjusted_pnl_pips`, `bt_gated_out_reason`, `bt_effective_pnl_pips` into every matched row and surfaces them in `render_report_json`. Legacy backtests (pre-#31) fall back to `bt_pnl_pips` so the column is always populated. `ReconcileReport.by_pair` adds `matched_effective_pnl_pips_bt` so a gated trade reads as 0 in the rollup, not raw P&L.
+- **#33 — execution_guard reads submit-time tick.** `MT5Broker.current_spread_pips()` queries `mt5.symbol_info_tick` on demand; the runner uses it in `_evaluate_and_fire` immediately before invoking `execution_guard.evaluate`. Previously the guard saw the closed-M1 mean (sometimes 30+ s stale) and could let a spike-time fire through the 3-pip cap. Falls back to the closed-bar value when the broker shim does not expose the new method (synthetic tests).
+- **#34 — post-fill 3-pip slippage cap.** After `submit_market_order` returns, the runner computes signed `fill_slippage_pips = (fill_price − entry_ref_price) / pip_value × direction` and feeds it to `gate_rules.is_slippage_too_wide`. When the cap fires, the position is closed via `broker.close_position(reason="slippage_3p")`, never registered in `state.open_positions`, and the ticket row is tagged `slippage_killed=True` for the reconciler.
+
+Tests added: `test_reconcile.py` (4 cost-realism propagation cases — already authored by the user before this session), `test_broker_mt5_submit.py` (2 cases for `current_spread_pips`), `test_live_runner_synthetic.py` (4 cases for fresh-tick guard + post-fill slippage cap). Full suite: 270 passed.
+
+**Branch (older snapshot):** `docs/pr35-handoff-automerge-guardrails` while this refresh is in review. If this file is on `main`, the docs/tooling refresh has merged.
 **Main status:** `origin/main` includes PR #35 as squash commit `c6c66da` — History tab cost-realism decomposition columns are shipped.
 **Local sync note:** pre-sync local edits to `HANDOFF.md` / `artifacts/history.csv` were protected in stash `pre-sync local handoff/history before PR35 docs refresh` before fast-forwarding local `main`.
 

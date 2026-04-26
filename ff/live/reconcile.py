@@ -104,6 +104,14 @@ class MatchedRow:
     live_slippage_pips: float = float("nan")
     bt_close_reason: str = ""
     live_close_reason: str = ""
+    # Cost-realism columns — written by the harness after PR #31/#35.
+    # Legacy backtests (pre-#31) carry no values; raw + effective fall back
+    # to bt_pnl_pips so the matched-row view never shows a blank cell.
+    bt_raw_pnl_pips: float = float("nan")
+    bt_overlay_delta_pips: float = float("nan")
+    bt_adjusted_pnl_pips: float = float("nan")
+    bt_gated_out_reason: str = ""
+    bt_effective_pnl_pips: float = float("nan")
     categories: list[str] = field(default_factory=list)
 
 
@@ -148,6 +156,7 @@ class ReconcileReport:
                     "extra_in_live": 0,
                     "matched_pnl_pips_live": 0.0,
                     "matched_pnl_pips_bt": 0.0,
+                    "matched_effective_pnl_pips_bt": 0.0,
                     "delta_pips": 0.0,
                     "n_mismatched_signal": 0,
                     "n_mismatched_spread": 0,
@@ -169,6 +178,8 @@ class ReconcileReport:
             slot["matched"] += 1
             slot["matched_pnl_pips_live"] += float(m.live_pnl_pips) if np.isfinite(m.live_pnl_pips) else 0.0
             slot["matched_pnl_pips_bt"] += float(m.bt_pnl_pips)
+            if np.isfinite(m.bt_effective_pnl_pips):
+                slot["matched_effective_pnl_pips_bt"] += float(m.bt_effective_pnl_pips)
             for cat in m.categories:
                 key = f"n_{cat}"
                 if key in slot:
@@ -454,6 +465,20 @@ def _classify(bt_row: pd.Series, live_row: pd.Series, tol: Tolerances) -> Matche
     bt_close = str(bt_row.get("exit_reason_name", ""))
     live_close = str(live_row.get("close_reason", ""))
 
+    # Cost-realism columns. Legacy bt rows have none of these; fall back to
+    # bt_pnl_pips so raw/effective always have a number to display.
+    bt_raw_pnl = float(bt_row.get("raw_pnl_pips", bt_pnl)) if pd.notna(bt_row.get("raw_pnl_pips", bt_pnl)) else bt_pnl
+    bt_overlay_delta = float(bt_row.get("overlay_delta_pips", np.nan)) if pd.notna(bt_row.get("overlay_delta_pips", np.nan)) else np.nan
+    bt_adjusted = float(bt_row.get("adjusted_pnl_pips", np.nan)) if pd.notna(bt_row.get("adjusted_pnl_pips", np.nan)) else np.nan
+    bt_gated_reason = str(bt_row.get("gated_out_reason", "") or "")
+    raw_effective = bt_row.get("effective_pnl_pips", np.nan)
+    if pd.notna(raw_effective):
+        bt_effective = float(raw_effective)
+    elif np.isfinite(bt_adjusted):
+        bt_effective = 0.0 if bt_gated_reason else bt_adjusted
+    else:
+        bt_effective = bt_pnl
+
     categories = []
     if abs(entry_delta) > tol.entry_price_pips:
         categories.append("mismatched_entry_price")
@@ -505,6 +530,11 @@ def _classify(bt_row: pd.Series, live_row: pd.Series, tol: Tolerances) -> Matche
         live_slippage_pips=live_slippage,
         bt_close_reason=bt_close,
         live_close_reason=live_close,
+        bt_raw_pnl_pips=bt_raw_pnl,
+        bt_overlay_delta_pips=bt_overlay_delta,
+        bt_adjusted_pnl_pips=bt_adjusted,
+        bt_gated_out_reason=bt_gated_reason,
+        bt_effective_pnl_pips=bt_effective,
         categories=categories,
     )
 

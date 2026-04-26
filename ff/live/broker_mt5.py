@@ -184,6 +184,29 @@ class MT5Broker:
         df["spread"] = df["spread"].astype("float64")
         return df[["open", "high", "low", "close", "tick_volume", "spread"]]
 
+    def current_spread_pips(self, pair: str) -> float:
+        """Return the live ask−bid spread in pips, fetched at call time.
+
+        Used by the execution guard so the 3-pip cap is checked against
+        the tick at submit time rather than the closed-M1-bar mean. Falls
+        back to NaN if MT5 returns no tick — the guard treats that as
+        ``unknown_spread`` and fails closed.
+        """
+        mt5 = _require_mt5()
+        symbol = self.cfg.symbol_map.get(pair, pair.replace("_", ""))
+        try:
+            tick = mt5.symbol_info_tick(symbol)
+        except Exception:  # noqa: BLE001
+            return float("nan")
+        if tick is None:
+            return float("nan")
+        ask = float(getattr(tick, "ask", float("nan")))
+        bid = float(getattr(tick, "bid", float("nan")))
+        if not (ask == ask and bid == bid):  # NaN check
+            return float("nan")
+        pip_value = 0.01 if "JPY" in pair else 0.0001
+        return (ask - bid) / pip_value
+
     # ----------------------------------------------------------------- orders
     def submit_market_order(self, plan: dict[str, Any]) -> Ticket:
         mt5 = _require_mt5()
