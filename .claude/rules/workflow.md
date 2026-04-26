@@ -55,9 +55,11 @@ Check `docs/ARCHITECTURE_MAP.md` first. If a script already does the job, use or
 
 ## Paperwork
 
-- `PROGRESS.md`: append/tick only for real milestones.
-- `HANDOFF.md`: refresh before ending a substantial session.
-- `docs/ARCHITECTURE_MAP.md`: update when tracked files, ownership, or durable behavior changes.
+All three are CI-enforced by the PR-checklist workflow on any PR that touches durable paths (`ff/`, `core/`, `app/`, `tests/`, `scripts/`, `.claude/`, `.github/`, etc.). Forgetting any of them blocks merge.
+
+- `PROGRESS.md`: append/tick only for real milestones. Required on every durable PR.
+- `HANDOFF.md`: refresh before ending a substantial session. Required on every durable PR.
+- `docs/ARCHITECTURE_MAP.md`: update when tracked files, ownership, or durable behavior changes. Required on map-sensitive durable PRs (most of them).
 
 ## Commit Messages
 

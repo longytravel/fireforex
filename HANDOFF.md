@@ -7,6 +7,10 @@
 ## Goal
 Make Dukascopy backtests show what live IC Markets would actually have made — cost-realism overlay (3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, MT5 session-median spreads, per-pair commission, telemetry-fed slippage), with one source of truth (`gate_rules.py`) shared between the backtest gate and live runner. The UI now decomposes adjusted P&L so users can see *why* adjusted differs from raw.
 
+## Late-afternoon update — paperwork gate now enforces PROGRESS.md too
+
+`.github/workflows/pr-checklist.yml` previously required `HANDOFF.md` (always) and `docs/ARCHITECTURE_MAP.md` (on map-sensitive paths) on any PR touching durable paths. After today's session it caught me forgetting `PROGRESS.md` and `ARCHITECTURE_MAP.md`. Added a parallel rule for `PROGRESS.md` so all three are CI-enforced equally on durable PRs. `.claude/rules/workflow.md` Paperwork section updated to match.
+
 ## Late-afternoon update (cost-table validator + structural data-source finding)
 
 A second cost-realism PR shipped after the morning's #35/#36: `fix/cost-table-mean-spread-validator` switches the cost-table builder from `median()` to `mean()` per session and adds a per-pair lower-bound floor (USD-majors ≥ 0.05 pips, crosses ≥ 0.3 pips). Discovered while debugging why `Cost` overhead was *positive* (i.e. overlay was *refunding* pips) on every survivor of every run: median on the MT5 M1 `spread` distribution returns the broker's 1-point quote-rounding floor (50%+ of bars sit there), making real cost look like 0.1 pips on AUD/NZD, CHF/JPY, etc. Overlay then computed `bt_cost - real_cost` ≈ +0.7 pips/trade on every pair.
