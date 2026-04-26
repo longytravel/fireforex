@@ -22,7 +22,7 @@ Living milestone register. Tick boxes as things ship. Never rewritten — only a
 
 ## Next
 
-- [x] **Architecture stocktake — Pillar 1** (shipped 2026-04-25, PRs #16, #18, #19, #20, #21, #22, #23) — `docs/ARCHITECTURE_MAP.md` + completeness checker (`scripts/check_map.py`) + stop-hook (`.claude/hooks/check-architecture-map.sh`) + Pillars 2–6 roadmap. 9 cleanup files removed; 231 tracked files audited.
+- [x] **Architecture stocktake — Pillar 1** (shipped 2026-04-25, PRs #16, #18, #19, #20, #21, #22, #23) — `docs/ARCHITECTURE_MAP.md` + completeness checker (`scripts/check_map.py`) + Pillars 2–6 roadmap. 9 cleanup files removed; 231 tracked files audited. (The map's Stop-hook was retired 2026-04-26 with the rest of the Stop hooks.)
 - [x] **Cleanup pass 2** (shipped 2026-04-25, PR #24) — 10 more stale docs removed (`ROADMAP.md`, `rust-wishlist.md`, `CHANGES.md`, `REVIEW.md`, `exec-full-fix-plan.md`, `bug-hunting-research-brief.md`, 3× dated `docs/live/` files, `snapshot-home.md`).
 - [x] **PR-system refinements** (shipped 2026-04-25, PR #25) — batching rule, docs-only checklist auto-skip, CodeRabbit-primary policy, force-push allowed on feature branches, gitignore patterns for transient PR artifacts.
 - [x] **MT5 direct toolkit** (shipped 2026-04-25, PR #26) — `scripts/import_mt5_report.py` + `scripts/mt5_status.py` + 2 desktop shortcuts. Hits the running MT5 terminal directly (no manual HTML export). Broker→UTC offset, SL/TP enrichment, digit-aware spread.
@@ -33,6 +33,8 @@ Living milestone register. Tick boxes as things ship. Never rewritten — only a
   - [ ] #14 Metric key mismatch (`win_rate` vs `win_rate_pct`)
 - [ ] **Triage 10 dependabot PRs** auto-opened on 2026-04-25
 - [ ] **Pin test fixtures** so CI can run `test_golden_baseline` and `test_trade_log_roundtrip` (currently skipped on Linux for missing data)
+- [ ] **Cost-realism overlay** (post-pass spread/commission/slippage adjustment from MT5 medians + slippage telemetry feedback loop). Dukascopy stays the BT engine; overlay surfaces `raw_pnl` vs `adjusted_pnl` side-by-side. See `docs/superpowers/specs/<date>-cost-realism-design.md` once written.
+- [ ] **Execution Guard module ("3-and-3")** — reusable pre-trade filter, drops into every EA. Blocks when (a) live spread > 3 pips, (b) realised slippage > 3 pips, (c) UTC hour in 21:00–24:00 daily-rollover window, (d) [v2] within ±5 min of scheduled news. Single source of truth in `ff/cost_realism/gate_rules.py`, imported by BT post-pass (`bt_gate.py`) and live runner (`execution_guard.py`) so they can never drift. Spec: `docs/superpowers/specs/2026-04-25-cost-realism-design.md`.
 - [ ] **Optuna optimiser** (replaces random sweep for serious runs)
 - [ ] **Walk-forward validation** (in-sample / out-of-sample rolling windows)
 - [ ] **Monte Carlo robustness** (stressed seeds, confidence bands on metrics)

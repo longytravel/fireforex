@@ -30,7 +30,7 @@ Deep tour: `docs/ARCHITECTURE_MAP.md` (the audited file-by-file map — start he
 
 ## Session paperwork
 
-- `HANDOFF.md` — current state, refreshed at session end (Stop hook blocks if stale).
+- `HANDOFF.md` — current state, refreshed at session end.
 - `PROGRESS.md` — milestone register. Tick boxes when work ships, never rewrite.
 - Both are injected at SessionStart by `.claude/hooks/session-start.sh`.
 

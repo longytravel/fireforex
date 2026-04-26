@@ -54,11 +54,11 @@ description: PR workflow and PROGRESS.md maintenance — keeps the user out of t
 - The SessionStart hook injects `gh issue list --state open` so I see open issues at every session start.
 - When CodeRabbit / Gemini / Codex / CodeQL flag a real pre-existing bug on a PR, I open a GitHub issue (don't bury it in the PR thread that vanishes after merge).
 - After a PR merges, I review the issue list and tick anything the PR closed (use `Closes #N` in PR descriptions to auto-close).
-- The user never has to look at the issue list — if they ask "what bugs do we have?", I read what the hook gave me.
+- The user never has to look at the issue list — if they ask "what bugs do we have?", I read what the SessionStart snapshot gave me.
 
-## HANDOFF.md — the Stop hook keeps me honest
+## HANDOFF.md — refreshed before session end
 - HANDOFF is refreshed before session end (run `/handoff` or rewrite it directly).
-- The Stop hook blocks session end if real work is uncommitted AND HANDOFF wasn't updated. Fix the paperwork, don't bypass the hook.
+- No Stop-hook gating: just remember to update it.
 
 ## Commit messages — Conventional Commits
 - `feat(scope): add X`
