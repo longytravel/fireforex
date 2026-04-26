@@ -45,8 +45,14 @@ read a plain-English answer.
 ## trials
 
 - title: Trials
-- range: 10 to 50,000 random parameter draws per run.
+- range: 10 to 50,000,000 random parameter draws per run.
 - why: How many different combinations to try. 2,000 is a sensible default. More = slower but more thorough.
+
+## retain_top_per_metric
+
+- title: Retained winners per metric
+- range: 1 to 10,000. Default 200.
+- why: In lean mega-runs, Fire Forex keeps full equity and trade detail for this many top trials per objective. Higher values preserve more candidates for walk-forward testing but create larger artifacts.
 
 ## seed
 

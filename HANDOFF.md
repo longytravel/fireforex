@@ -1,85 +1,104 @@
-# Handoff — 2026-04-26 evening (cost-realism UI shipped + merge guardrails)
+# Handoff - 2026-04-26 Night
 
-**Branch:** `docs/pr35-handoff-automerge-guardrails` while this refresh is in review. If this file is on `main`, the docs/tooling refresh has merged.
-**Main status:** `origin/main` includes PR #35 as squash commit `c6c66da` — History tab cost-realism decomposition columns are shipped.
-**Local sync note:** pre-sync local edits to `HANDOFF.md` / `artifacts/history.csv` were protected in stash `pre-sync local handoff/history before PR35 docs refresh` before fast-forwarding local `main`.
+**Status:** mega brute-force work from PR #40 is being merged to `main`.
+**Worktree:** `C:\Users\ROG\Projects\Fire Forex mega-brute`.
+**Original checkout:** `C:\Users\ROG\Projects\Fire Forex` had separate Claude/live-reconcile dirty files, so the brute-force branch was kept isolated.
 
-## Goal
-Make Dukascopy backtests show what live IC Markets would actually have made — cost-realism overlay (3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, MT5 session-median spreads, per-pair commission, telemetry-fed slippage), with one source of truth (`gate_rules.py`) shared between the backtest gate and live runner. The UI now decomposes adjusted P&L so users can see *why* adjusted differs from raw.
+## What Changed
 
-## Late-evening update — optimiser ranks by IC-realistic adjusted P&L (Option C)
+### Mega brute-force sweeps
 
-`ff.harness.run` now ranks trials by an IC-aligned adjusted-P&L proxy whenever `artifacts/cost_table.json` covers the swept pair. The proxy is `total_pnl + n_trades * per_trade_overlay_charge_pips(pair)`, where `charge = bt_commission_proxy_rt − ic_real_cost_rt` is computed once from the cost table's liquid-session means. When the table is missing or has no entry for the pair, the optimiser silently falls back to the legacy composite Quality objective. Logs `[pick_best] proxy charge per trade = ±X pips; ranking N trials by adjusted_pnl_proxy` so it's obvious what happened.
+- Signal libraries now cache contiguous per-variant slices (`variant_start` / `variant_end`).
+- Rust `batch_evaluate` detects variant-contiguous arrays and evaluates only the selected variant slice.
+- Large random sweeps stream compact metrics into `.npy` sidecars instead of storing full PnL/trades for every trial.
+- `artifact_mode=auto` switches to lean mode above `50,000` trials.
+- Rich artifacts remain capped at `50,000`; web/API trial cap is now `50,000,000`.
+- Run page scatter/trial APIs read lean artifacts.
 
-**Why:** users want the picked trial to match what is likely to happen live. Quality balanced Sharpe / DD / return on Dukascopy spreads, which under-charged execution cost vs IC Markets — so the headline trial often had high return-per-trade but few trades, which doesn't survive realistic per-trade cost. Option C charges every trial the IC delta and lets sweeps with high-volume, lower-expectancy strategies that still beat IC reality win the slot.
+### Retained candidate bench
 
-**Engineering choice:** the proxy column lives outside `metrics_out` because adding a column would require bumping `NUM_METRICS` in the Rust engine. `pick_best` now accepts an `objective_array=` kwarg that overrides the metric-column lookup with a synthetic per-trial array (higher-is-better; tie-breakers + profitability filter still come from `metrics_out`). No `core/` changes; no UI changes (existing Cost / Adj. pips / Gate save columns already decompose the realistic side).
+- `retain_top_per_metric` is configurable from the Run page.
+- Default is `200`; API max is `10,000`; env override is `FF_LEAN_RETAIN_TOP_PER_METRIC`.
+- Retained candidates are deduped across objectives.
+- Retained artifacts include equity/PnL rows, metrics, encoded params, and trial JSON.
+- `Trades` intentionally means raw highest trade count, even if losing, because it is useful for live-runner/execution stress tests.
+- Jump-to-best uses retained objective maps, so retained winners have real equity curves.
 
-**Golden re-pinned.** `tests/golden/complex01_seed42_500trials.json` shifted from a 33-trade outlier-Quality trial (337 pips, PF 5.029) to a 136-trade EMA-cross trend-follower (1248 pips, PF 1.545). The shift is the intended effect; description updated with prior values for traceability.
+### Stability fixes after UI testing
 
-## Late-afternoon update — MT5 tick downloader resolves cost-realism data quality (PR #42)
+- Retained candidate memory is bounded to active top benches.
+- Stale candidate detail is pruned during chunk processing.
+- Retained trade records are trimmed to actual trade count rather than max-trades width.
+- The incorrect profit gate on the `Trades` objective was removed.
 
-The structural floor-bias in MT5 M1 `spread` (issue #39) is sidestepped by switching the cost-table source to **MT5 tick data**. New `ff/data/mt5_tick_downloader.py` pulls per-pair tick history (bid/ask per quote change) via `mt5.copy_ticks_range()` into `{MT5_DATA_ROOT}/{pair}_TICK.parquet`. `ff/cost_realism/cost_table.py` now prefers tick parquets and computes `spread = ask − bid`; entries tagged `spread_source: "tick"` (preferred) or `"m1"` (legacy fallback).
+## Recent Main Work Preserved
 
-`scripts/fetch_mt5_ticks.py` is the bulk downloader. Verified end-to-end: 28/28 default pairs downloaded (90-day window, 5-7M ticks per major), all 28 in `artifacts/cost_table.json` with realistic per-session spreads. Cross-pair lower-bound floor relaxed from 0.3 to 0.15 pips after calibration against IC Markets tick history.
+- PR #42 switched cost-table building to MT5 tick data for real bid/ask spreads and added last-run cost cards.
+- PR #43 ranks optimiser-selected trials by an IC-realistic adjusted-PnL proxy when `artifacts/cost_table.json` covers the pair, falling back to legacy Quality otherwise.
+- PR #41 made the PR paperwork checklist enforce `PROGRESS.md` alongside `HANDOFF.md` and `docs/ARCHITECTURE_MAP.md`.
 
-Last-run summary panel (`app/static/app.js` KPI grid) now shows Adj. pips / Gate save / Cost / Gated cards alongside the raw KPIs, so cost-realism decomposition is visible on the run summary, not just in the History tab.
+## Verification
 
-The earlier 0.1-pip cost-table bug is fully resolved as far as user-visible UI is concerned. The M1 path remains as a documented fallback.
+- `uv run python scripts/check_map.py` passed: all tracked files are referenced in `docs/ARCHITECTURE_MAP.md`.
+- `uvx ruff check ff/harness.py app/routes.py app/jobs.py app/models.py tests/test_lean_artifact_routes.py` passed.
+- Earlier focused route/cache tests passed: `9 passed`.
+- Earlier Node syntax check passed for `app/static/app.js`.
+- Earlier PR verification included Rust `cargo test` and a synthetic variant fast-path benchmark.
+- Real UI smoke: `150,000` CAD_CHF Level 10 trials completed in `24.05s`, about `6,237 evals/sec`, retaining `2,422` unique candidates.
 
-## Late-afternoon update — paperwork gate now enforces PROGRESS.md too
+## Data Caveat Found During Testing
 
-`.github/workflows/pr-checklist.yml` previously required `HANDOFF.md` (always) and `docs/ARCHITECTURE_MAP.md` (on map-sensitive paths) on any PR touching durable paths. After today's session it caught me forgetting `PROGRESS.md` and `ARCHITECTURE_MAP.md`. Added a parallel rule for `PROGRESS.md` so it is now CI-enforced alongside `HANDOFF.md` on durable PRs. `.claude/rules/workflow.md` Paperwork section updated to match.
+The data store is not uniformly full-history. The UI's "Full" button uses the full range present in the parquet files for the selected pair/timeframes, but some pair files only contain recent history.
 
-## Late-afternoon update (cost-table validator + structural data-source finding)
+Short H1 examples currently seen:
 
-A second cost-realism PR shipped after the morning's #35/#36: `fix/cost-table-mean-spread-validator` switches the cost-table builder from `median()` to `mean()` per session and adds a per-pair lower-bound floor (USD-majors ≥ 0.05 pips, crosses ≥ 0.3 pips). Discovered while debugging why `Cost` overhead was *positive* (i.e. overlay was *refunding* pips) on every survivor of every run: median on the MT5 M1 `spread` distribution returns the broker's 1-point quote-rounding floor (50%+ of bars sit there), making real cost look like 0.1 pips on AUD/NZD, CHF/JPY, etc. Overlay then computed `bt_cost - real_cost` ≈ +0.7 pips/trade on every pair.
+- `AUD_CHF`: starts `2026-03-23`
+- `CAD_CHF`: starts `2026-03-23`
+- `NZD_CAD`: starts `2026-03-23`
+- `NZD_CHF`: starts `2026-03-23`
+- `EUR_USD`: starts `2025-04-20`
+- `GBP_USD`: starts `2024-01-15`
 
-Mean is the right statistic but doesn't fully rescue the data: 25 of the 28 default pairs still fail the lower-bound floor because **only the NY session contains genuine quote variation in the MT5 M1 `spread` field**. Non-NY bars almost always close on a 1-point tick (broker's quote-rounding minimum) regardless of true bid/ask. This is a structural limitation of MT5 OHLC data — `spread` is sampled once per bar at close, not time-averaged. Follow-up tracked in PROGRESS as "MT5 M1 spread is structurally floor-biased". Until resolved, the local `artifacts/cost_table.json` will contain ~3 pairs and the overlay will skip the rest (raw + gate effect only, no cost adjustment shown for skipped pairs).
+Long-history examples still present:
 
-`scripts/inspect_cost_overhead.py` is a forensic diagnostic created during the investigation; left untracked (ad-hoc local tool).
+- `AUD_USD`: starts `2006-11-12`
+- `USD_JPY`: starts `2007-03-27`
+- `USD_CAD`: starts `2012-01-11`
+- `EUR_AUD`: starts `2012-01-11`
 
-## Completed this session
-- **PR #31 merged** as commit `63a3faa` — full cost-realism subsystem (5 PRs bundled): BT post-pass gate/overlay, cost table, telemetry-fed slippage, live execution guard sharing `ff/cost_realism/gate_rules.py`.
-- **PR #35 merged** as commit `c6c66da` — History tab now shows:
-  - `Adj. pips` — `adjusted_total_pips` after overlay
-  - `Gate save` — pips saved by dropping bad-cost trades
-  - `Cost` — spread/commission/slippage overhead on surviving trades
-  - `Gated` — dropped-trade count
-  - `CR` — cost-realism status pill (`ok` / `empty` / `failed`)
-- **Harness decomposition persisted** to NPZ + `artifacts/history.csv`: `adjusted = total + gate_save + cost_overhead`. Unit test enforces the identity.
-- **End-to-end smoke verified** with the real cost table: raw `278.6`, adjusted `340.5`, gate save `101.9`, cost overhead `-40.0`, gated `7`, status `ok`.
-- **Repo merge settings fixed**: auto-merge and delete-branch-on-merge are enabled. PR #35 initially stayed blocked because two stale Gemini review threads were unresolved; resolving them triggered auto-merge immediately.
-- **Merge guardrail improved**: `scripts/merge_pr.ps1` is now the preferred Windows-native closer; `scripts/merge_pr.sh` remains the Git Bash equivalent. They resolve review threads, wait for CI, fall back to auto-merge when direct merge is blocked, wait for the PR to actually merge, and delete the remote branch if GitHub leaves it behind.
-- **Stop-hook alternative installed**: PR-body ritual text is advisory, but the PR checklist workflow now has a paperwork audit. Durable code/tooling changes must update `HANDOFF.md`; architecture-map-sensitive changes must update `docs/ARCHITECTURE_MAP.md`. This enforces paperwork at PR time, where the agent can fix it, instead of interrupting local work with Stop hooks.
-- **Stop hooks remain retired**. `.claude/settings.json` is `{}`; no Stop-hook paperwork gate. Update paperwork directly before finishing.
+For high-trade-count brute-force tests, use a long-history pair until the short parquet files are repaired.
 
 ## Not Yet Done
-- **Issue #32** — `MatchedRow` propagation in `ff/live/reconcile.py:82`. This is the smallest cost-realism follow-up: matched live-vs-BT rows still need the new overlay/gate columns carried into the reconcile headline report.
-- **Issue #33** — live guard reads stale closed-bar spread, not the submit-time tick. Needs fresh `mt5.symbol_info_tick` immediately before broker submit.
-- **Issue #34** — post-fill slippage cap is documented but not enforced after order fill.
-- **Three older scanner findings:** #12 path traversal in `app/routes.py`, #13 out-of-bounds `sig_bar_index`, #14 metric key mismatch (`win_rate` vs `win_rate_pct`).
-- **Backport the live runner's forming-candle fix** into the BT engine.
-- **Docs sweep** — markdownlint MD040 in `docs/superpowers/specs/*` and `docs/superpowers/plans/*`, stale `is_news_window` placeholder reference, session-name canonicalisation.
 
-## Failed Approaches — Don't Repeat
-- Don't replace `pnl_pips` with adjusted P&L as the headline metric. Keep raw and adjusted side-by-side.
-- Don't store enriched best-trial trades as a numpy recarray in NPZ. JSON-encoded `uint8` bytes avoid pickle and round-trip cleanly.
-- Don't insert the live execution guard at the top of `_poll_one_pair`; it belongs immediately before broker submit.
-- Don't leave UI work on an unmerged branch after backend work lands. If a user says "I can't see it in the UI", check `git branch -vv`, `gh pr list --head <branch>`, and whether local `main` includes the UI commit.
-- Don't assume green checks mean mergeable. Resolve outdated review threads too; branch protection can remain blocked until every thread is resolved.
+- True metrics-only Rust kernel. Lean mode still asks the current Rust entrypoint to fill PnL/trade buffers per chunk, then retains only the top bench. The next speed jump is a metrics-only kernel plus full-detail replay for retained/on-demand trials.
+- Data repair for short-history parquet files.
+- Issue #32: propagate new cost-realism columns through `MatchedRow` in `ff/live/reconcile.py`.
+- Issue #33: live guard should read submit-time tick spread, not stale closed-bar spread.
+- Issue #34: post-fill slippage cap is documented but not enforced after order fill.
+- Older scanner findings:
+  - #12 path traversal in `app/routes.py`
+  - #13 out-of-bounds `sig_bar_index`
+  - #14 metric key mismatch (`win_rate` vs `win_rate_pct`)
+- Backport the live runner forming-candle fix into the BT engine.
+- Deferred docs sweep: markdownlint MD040 and stale docs references.
 
-## Exact Resume Steps
-1. Make sure any docs/tooling refresh PR containing this handoff is merged.
-2. Run `git checkout main && git pull --ff-only origin main` before new work. If local runtime artifacts are dirty, stash them first.
-3. Pick up issue #32 (`MatchedRow` cost-realism column propagation).
-4. Then issues #33 and #34.
-5. Then the deferred docs sweep.
+## Resume Steps
+
+1. Pull `main` in the normal checkout.
+2. Test long-history brute-force runs on `AUD_USD`, `USD_JPY`, `USD_CAD`, or `EUR_AUD`.
+3. Use `Retain top` at the default `200`, or raise it if future walk-forward needs a wider candidate bench.
+4. Repair/rebuild short parquet files for `AUD_CHF`, `CAD_CHF`, `NZD_CAD`, and `NZD_CHF`.
+5. Build the metrics-only Rust kernel next for another large speed step.
 
 ## Useful Commands
-- Merge a green PR safely: `bash scripts/merge_pr.sh <PR#>`
-- Check unresolved review threads: `gh pr view <PR#> --json mergeStateStatus,autoMergeRequest,url`
-- Sync main safely: `bash scripts/sync_main.sh`
 
-## In Flight
-- Docs/tooling guardrail refresh only (`docs/pr35-handoff-automerge-guardrails`).
+- Start the UI from this worktree:
+  `python run.py web --host 127.0.0.1 --port 8765 --no-browser --no-reload`
+- Focused tests:
+  `python -m pytest tests/test_lean_artifact_routes.py tests/test_signal_cache.py -q`
+- Ruff:
+  `python -m ruff check ff/harness.py app/routes.py app/jobs.py app/models.py tests/test_lean_artifact_routes.py`
+
+## Current In Flight
+
+- After this merge: no active brute-force PR.

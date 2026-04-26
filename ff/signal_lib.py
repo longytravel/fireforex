@@ -39,7 +39,7 @@ from . import schema as sc
 # source code of ff/signal_lib.py itself (so editing a signal formula
 # invalidates every stale cache automatically), the canonical grid, and
 # numeric knobs. Bump _CACHE_VERSION only for key-format changes.
-_CACHE_VERSION = "v2"
+_CACHE_VERSION = "v3"
 _CACHE_DIR = Path(__file__).resolve().parent.parent / "artifacts" / "signal_cache"
 
 
@@ -405,6 +405,8 @@ class SignalLibrary:
     filter_value: np.ndarray
     swing_sl: np.ndarray
     variant: np.ndarray  # int64: per-signal variant id
+    variant_start: np.ndarray  # int64: inclusive pooled-signal start by variant id
+    variant_end: np.ndarray  # int64: exclusive pooled-signal end by variant id
     variant_map: list[dict]  # variant_id → {family, params, n_signals}
 
     @property
@@ -528,6 +530,8 @@ def _load_cached_library(path: Path) -> SignalLibrary | None:
                 filter_value=z["filter_value"].astype(np.float64, copy=False),
                 swing_sl=z["swing_sl"].astype(np.float64, copy=False),
                 variant=z["variant"].astype(np.int64, copy=False),
+                variant_start=z["variant_start"].astype(np.int64, copy=False),
+                variant_end=z["variant_end"].astype(np.int64, copy=False),
                 variant_map=variant_map,
             )
     except (OSError, KeyError, ValueError):
@@ -550,6 +554,8 @@ def _save_cached_library(path: Path, lib: SignalLibrary) -> None:
             filter_value=lib.filter_value,
             swing_sl=lib.swing_sl,
             variant=lib.variant,
+            variant_start=lib.variant_start,
+            variant_end=lib.variant_end,
             variant_map_json=np.asarray(json.dumps(lib.variant_map, default=str)),
         )
     os.replace(tmp, path)
@@ -726,7 +732,10 @@ def build_signal_library(
     swing_parts: list[np.ndarray] = []
     variant_parts: list[np.ndarray] = []
     variant_map: list[dict] = []
+    variant_start: list[int] = []
+    variant_end: list[int] = []
     next_id = 0
+    offset = 0
 
     for (family_name, combo), ss in zip(tasks, outcomes):
         if ss is None:
@@ -741,6 +750,9 @@ def build_signal_library(
         filter_parts.append(ss.filter_value)
         swing_parts.append(ss.swing_sl)
         variant_parts.append(np.full(n, next_id, dtype=np.int64))
+        variant_start.append(offset)
+        offset += int(n)
+        variant_end.append(offset)
         variant_map.append({"family": family_name, "params": combo, "n_signals": n})
         next_id += 1
 
@@ -748,8 +760,11 @@ def build_signal_library(
         raise RuntimeError("build_signal_library: no valid variants produced")
 
     bar_index = np.concatenate(bar_index_parts)
-    # Engine expects signals sorted by bar_index globally; co-sort everything.
-    order = np.argsort(bar_index, kind="stable")
+    variant_arr = np.concatenate(variant_parts)
+    # Mega sweeps need direct variant slices. Sort by variant first, then
+    # bar_index inside each variant so a trial can evaluate exactly one
+    # chronological slice instead of scanning the whole pooled library.
+    order = np.lexsort((bar_index, variant_arr))
     lib = SignalLibrary(
         bar_index=bar_index[order].astype(np.int64, copy=False),
         direction=np.concatenate(direction_parts)[order].astype(np.int64, copy=False),
@@ -759,7 +774,9 @@ def build_signal_library(
         day=np.concatenate(day_parts)[order].astype(np.int64, copy=False),
         filter_value=np.concatenate(filter_parts)[order].astype(np.float64, copy=False),
         swing_sl=np.concatenate(swing_parts)[order].astype(np.float64, copy=False),
-        variant=np.concatenate(variant_parts)[order].astype(np.int64, copy=False),
+        variant=variant_arr[order].astype(np.int64, copy=False),
+        variant_start=np.asarray(variant_start, dtype=np.int64),
+        variant_end=np.asarray(variant_end, dtype=np.int64),
         variant_map=variant_map,
     )
     if cache_path is not None:

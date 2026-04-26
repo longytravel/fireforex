@@ -202,8 +202,21 @@ def post_run(body: dict[str, Any]) -> dict[str, Any]:
     seed = int(body.get("seed", 42))
     layer_name = body.get("layer_name")
     overrides = body.get("overrides") or {}
-    if not (10 <= n_trials <= 50_000):
-        raise HTTPException(status_code=400, detail="n_trials must be 10..50000")
+    artifact_mode = str(body.get("artifact_mode", "auto"))
+    chunk_size_raw = body.get("chunk_size")
+    chunk_size = int(chunk_size_raw) if chunk_size_raw not in (None, "") else None
+    retain_top_raw = body.get("retain_top_per_metric")
+    retain_top_per_metric = int(retain_top_raw) if retain_top_raw not in (None, "") else None
+    if artifact_mode not in {"auto", "rich", "lean"}:
+        raise HTTPException(status_code=400, detail="artifact_mode must be auto, rich, or lean")
+    if not (10 <= n_trials <= 50_000_000):
+        raise HTTPException(status_code=400, detail="n_trials must be 10..50000000")
+    if artifact_mode == "rich" and n_trials > 50_000:
+        raise HTTPException(status_code=400, detail="rich artifact mode is capped at 50000 trials; use auto or lean")
+    if chunk_size is not None and chunk_size <= 0:
+        raise HTTPException(status_code=400, detail="chunk_size must be positive")
+    if retain_top_per_metric is not None and not (1 <= retain_top_per_metric <= 10_000):
+        raise HTTPException(status_code=400, detail="retain_top_per_metric must be 1..10000")
 
     # Normalise optional date window from either the recipe or the top level.
     for key in ("start_date", "end_date"):
@@ -214,7 +227,16 @@ def post_run(body: dict[str, Any]) -> dict[str, Any]:
             recipe[key] = val
 
     try:
-        job_id = jobs.start(recipe, n_trials=n_trials, seed=seed, layer_name=layer_name, overrides=overrides)
+        job_id = jobs.start(
+            recipe,
+            n_trials=n_trials,
+            seed=seed,
+            layer_name=layer_name,
+            overrides=overrides,
+            artifact_mode=artifact_mode,
+            chunk_size=chunk_size,
+            retain_top_per_metric=retain_top_per_metric,
+        )
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
     return {"job_id": job_id}
@@ -413,6 +435,7 @@ def clear_baseline() -> dict[str, Any]:
 # ── Scatter (per-trial results) ────────────────────────────────────────
 
 _RUN_FILE_RE = re.compile(r"^[A-Za-z0-9_\-]+\.npz$")
+_METRICS_FILE_RE = re.compile(r"^[A-Za-z0-9_\-]+\.npy$")
 
 # Scatter API schema. The harness registry covers the Rust metric columns;
 # ``total_pips`` is appended by this endpoint from the per-trial PnL buffer.
@@ -433,6 +456,15 @@ def _resolve_run_npz(run_file: str) -> Path:
     return path
 
 
+def _resolve_lean_metrics_path(run_npz: Path, metrics_name: str) -> Path:
+    if not _METRICS_FILE_RE.match(metrics_name):
+        raise HTTPException(status_code=400, detail="bad lean metrics file name")
+    path = run_npz.parent / metrics_name
+    if not path.exists() or path.parent != (ARTIFACTS_DIR / "runs"):
+        raise HTTPException(status_code=404, detail="lean metrics sidecar not found")
+    return path
+
+
 def _baseline_quality() -> float | None:
     """Best-quality score of the pinned baseline's run, if any. Used as the
     zero-point of the scatter colour gradient."""
@@ -449,6 +481,8 @@ def _baseline_quality() -> float | None:
         return None
     try:
         with np.load(path, allow_pickle=False) as z:
+            if "quality_max" in z.files:
+                return float(z["quality_max"])
             if "quality" in z.files:
                 return float(z["quality"].max())
     except Exception:
@@ -466,9 +500,30 @@ def get_scatter(run_file: str) -> dict[str, Any]:
 
     path = _resolve_run_npz(run_file)
     with np.load(path, allow_pickle=False) as z:
-        if "per_trial_metrics" not in z.files:
+        if "per_trial_metrics" in z.files:
+            metrics = z["per_trial_metrics"]  # (n_trials, N_rust_cols) float32
+        elif "lean_metrics_file" in z.files:
+            metrics_path = _resolve_lean_metrics_path(path, str(z["lean_metrics_file"]))
+            metrics = np.load(metrics_path, mmap_mode="r")
+        else:
             raise HTTPException(status_code=409, detail="this run predates the scatter feature; re-run to enable")
-        metrics = z["per_trial_metrics"]  # (n_trials, N_rust_cols) float32
+        n_trials = int(metrics.shape[0])
+        if n_trials > _SCATTER_MAX_POINTS:
+            stride = int(np.ceil(n_trials / _SCATTER_MAX_POINTS))
+            idx = np.arange(0, n_trials, stride, dtype=np.int32)
+        else:
+            idx = np.arange(n_trials, dtype=np.int32)
+        retained_idx = np.array([], dtype=np.int32)
+        retained_objectives: dict[str, list[int]] = {}
+        if "retained_trial_indices" in z.files:
+            retained_idx = z["retained_trial_indices"].astype(np.int32, copy=False)
+            idx = np.unique(np.concatenate([idx, retained_idx])).astype(np.int32, copy=False)
+        if "retained_objectives_json" in z.files:
+            try:
+                retained_objectives = json.loads(str(z["retained_objectives_json"]))
+            except Exception:
+                retained_objectives = {}
+        metrics = metrics[idx]
         # Pad legacy runs (saved with 10 Rust cols) up to the current schema
         # so new columns show as NaN rather than wrap-around indices.
         n_rust_cols = len(_HARNESS_METRIC_COLUMNS)
@@ -477,20 +532,15 @@ def get_scatter(run_file: str) -> dict[str, Any]:
             metrics = np.concatenate([metrics, pad], axis=1)
         # Derive total_pips per trial — appended as the final column.
         if "per_trial_pnl" in z.files and "per_trial_n_trades" in z.files:
-            pnl = z["per_trial_pnl"]
-            n_tr = z["per_trial_n_trades"]
+            pnl = z["per_trial_pnl"][idx]
+            n_tr = z["per_trial_n_trades"][idx]
             mask = np.arange(pnl.shape[1])[None, :] < n_tr[:, None]
             total_pips = np.where(mask, pnl, 0.0).sum(axis=1, dtype=np.float64).astype(np.float32)
         else:
-            total_pips = np.zeros(metrics.shape[0], dtype=np.float32)
+            trades = metrics[:, _METRIC_COLUMN_KEYS.index("trades")]
+            expectancy = metrics[:, _METRIC_COLUMN_KEYS.index("expectancy_pips")]
+            total_pips = (trades * expectancy).astype(np.float32)
         metrics = np.concatenate([metrics, total_pips[:, None]], axis=1)
-    n_trials = int(metrics.shape[0])
-    if n_trials > _SCATTER_MAX_POINTS:
-        stride = int(np.ceil(n_trials / _SCATTER_MAX_POINTS))
-        idx = np.arange(0, n_trials, stride, dtype=np.int32)
-        metrics = metrics[idx]
-    else:
-        idx = np.arange(n_trials, dtype=np.int32)
     # Replace NaN with None for JSON (NaN is not valid JSON).
     metrics_list = [[None if (v != v) else float(v) for v in row] for row in metrics]
     return {
@@ -501,6 +551,8 @@ def get_scatter(run_file: str) -> dict[str, Any]:
         "metric_groups": list(_METRIC_COLUMN_GROUPS),
         "metrics": metrics_list,
         "indices": idx.tolist(),
+        "retained_indices": retained_idx.tolist(),
+        "retained_objectives": retained_objectives,
         "baseline_quality": _baseline_quality(),
     }
 
@@ -512,16 +564,49 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
 
     path = _resolve_run_npz(run_file)
     with np.load(path, allow_pickle=False) as z:
-        if "per_trial_pnl" not in z.files or "per_trial_n_trades" not in z.files:
+        detail_available = False
+        if "per_trial_metrics" in z.files:
+            all_metrics = z["per_trial_metrics"]
+        elif "lean_metrics_file" in z.files:
+            metrics_path = _resolve_lean_metrics_path(path, str(z["lean_metrics_file"]))
+            all_metrics = np.load(metrics_path, mmap_mode="r")
+        else:
             raise HTTPException(status_code=409, detail="this run predates the scatter feature; re-run to enable")
-        n_trials = int(z["per_trial_metrics"].shape[0])
+        n_trials = int(all_metrics.shape[0])
         if not (0 <= trial_idx < n_trials):
             raise HTTPException(status_code=404, detail=f"trial_idx out of range 0..{n_trials - 1}")
-        n_trades = int(z["per_trial_n_trades"][trial_idx])
-        pnl = z["per_trial_pnl"][trial_idx, :n_trades].astype(np.float64)
-        metrics_row = z["per_trial_metrics"][trial_idx]
-    equity = np.cumsum(pnl).tolist() if n_trades > 0 else []
-    total_pips = float(pnl.sum()) if n_trades > 0 else 0.0
+        metrics_row = all_metrics[trial_idx]
+        trial_payload: dict[str, Any] | None = None
+        if "per_trial_pnl" in z.files and "per_trial_n_trades" in z.files:
+            n_trades = int(z["per_trial_n_trades"][trial_idx])
+            pnl = z["per_trial_pnl"][trial_idx, :n_trades].astype(np.float64)
+            detail_available = True
+        elif "retained_trial_indices" in z.files:
+            retained_idx = z["retained_trial_indices"]
+            match = np.where(retained_idx == trial_idx)[0]
+            if match.size:
+                pos = int(match[0])
+                n_trades = int(z["retained_n_trades"][pos])
+                pnl = z["retained_pnl"][pos, :n_trades].astype(np.float64)
+                detail_available = True
+                if "retained_trials_json" in z.files:
+                    try:
+                        trials = json.loads(str(z["retained_trials_json"]))
+                        if pos < len(trials):
+                            trial_payload = trials[pos]
+                    except Exception:
+                        trial_payload = None
+            else:
+                n_trades = int(metrics_row[_METRIC_COLUMN_KEYS.index("trades")])
+                pnl = np.empty(0, dtype=np.float64)
+        else:
+            n_trades = int(metrics_row[_METRIC_COLUMN_KEYS.index("trades")])
+            pnl = np.empty(0, dtype=np.float64)
+    equity = np.cumsum(pnl).tolist() if pnl.size > 0 else []
+    if pnl.size > 0:
+        total_pips = float(pnl.sum())
+    else:
+        total_pips = float(metrics_row[_METRIC_COLUMN_KEYS.index("trades")] * metrics_row[_METRIC_COLUMN_KEYS.index("expectancy_pips")])
     rust_keys = _METRIC_COLUMN_KEYS[:-1]  # drop total_pips (added below)
     metric_dict: dict[str, float | None] = {}
     for i, name in enumerate(rust_keys):
@@ -535,6 +620,8 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
         "trial_idx": trial_idx,
         "n_trades": n_trades,
         "equity": equity,
+        "detail_available": detail_available,
+        "trial": trial_payload,
         "metrics": metric_dict,
     }
 

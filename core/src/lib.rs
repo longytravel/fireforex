@@ -205,6 +205,71 @@ fn batch_evaluate<'py>(
         }
     }
 
+    // Fast path for mega sweeps: signal_lib stores signals as contiguous
+    // chronological slices per variant. If the incoming array has that shape,
+    // each trial can jump straight to its selected variant slice instead of
+    // scanning the full pooled library and filtering most rows away. If a
+    // legacy caller passes interleaved variants or -1 opt-out rows, fall back
+    // to the original full-scan behavior below.
+    let mut variant_slices_enabled = true;
+    let mut max_variant_id: i64 = -1;
+    for i in 0..n_signals {
+        let v = sig_variant_s[i];
+        if v < 0 {
+            variant_slices_enabled = false;
+            break;
+        }
+        if v > max_variant_id {
+            max_variant_id = v;
+        }
+    }
+    let mut variant_start: Vec<usize> = Vec::new();
+    let mut variant_end: Vec<usize> = Vec::new();
+    if variant_slices_enabled && max_variant_id >= 0 {
+        let n_variants = (max_variant_id as usize) + 1;
+        if n_variants > 1_000_000 {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "Too many signal variants: {} (max 1,000,000)",
+                n_variants
+            )));
+        }
+        variant_start = vec![usize::MAX; n_variants];
+        variant_end = vec![0; n_variants];
+        let mut closed = vec![false; n_variants];
+        let mut last_variant: i64 = -1;
+        for i in 0..n_signals {
+            let v = sig_variant_s[i];
+            let vu = v as usize;
+            if v != last_variant {
+                if last_variant >= 0 {
+                    closed[last_variant as usize] = true;
+                }
+                if closed[vu] {
+                    variant_slices_enabled = false;
+                    break;
+                }
+                if variant_start[vu] == usize::MAX {
+                    variant_start[vu] = i;
+                }
+                last_variant = v;
+            }
+            variant_end[vu] = i + 1;
+        }
+        if variant_slices_enabled {
+            for i in 0..variant_start.len() {
+                if variant_start[i] == usize::MAX {
+                    variant_start[i] = 0;
+                    variant_end[i] = 0;
+                }
+            }
+        } else {
+            variant_start.clear();
+            variant_end.clear();
+        }
+    } else {
+        variant_slices_enabled = false;
+    }
+
     // Validate trade_records shape: must be (n_trials, max_trades * NUM_TRADE_FIELDS)
     let trade_records_shape = trade_records.shape();
     let expected_cols = max_trades_usize * NUM_TRADE_FIELDS;
@@ -317,7 +382,19 @@ fn batch_evaluate<'py>(
                     let mut trade_count = 0usize;
                     let mut total_sl_pips = 0.0_f64;
 
-                    'signal_loop: for si in 0..n_signals {
+                    let (signal_start, signal_end) = if variant_slices_enabled && trial_variant >= 0
+                    {
+                        let vu = trial_variant as usize;
+                        if vu < variant_start.len() {
+                            (variant_start[vu], variant_end[vu])
+                        } else {
+                            (0, 0)
+                        }
+                    } else {
+                        (0, n_signals)
+                    };
+
+                    'signal_loop: for si in signal_start..signal_end {
                         // Signal variant filter
                         if trial_variant >= 0 && sig_variant_s[si] >= 0 {
                             if sig_variant_s[si] != trial_variant {

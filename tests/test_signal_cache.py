@@ -55,10 +55,33 @@ def _arrays_equal(a: sl.SignalLibrary, b: sl.SignalLibrary) -> bool:
         "filter_value",
         "swing_sl",
         "variant",
+        "variant_start",
+        "variant_end",
     ):
         if not np.array_equal(getattr(a, name), getattr(b, name)):
             return False
     return True
+
+
+def test_library_is_variant_contiguous(tmp_path, monkeypatch, h1_df, signals_cfg):
+    monkeypatch.setenv("FF_NO_CACHE", "1")
+    lib = sl.build_signal_library(
+        signals_cfg,
+        h1_df,
+        pip_value=0.0001,
+        atr_period=14,
+        use_cache=False,
+    )
+    assert lib.variant_start.shape == (lib.n_variants,)
+    assert lib.variant_end.shape == (lib.n_variants,)
+    for variant_id, info in enumerate(lib.variant_map):
+        start = int(lib.variant_start[variant_id])
+        end = int(lib.variant_end[variant_id])
+        assert end - start == info["n_signals"]
+        if start == end:
+            continue
+        assert np.all(lib.variant[start:end] == variant_id)
+        assert np.all(np.diff(lib.bar_index[start:end]) >= 0)
 
 
 def test_cache_roundtrip_is_byte_identical(tmp_path, monkeypatch, h1_df, signals_cfg):

@@ -882,6 +882,7 @@ async function onRunClick() {
       n_trials: parseInt($('n_trials').value, 10),
       seed: parseInt($('seed').value, 10),
       layer_name: $('layer_name').value || null,
+      retain_top_per_metric: parseInt($('retain_top_per_metric').value, 10),
       start_date: state.recipe.start_date || null,
       end_date: state.recipe.end_date || null,
     };
@@ -1148,14 +1149,14 @@ function populateScatterDropdown(ss) {
 }
 
 function scatterState() {
-  if (!state.scatter) state.scatter = { runFile: null, data: null, points: [] };
+  if (!state.scatter) state.scatter = { runFile: null, data: null, points: [], rowByTrial: new Map() };
   return state.scatter;
 }
 
 async function loadScatterForRun(runFile) {
   const ss = scatterState();
   ss.runFile = runFile;
-  ss.data = null; ss.points = [];
+  ss.data = null; ss.points = []; ss.rowByTrial = new Map();
   $('scatter-jump-best').disabled = true;
   if (!runFile) { drawScatter(); return; }
   try {
@@ -1166,6 +1167,9 @@ async function loadScatterForRun(runFile) {
     ss.data = null;
   }
   if (ss.data) populateScatterDropdown(ss);
+  if (ss.data) {
+    ss.rowByTrial = new Map(ss.data.indices.map((idx, i) => [idx, ss.data.metrics[i]]));
+  }
   $('scatter-jump-best').disabled = !(ss.data && ss.data.metrics.length);
   drawScatter();
 }
@@ -1363,13 +1367,15 @@ function renderTrialView(trial) {
   $('scatter-reset').disabled = false;
   const equity = trial.equity || [];
   drawEquityCurve(equity);
-  $('equity-sub').textContent = `Trial #${trial.trial_idx} · ${trial.n_trades} trades`;
+  $('equity-sub').textContent = trial.detail_available
+    ? `Trial #${trial.trial_idx} · ${trial.n_trades} trades`
+    : `Trial #${trial.trial_idx} · metrics only`;
 
   // Swap KPI tiles with per-trial values. Derive win_rate_pct, total_pips,
   // expectancy from the trial metrics row + equity curve (Rust metrics
   // expose win_rate as a fraction; total pips is the final equity value).
   const m = trial.metrics || {};
-  const totalPips = equity.length ? equity[equity.length - 1] : 0;
+  const totalPips = equity.length ? equity[equity.length - 1] : (m.total_pips ?? 0);
   const trades = m.trades || 0;
   const kpis = {
     trades: trades,
@@ -1401,16 +1407,9 @@ function onScatterReset() {
 }
 
 function onScatterJumpBest() {
-  // Jump to the best trial by the currently-selected Y-axis metric,
-  // with two safety rules so "best" always means a *winning* trial:
-  //   1. Profitability gate: skip trials with total_pips <= 0 (or when
-  //      total_pips is unavailable, fall back to profit_factor > 1).
-  //      Metrics like R², K-Ratio, Tail Ratio can be maximised by trials
-  //      that are mathematically "clean" but lose money.
-  //   2. Direction: metrics in SCATTER_METRIC_LOWER_IS_BETTER (max_dd_pct,
-  //      ulcer, max_consec_loss) are argmin, not argmax.
-  // If no profitable trial exists, fall back to unconstrained best and
-  // flag the caveat in the legend.
+  // Jump to the best retained trial by the currently-selected Y-axis metric.
+  // Lean mega-runs send top-N retained trial ids per objective, so jump-to-best
+  // has real equity/trade detail instead of landing on a stride-sampled dot.
   const ss = scatterState();
   if (!ss.data) return;
   const sel = $('scatter-metric').value;
@@ -1432,39 +1431,39 @@ function onScatterJumpBest() {
       const pf = row[pfCol];
       if (pf != null && Number.isFinite(pf)) return pf > 1.0;
     }
-    return true; // unable to determine — don't gate
+    return true;
   };
 
+  const retainedForMetric = ss.data.retained_objectives?.[sel] || null;
+  const candidatePairs = retainedForMetric && retainedForMetric.length
+    ? retainedForMetric.map(trialIdx => ({ trialIdx, row: ss.rowByTrial.get(trialIdx) })).filter(x => x.row)
+    : ss.data.indices.map((trialIdx, i) => ({ trialIdx, row: ss.data.metrics[i] }));
+
   const pickFrom = (filter) => {
-    let bestIdx = -1, bestScore = -Infinity;
-    for (let i = 0; i < ss.data.metrics.length; i++) {
-      const row = ss.data.metrics[i];
+    let best = null, bestScore = -Infinity;
+    for (const candidate of candidatePairs) {
+      const row = candidate.row;
       const v = row[objCol];
       if (v == null || !Number.isFinite(v)) continue;
       if (filter && !filter(row)) continue;
       const r = rCol >= 0 ? (row[rCol] || 0) : 0;
       const q = qCol >= 0 ? (row[qCol] || 0) : 0;
-      // Lexicographic: direction·objective >> return_pct >> quality.
       const score = (dir * v) * 1e18 + r * 1e6 + q;
-      if (score > bestScore) { bestScore = score; bestIdx = i; }
+      if (score > bestScore) { bestScore = score; best = candidate; }
     }
-    return bestIdx;
+    return best;
   };
 
-  let bestIdx = pickFrom(isProfitable);
+  let best = pickFrom(isProfitable);
   const legend = $('scatter-legend');
-  if (bestIdx < 0) {
-    // No profitable trial — fall back to best overall and warn the user.
-    bestIdx = pickFrom(null);
-    if (bestIdx >= 0 && legend) {
-      legend.textContent = `no profitable trials in this run — showing best ${sel} overall (still a loser)`;
+  if (!best) {
+    best = pickFrom(null);
+    if (best && legend) {
+      legend.textContent = `no profitable trials in this run - showing best ${sel} overall (still a loser)`;
     }
   }
-  if (bestIdx >= 0) showTrial(ss.data.indices[bestIdx]);
+  if (best) showTrial(best.trialIdx);
 }
-
-// ── baseline ───────────────────────────────────────────────────────────
-
 async function onPinBaseline() {
   if (!state.jobId) return;
   try {
