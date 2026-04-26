@@ -14,6 +14,7 @@ class RunRequest(BaseModel):
     layer_name: str | None = Field(None, description="History row label")
     artifact_mode: str = Field("auto", description="auto, rich, or lean")
     chunk_size: int | None = Field(None, ge=1)
+    retain_top_per_metric: int | None = Field(None, ge=1, le=10_000)
 
 
 class JobProgress(BaseModel):

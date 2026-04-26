@@ -85,6 +85,7 @@ def start(
     overrides: dict[str, Any] | None = None,
     artifact_mode: str = "auto",
     chunk_size: int | None = None,
+    retain_top_per_metric: int | None = None,
 ) -> str:
     """Kick off a backtest thread. Returns job_id.
 
@@ -137,6 +138,7 @@ def start(
                 progress_cb=cb,
                 artifact_mode=artifact_mode,
                 chunk_size=chunk_size,
+                retain_top_per_metric=retain_top_per_metric,
             )
             state.progress = 1.0
             state.message = "done"

@@ -176,7 +176,7 @@
           <h2 class="card-title">Run a backtest</h2>
           <span class="card-sub">Uses the current parameters from the Parameters tab. One run at a time.</span>
         </div>
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 p-4 items-end">
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-4 p-4 items-end">
           <label class="field">
             <span class="field-label" data-help="trials">Trials <span class="help-dot">?</span></span>
             <input id="n_trials" type="number" min="10" max="50000000" value="2000" step="100" class="field-input tabular-nums" />
@@ -188,6 +188,10 @@
           <label class="field md:col-span-1">
             <span class="field-label" data-help="layer_name">Layer name (optional) <span class="help-dot">?</span></span>
             <input id="layer_name" type="text" placeholder="auto" class="field-input" />
+          </label>
+          <label class="field">
+            <span class="field-label" data-help="retain_top_per_metric">Retain top <span class="help-dot">?</span></span>
+            <input id="retain_top_per_metric" type="number" min="1" max="10000" value="200" step="50" class="field-input tabular-nums" />
           </label>
           <button id="run-btn" class="h-9 rounded bg-flame-500 hover:bg-flame-400 text-ink-950 font-semibold text-sm transition disabled:bg-ink-700 disabled:text-slate-500 disabled:cursor-not-allowed">Run backtest</button>
         </div>

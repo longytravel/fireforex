@@ -21,6 +21,7 @@ such setting comes from the EA config.
 
 from __future__ import annotations
 
+import heapq
 import json
 import logging
 import os
@@ -600,6 +601,18 @@ def _choose_lean_chunk_size(max_trades: int, requested: int | None = None) -> in
     return max(10, int((target_mb * 1024 * 1024) // per_trial_bytes))
 
 
+def _choose_retain_top_per_metric(requested: int | None = None) -> int:
+    if requested is not None:
+        return max(1, int(requested))
+    env = os.environ.get("FF_LEAN_RETAIN_TOP_PER_METRIC")
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            pass
+    return 200
+
+
 def _plot_sample_indices(n: int, limit: int = 2_000, required: int | None = None) -> np.ndarray:
     if n <= limit:
         return np.arange(n, dtype=np.int64)
@@ -640,6 +653,7 @@ def _run_lean_random_sweep(
     param_layout: np.ndarray,
     max_trades: int,
     chunk_size: int | None,
+    retain_top_per_metric: int | None,
 ) -> dict:
     """Large-run random sweep that stores a compact metrics ledger.
 
@@ -663,18 +677,30 @@ def _run_lean_random_sweep(
     )
 
     actual_chunk = _choose_lean_chunk_size(max_trades, chunk_size)
+    retain_top = _choose_retain_top_per_metric(retain_top_per_metric)
     sampler = spl.RandomSampler(ea["engine_schema"], n_variants=lib.n_variants, seed=seed)
     retained: dict[int, dict[str, Any]] = {}
-    best_scores: dict[str, tuple[float, int]] = {}
+    top_heaps: dict[str, list[tuple[float, int]]] = {}
     metric_objectives = {
-        "quality": 1.0,
         "trades": 1.0,
+        "win_rate": 1.0,
+        "quality": 1.0,
         "profit_factor": 1.0,
         "sharpe": 1.0,
         "sortino": 1.0,
+        "r_squared": 1.0,
         "return_pct": 1.0,
+        "expectancy_r": 1.0,
         "expectancy_pips": 1.0,
+        "sqn": 1.0,
+        "calmar": 1.0,
+        "recovery": 1.0,
+        "upi": 1.0,
+        "k_ratio": 1.0,
+        "tail_ratio": 1.0,
+        "omega": 1.0,
         "psr": 1.0,
+        "total_pips": 1.0,
         "max_dd_pct": -1.0,
         "ulcer": -1.0,
         "max_consec_loss": -1.0,
@@ -695,8 +721,46 @@ def _run_lean_random_sweep(
             "n_trades": n_tr,
         }
 
-    print(f"[sample] lean random stream {n_trials:,} trials in chunks of {actual_chunk:,}")
-    _safe_progress(progress_cb, 0.35, f"lean sweep: streaming {n_trials:,} trials")
+    def objective_values(key: str, metrics: np.ndarray) -> np.ndarray:
+        if key == "total_pips":
+            return metrics[:, METRIC_INDEX["trades"]] * metrics[:, METRIC_INDEX["expectancy_pips"]]
+        return metrics[:, METRIC_INDEX[key]]
+
+    def track_top_candidates(
+        key: str,
+        direction: float,
+        values: np.ndarray,
+        trials: list[dict],
+        pm: np.ndarray,
+        metrics: np.ndarray,
+        pnl: np.ndarray,
+        recs: np.ndarray,
+        offset: int,
+    ) -> None:
+        safe = np.where(np.isfinite(values), direction * values, -np.inf)
+        if not np.isfinite(safe).any():
+            return
+        take = min(retain_top, safe.size)
+        if take < safe.size:
+            local_indices = np.argpartition(safe, -take)[-take:]
+        else:
+            local_indices = np.arange(safe.size)
+        heap = top_heaps.setdefault(key, [])
+        for local_idx_raw in local_indices:
+            local_idx = int(local_idx_raw)
+            score = float(safe[local_idx])
+            if not np.isfinite(score):
+                continue
+            global_idx = offset + local_idx
+            if len(heap) < retain_top:
+                heapq.heappush(heap, (score, global_idx))
+                retain(global_idx, local_idx, trials, pm, metrics, pnl, recs)
+            elif score > heap[0][0]:
+                heapq.heapreplace(heap, (score, global_idx))
+                retain(global_idx, local_idx, trials, pm, metrics, pnl, recs)
+
+    print(f"[sample] lean random stream {n_trials:,} trials in chunks of {actual_chunk:,}; retain top {retain_top:,}/metric")
+    _safe_progress(progress_cb, 0.35, f"lean sweep: streaming {n_trials:,} trials; retain top {retain_top:,}/metric")
 
     t = time.perf_counter()
     done = 0
@@ -731,17 +795,22 @@ def _run_lean_random_sweep(
         )
         metrics_out[done : done + this_n] = metrics_chunk.astype(np.float32, copy=False)
 
-        # Retain enough detail for the Run page's "jump to best" workflow.
+        # Retain enough detail for the Run page's "jump to best" workflow and
+        # future walk-forward promotion. Metrics-only rows remain cheap for the
+        # full sweep; detailed PnL/trade rows are kept only for the retained
+        # top-N bench per objective.
         for key, direction in metric_objectives.items():
-            col = metrics_chunk[:, METRIC_INDEX[key]]
-            safe = np.where(np.isfinite(col), direction * col, -np.inf)
-            local_idx = int(np.argmax(safe))
-            score = float(safe[local_idx])
-            old = best_scores.get(key)
-            if old is None or score > old[0]:
-                global_idx = done + local_idx
-                best_scores[key] = (score, global_idx)
-                retain(global_idx, local_idx, trials, pm, metrics_chunk, pnl_buffers, trade_records)
+            track_top_candidates(
+                key,
+                direction,
+                objective_values(key, metrics_chunk),
+                trials,
+                pm,
+                metrics_chunk,
+                pnl_buffers,
+                trade_records,
+                done,
+            )
 
         # Also retain the harness' real best-pick candidate for this chunk,
         # because pick_best has profitability and tie-break rules.
@@ -767,7 +836,7 @@ def _run_lean_random_sweep(
         # Extremely rare: global pick differs from every retained chunk winner.
         # Fall back to the retained quality winner so the artifact still has a
         # detailed trade view. The metric ledger still contains every row.
-        best = best_scores["quality"][1]
+        best = max(top_heaps["quality"])[1]
     best_retained = retained[int(best)]
     plot_idx = _plot_sample_indices(n_trials, required=int(best))
     n_trades_best = int(best_retained["n_trades"])
@@ -828,7 +897,17 @@ def _run_lean_random_sweep(
     equity_curve = np.cumsum(pnl_best)
     running_best = np.maximum.accumulate(quality)
 
-    retained_indices = np.array(sorted(retained), dtype=np.int64)
+    retained_objectives: dict[str, list[int]] = {}
+    final_retained: set[int] = {int(best)}
+    for key, heap in top_heaps.items():
+        ranked = [idx for _score, idx in sorted(heap, reverse=True) if idx in retained]
+        retained_objectives[key] = [int(idx) for idx in ranked]
+        final_retained.update(retained_objectives[key])
+    if "psr" in retained_objectives:
+        # DSR is finalised after the sweep and is monotonic with PSR for a
+        # fixed n_trials, so the same retained bench serves both objectives.
+        retained_objectives["dsr"] = list(retained_objectives["psr"])
+    retained_indices = np.array(sorted(final_retained), dtype=np.int64)
     retained_max_trades = max((retained[int(i)]["n_trades"] for i in retained_indices), default=0)
     retained_pnl = np.zeros((retained_indices.size, retained_max_trades), dtype=np.float32)
     retained_n_trades = np.zeros(retained_indices.size, dtype=np.int32)
@@ -853,6 +932,8 @@ def _run_lean_random_sweep(
         best_trial_json=np.array(json.dumps(best_trial, default=_json_default)),
         variant_map_json=np.array(json.dumps(lib.variant_map, default=_json_default)),
         retained_trial_indices=retained_indices,
+        retained_top_per_metric=np.int64(retain_top),
+        retained_objectives_json=np.array(json.dumps(retained_objectives, default=_json_default)),
         retained_pnl=retained_pnl,
         retained_n_trades=retained_n_trades,
         retained_metrics=retained_metrics,
@@ -929,6 +1010,8 @@ def _run_lean_random_sweep(
         "best_trial": best_trial,
         "run_file": str(run_file),
         "artifact_mode": "lean",
+        "retain_top_per_metric": retain_top,
+        "retained_trials": int(retained_indices.size),
     }
 
 
@@ -946,6 +1029,7 @@ def run(
     data_source: str = "dukascopy",
     artifact_mode: str = "auto",
     chunk_size: int | None = None,
+    retain_top_per_metric: int | None = None,
 ) -> dict:
     """Execute an EA end-to-end.
 
@@ -1121,6 +1205,7 @@ def run(
             param_layout=param_layout,
             max_trades=max_trades,
             chunk_size=chunk_size,
+            retain_top_per_metric=retain_top_per_metric,
         )
 
     # 6. Sample trials (or replay a single frozen trial).

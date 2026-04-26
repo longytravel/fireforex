@@ -205,6 +205,8 @@ def post_run(body: dict[str, Any]) -> dict[str, Any]:
     artifact_mode = str(body.get("artifact_mode", "auto"))
     chunk_size_raw = body.get("chunk_size")
     chunk_size = int(chunk_size_raw) if chunk_size_raw not in (None, "") else None
+    retain_top_raw = body.get("retain_top_per_metric")
+    retain_top_per_metric = int(retain_top_raw) if retain_top_raw not in (None, "") else None
     if artifact_mode not in {"auto", "rich", "lean"}:
         raise HTTPException(status_code=400, detail="artifact_mode must be auto, rich, or lean")
     if not (10 <= n_trials <= 50_000_000):
@@ -213,6 +215,8 @@ def post_run(body: dict[str, Any]) -> dict[str, Any]:
         raise HTTPException(status_code=400, detail="rich artifact mode is capped at 50000 trials; use auto or lean")
     if chunk_size is not None and chunk_size <= 0:
         raise HTTPException(status_code=400, detail="chunk_size must be positive")
+    if retain_top_per_metric is not None and not (1 <= retain_top_per_metric <= 10_000):
+        raise HTTPException(status_code=400, detail="retain_top_per_metric must be 1..10000")
 
     # Normalise optional date window from either the recipe or the top level.
     for key in ("start_date", "end_date"):
@@ -231,6 +235,7 @@ def post_run(body: dict[str, Any]) -> dict[str, Any]:
             overrides=overrides,
             artifact_mode=artifact_mode,
             chunk_size=chunk_size,
+            retain_top_per_metric=retain_top_per_metric,
         )
     except RuntimeError as e:
         raise HTTPException(status_code=409, detail=str(e)) from e
@@ -506,9 +511,19 @@ def get_scatter(run_file: str) -> dict[str, Any]:
         if n_trials > _SCATTER_MAX_POINTS:
             stride = int(np.ceil(n_trials / _SCATTER_MAX_POINTS))
             idx = np.arange(0, n_trials, stride, dtype=np.int32)
-            metrics = metrics[idx]
         else:
             idx = np.arange(n_trials, dtype=np.int32)
+        retained_idx = np.array([], dtype=np.int32)
+        retained_objectives: dict[str, list[int]] = {}
+        if "retained_trial_indices" in z.files:
+            retained_idx = z["retained_trial_indices"].astype(np.int32, copy=False)
+            idx = np.unique(np.concatenate([idx, retained_idx])).astype(np.int32, copy=False)
+        if "retained_objectives_json" in z.files:
+            try:
+                retained_objectives = json.loads(str(z["retained_objectives_json"]))
+            except Exception:
+                retained_objectives = {}
+        metrics = metrics[idx]
         # Pad legacy runs (saved with 10 Rust cols) up to the current schema
         # so new columns show as NaN rather than wrap-around indices.
         n_rust_cols = len(_HARNESS_METRIC_COLUMNS)
@@ -536,6 +551,8 @@ def get_scatter(run_file: str) -> dict[str, Any]:
         "metric_groups": list(_METRIC_COLUMN_GROUPS),
         "metrics": metrics_list,
         "indices": idx.tolist(),
+        "retained_indices": retained_idx.tolist(),
+        "retained_objectives": retained_objectives,
         "baseline_quality": _baseline_quality(),
     }
 
@@ -547,6 +564,7 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
 
     path = _resolve_run_npz(run_file)
     with np.load(path, allow_pickle=False) as z:
+        detail_available = False
         if "per_trial_metrics" in z.files:
             all_metrics = z["per_trial_metrics"]
         elif "lean_metrics_file" in z.files:
@@ -561,6 +579,7 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
         if "per_trial_pnl" in z.files and "per_trial_n_trades" in z.files:
             n_trades = int(z["per_trial_n_trades"][trial_idx])
             pnl = z["per_trial_pnl"][trial_idx, :n_trades].astype(np.float64)
+            detail_available = True
         elif "retained_trial_indices" in z.files:
             retained_idx = z["retained_trial_indices"]
             match = np.where(retained_idx == trial_idx)[0]
@@ -568,6 +587,7 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
                 pos = int(match[0])
                 n_trades = int(z["retained_n_trades"][pos])
                 pnl = z["retained_pnl"][pos, :n_trades].astype(np.float64)
+                detail_available = True
             else:
                 n_trades = int(metrics_row[_METRIC_COLUMN_KEYS.index("trades")])
                 pnl = np.empty(0, dtype=np.float64)
@@ -592,6 +612,7 @@ def get_trial(run_file: str, trial_idx: int) -> dict[str, Any]:
         "trial_idx": trial_idx,
         "n_trades": n_trades,
         "equity": equity,
+        "detail_available": detail_available,
         "metrics": metric_dict,
     }
 

@@ -29,6 +29,8 @@ def test_scatter_reads_lean_metrics_sidecar(tmp_path, monkeypatch):
         runs / "lean_run.npz",
         artifact_mode=np.array("lean"),
         lean_metrics_file=np.array("lean_metrics.npy"),
+        retained_trial_indices=np.array([3, 17], dtype=np.int64),
+        retained_objectives_json=np.array('{"quality":[17],"total_pips":[3]}'),
     )
 
     r = c.get("/api/runs/lean_run.npz/scatter")
@@ -37,6 +39,8 @@ def test_scatter_reads_lean_metrics_sidecar(tmp_path, monkeypatch):
     assert body["n_trials"] == 20
     total_idx = body["metric_columns"].index("total_pips")
     assert body["metrics"][3][total_idx] == 6.0
+    assert body["retained_indices"] == [3, 17]
+    assert body["retained_objectives"]["quality"] == [17]
 
 
 def test_trial_uses_retained_pnl_when_lean_artifact_has_it(tmp_path, monkeypatch):
@@ -60,10 +64,12 @@ def test_trial_uses_retained_pnl_when_lean_artifact_has_it(tmp_path, monkeypatch
     assert retained.status_code == 200
     retained_body = retained.json()
     assert retained_body["equity"] == [1.0, 0.5, 3.0]
+    assert retained_body["detail_available"] is True
     assert retained_body["metrics"]["total_pips"] == 3.0
 
     unretained = c.get("/api/runs/lean_run.npz/trial/8")
     assert unretained.status_code == 200
     unretained_body = unretained.json()
     assert unretained_body["equity"] == []
+    assert unretained_body["detail_available"] is False
     assert unretained_body["metrics"]["total_pips"] == 12.0
