@@ -1,39 +1,53 @@
-# Handoff — 2026-04-26 afternoon (PR #31 merged — cost-realism overlay shipped)
+# Handoff — 2026-04-26 evening (cost-realism UI shipped + merge guardrails)
 
-**Branch:** `main`
-**Status:** PR #31 (full cost-realism subsystem, 5 PRs bundled) merged as commit `63a3faa`. Stop hooks retired. CI green, all 17 reviewer threads addressed and resolved (Codex rounds 1–3 + CodeRabbit + Gemini).
+**Branch:** `docs/pr35-handoff-automerge-guardrails` while this refresh is in review. If this file is on `main`, the docs/tooling refresh has merged.
+**Main status:** `origin/main` includes PR #35 as squash commit `c6c66da` — History tab cost-realism decomposition columns are shipped.
+**Local sync note:** pre-sync local edits to `HANDOFF.md` / `artifacts/history.csv` were protected in stash `pre-sync local handoff/history before PR35 docs refresh` before fast-forwarding local `main`.
 
 ## Goal
-Make Dukascopy backtests show what live IC Markets would actually have made — by adding a post-pass cost-realism overlay (3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, MT5 session-median spreads, per-pair commission, telemetry-fed slippage), with one source of truth (`gate_rules.py`) shared between the backtest gate and the live runner so they can never drift.
+Make Dukascopy backtests show what live IC Markets would actually have made — cost-realism overlay (3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, MT5 session-median spreads, per-pair commission, telemetry-fed slippage), with one source of truth (`gate_rules.py`) shared between the backtest gate and live runner. The UI now decomposes adjusted P&L so users can see *why* adjusted differs from raw.
 
 ## Completed this session
-- **PR #31 merged.** Three commits added during this session:
-  - `d18b5cb` — Codex round 3 fail-open fixes (`cost_realism_status` field, per-pair slippage lookup, `float("nan")` for missing live spread).
-  - `45b6db7` — Stop hooks retired (user-driven), settings.json security patterns tightened (`git push -f*`, `git commit -n*`, plus explicit `git push --force*`).
-  - `a8cdac6` — CodeRabbit + Gemini round 1 review fixes: JPY pair `point_size` fallback, NaN/+inf in cost-table JSON, `build_cost_table` no longer clobbers existing table when zero pairs build, NaT `entry_ts` overlay handling, reconcile column-guard order, telemetry NaN write protection, `import_mt5_report` best-effort + numeric coercion.
-- 32 cost-realism tests + 204 broader tests all green.
-- Stop hooks deleted: `update-paperwork.sh` and `check-architecture-map.sh`. Only `session-start.sh` remains wired (provides snapshot at session start without nagging at session end).
-- New durable memory: `feedback_autonomous_review_thread_triage.md` — user has authorized fully-autonomous triage and resolution of CodeRabbit / Gemini reviewer threads. No per-thread confirmation needed in future PRs.
+- **PR #31 merged** as commit `63a3faa` — full cost-realism subsystem (5 PRs bundled): BT post-pass gate/overlay, cost table, telemetry-fed slippage, live execution guard sharing `ff/cost_realism/gate_rules.py`.
+- **PR #35 merged** as commit `c6c66da` — History tab now shows:
+  - `Adj. pips` — `adjusted_total_pips` after overlay
+  - `Gate save` — pips saved by dropping bad-cost trades
+  - `Cost` — spread/commission/slippage overhead on surviving trades
+  - `Gated` — dropped-trade count
+  - `CR` — cost-realism status pill (`ok` / `empty` / `failed`)
+- **Harness decomposition persisted** to NPZ + `artifacts/history.csv`: `adjusted = total + gate_save + cost_overhead`. Unit test enforces the identity.
+- **End-to-end smoke verified** with the real cost table: raw `278.6`, adjusted `340.5`, gate save `101.9`, cost overhead `-40.0`, gated `7`, status `ok`.
+- **Repo merge settings fixed**: auto-merge and delete-branch-on-merge are enabled. PR #35 initially stayed blocked because two stale Gemini review threads were unresolved; resolving them triggered auto-merge immediately.
+- **Merge guardrail improved**: `scripts/merge_pr.ps1` is now the preferred Windows-native closer; `scripts/merge_pr.sh` remains the Git Bash equivalent. They resolve review threads, wait for CI, fall back to auto-merge when direct merge is blocked, wait for the PR to actually merge, and delete the remote branch if GitHub leaves it behind.
+- **Stop-hook alternative installed**: PR-body ritual text is advisory, but the PR checklist workflow now has a paperwork audit. Durable code/tooling changes must update `HANDOFF.md`; architecture-map-sensitive changes must update `docs/ARCHITECTURE_MAP.md`. This enforces paperwork at PR time, where the agent can fix it, instead of interrupting local work with Stop hooks.
+- **Stop hooks remain retired**. `.claude/settings.json` is `{}`; no Stop-hook paperwork gate. Update paperwork directly before finishing.
 
-## Not yet done
-- **Issue #32** — `MatchedRow` in `ff/live/reconcile.py:82` doesn't carry the new overlay/gate columns, so for matched trades the cost-realism enrichment is invisible in the headline reconcile report. Smallest of the three follow-ups; pick this up first.
-- **Issue #33** — live guard reads stale closed-bar spread, not the submit-time tick. Architectural; fix needs a fresh `mt5.symbol_info_tick` immediately before order send.
-- **Issue #34** — post-fill slippage cap is not wired. The execution guard docstring promises it; the runner doesn't enforce it. Architectural.
-- **Three open scanner findings from prior PRs:** path traversal in routes (#12), out-of-bounds index in trade simulation (#13), metric-key naming mismatch (#14).
-- **Backport the live runner's forming-candle fix** into the BT engine so closed-bar BT matches closed-bar live.
-- **DST and exchange-local sessions** — deliberate v1 deferral. The current session-boundary table is fixed UTC; London / NY shift ±1 hour with DST.
-- **Docs sweep** — a few CodeRabbit nits on `docs/superpowers/specs/*` and `docs/superpowers/plans/*` (markdownlint MD040 fence languages, session-name canonicalisation, deprecated `is_news_window` reference) were deferred at PR #31 merge time. Next docs PR should clean these up.
+## Not Yet Done
+- **Issue #32** — `MatchedRow` propagation in `ff/live/reconcile.py:82`. This is the smallest cost-realism follow-up: matched live-vs-BT rows still need the new overlay/gate columns carried into the reconcile headline report.
+- **Issue #33** — live guard reads stale closed-bar spread, not the submit-time tick. Needs fresh `mt5.symbol_info_tick` immediately before broker submit.
+- **Issue #34** — post-fill slippage cap is documented but not enforced after order fill.
+- **Three older scanner findings:** #12 path traversal in `app/routes.py`, #13 out-of-bounds `sig_bar_index`, #14 metric key mismatch (`win_rate` vs `win_rate_pct`).
+- **Backport the live runner's forming-candle fix** into the BT engine.
+- **Docs sweep** — markdownlint MD040 in `docs/superpowers/specs/*` and `docs/superpowers/plans/*`, stale `is_news_window` placeholder reference, session-name canonicalisation.
 
-## Failed approaches — DON'T REPEAT
-- The original Task 7 plan said to **replace** `pnl_pips` with `adjusted_pnl_pips` as the harness's headline metric. That would silently shift every existing baseline-compare result. The conservative parallel-column approach used instead is the right call.
-- Storing the enriched best-trial trades as a numpy recarray inside `np.savez_compressed`. Recarrays with datetime64/object columns require pickle; existing comparison HTML loader explicitly disallowed that. Storing as JSON-encoded uint8 bytes round-trips cleanly.
-- Inserting the live execution guard at the top of `_poll_one_pair`. That short-circuits other legitimate early-returns (duplicate-plan dedup, position-cap). Always insert immediately before the broker submit call.
-- Stop hooks for paperwork enforcement. They nagged the user mid-session and stalled work; retired 2026-04-26.
+## Failed Approaches — Don't Repeat
+- Don't replace `pnl_pips` with adjusted P&L as the headline metric. Keep raw and adjusted side-by-side.
+- Don't store enriched best-trial trades as a numpy recarray in NPZ. JSON-encoded `uint8` bytes avoid pickle and round-trip cleanly.
+- Don't insert the live execution guard at the top of `_poll_one_pair`; it belongs immediately before broker submit.
+- Don't leave UI work on an unmerged branch after backend work lands. If a user says "I can't see it in the UI", check `git branch -vv`, `gh pr list --head <branch>`, and whether local `main` includes the UI commit.
+- Don't assume green checks mean mergeable. Resolve outdated review threads too; branch protection can remain blocked until every thread is resolved.
 
-## Exact resume steps for next session
-1. Pick up issue #32 (MatchedRow propagation) as a small follow-up PR — should be the smallest of the three.
-2. Then issues #33 and #34 — both architectural live-runner work.
-3. After that: docs sweep for the deferred markdownlint nits on the spec / plan docs.
+## Exact Resume Steps
+1. Make sure any docs/tooling refresh PR containing this handoff is merged.
+2. Run `git checkout main && git pull --ff-only origin main` before new work. If local runtime artifacts are dirty, stash them first.
+3. Pick up issue #32 (`MatchedRow` cost-realism column propagation).
+4. Then issues #33 and #34.
+5. Then the deferred docs sweep.
 
-## In flight
-- Nothing in flight; PR #31 closed.
+## Useful Commands
+- Merge a green PR safely: `bash scripts/merge_pr.sh <PR#>`
+- Check unresolved review threads: `gh pr view <PR#> --json mergeStateStatus,autoMergeRequest,url`
+- Sync main safely: `bash scripts/sync_main.sh`
+
+## In Flight
+- Docs/tooling guardrail refresh only (`docs/pr35-handoff-automerge-guardrails`).
