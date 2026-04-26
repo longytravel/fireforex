@@ -846,8 +846,7 @@ def run(
     # the others, instead of trials that look good only in Dukascopy
     # spread world. Falls back to the legacy Quality objective if the
     # cost table is missing or has no entry for the pair (charge == 0).
-    cost_table_path_for_pick = Path(__file__).resolve().parent.parent / "artifacts" / "cost_table.json"
-    overlay_charge = cost_table.per_trade_overlay_charge_pips(pair, cost_table_path_for_pick)
+    overlay_charge = cost_table.per_trade_overlay_charge_pips(pair, ART_ROOT / "cost_table.json")
     if overlay_charge != 0.0:
         n_trades_col = metrics_out[:, METRIC_INDEX["trades"]]
         exp_pips_col = metrics_out[:, METRIC_INDEX["expectancy_pips"]]
