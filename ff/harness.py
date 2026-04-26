@@ -682,7 +682,7 @@ def _run_lean_random_sweep(
     retained: dict[int, dict[str, Any]] = {}
     top_heaps: dict[str, list[tuple[float, int]]] = {}
     metric_objectives = {
-        "trades": 1.0,
+        "trades_profitable": 1.0,
         "win_rate": 1.0,
         "quality": 1.0,
         "profit_factor": 1.0,
@@ -730,6 +730,11 @@ def _run_lean_random_sweep(
             profit_factor = metrics[:, METRIC_INDEX["profit_factor"]]
             profitable = (total_pips > 0.0) | (profit_factor > 1.0)
             return np.where(profitable, metrics[:, METRIC_INDEX["quality"]], -np.inf)
+        if key == "trades_profitable":
+            total_pips = metrics[:, METRIC_INDEX["trades"]] * metrics[:, METRIC_INDEX["expectancy_pips"]]
+            profit_factor = metrics[:, METRIC_INDEX["profit_factor"]]
+            profitable = (total_pips > 0.0) | (profit_factor > 1.0)
+            return np.where(profitable, metrics[:, METRIC_INDEX["trades"]], -np.inf)
         return metrics[:, METRIC_INDEX[key]]
 
     def track_top_candidates(
@@ -911,7 +916,9 @@ def _run_lean_random_sweep(
     final_retained: set[int] = {int(best)}
     for key, heap in top_heaps.items():
         ranked = [idx for _score, idx in sorted(heap, reverse=True) if idx in retained]
-        if key != "quality_profitable":
+        if key == "trades_profitable":
+            retained_objectives["trades"] = [int(idx) for idx in ranked]
+        elif key != "quality_profitable":
             retained_objectives[key] = [int(idx) for idx in ranked]
         final_retained.update(int(idx) for idx in ranked)
     if "psr" in retained_objectives:
