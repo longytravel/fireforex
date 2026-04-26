@@ -888,7 +888,9 @@ def _evaluate_and_fire(
     submit_spread_pips = spread_at_fire_pips
     if hasattr(broker, "current_spread_pips"):
         try:
-            fresh = float(broker.current_spread_pips(state.pair))
+            # Wrap in `_with_broker_cfg` so multi-instance setups read the
+            # tick through this instance's `symbol_map` (CodeRabbit PR #44).
+            fresh = float(_with_broker_cfg(broker, cfg, lambda: broker.current_spread_pips(state.pair)))
         except Exception:  # noqa: BLE001 — broker errors must not block guard logic
             fresh = float("nan")
         if fresh == fresh:  # finite
@@ -984,10 +986,17 @@ def _evaluate_and_fire(
             plan_id,
             fill_slippage_pips,
         )
+        # If close_position fails, the position remains open on broker but
+        # `submit_market_order` already set SL/TP server-side, so risk is
+        # bounded. The orphan is tagged via stage=`slippage_orphan` so
+        # the reconciler can surface it for manual cleanup. Not adding to
+        # `state.open_positions` is intentional: we don't want
+        # exit_manager to retry trailing/breakeven on a position the
+        # runner has decided to disown.
+        close_rc: int = -1
         try:
-            close_rc = _with_broker_cfg(broker, cfg, lambda: broker.close_position(ticket.ticket, reason="slippage_3p"))
+            close_rc = int(_with_broker_cfg(broker, cfg, lambda: broker.close_position(ticket.ticket, reason="slippage_3p")))
         except Exception as exc:  # noqa: BLE001
-            close_rc = -1
             _log_error(
                 cfg,
                 {
@@ -997,6 +1006,19 @@ def _evaluate_and_fire(
                     "ticket": ticket.ticket,
                     "fill_slippage_pips": fill_slippage_pips,
                     "error": repr(exc),
+                },
+            )
+        if close_rc != 10009:  # MT5 TRADE_RETCODE_DONE
+            _log_error(
+                cfg,
+                {
+                    "pair": state.pair,
+                    "stage": "slippage_orphan",
+                    "plan_id": plan_id,
+                    "ticket": ticket.ticket,
+                    "fill_slippage_pips": fill_slippage_pips,
+                    "close_retcode": close_rc,
+                    "note": "broker SL/TP still active; manual cleanup required",
                 },
             )
         _log_error(
