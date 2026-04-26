@@ -183,6 +183,15 @@ def _kpi_block(result: dict[str, Any]) -> dict[str, Any]:
         "profit_factor",
         "sharpe",
         "return_pct",
+        # Cost-realism decomposition — surface in the Last-run KPI cards so
+        # users see adjusted P&L, gate save, cost overhead, and gated-trade
+        # count alongside the raw metrics. The History tab already shows
+        # them per-row; this puts them on the summary panel too.
+        "adjusted_total_pips",
+        "gate_save_pips",
+        "cost_overhead_pips",
+        "n_gated_trades",
+        "cost_realism_status",
     )
     return {k: result.get(k) for k in keys}
 
