@@ -44,20 +44,46 @@ def _pip_value(pair: str) -> float:
     return 0.01 if "JPY" in pair.upper() else 0.0001
 
 
-# Sanity-check threshold. Real-world per-session medians are sub-pip on majors,
-# a few pips at most on JPY exotics. Anything beyond 50 pips means the upstream
-# parquet's ``spread`` column is in pips (pre-commit 412edf9) rather than price
-# units, and the per-pip division has multiplied the value by 1/pip. Bail
-# rather than silently shipping a poisoned cost table.
+# Sanity-check thresholds.
+#
+# Upper bound: real-world per-session means are sub-pip on majors, a few pips
+# on JPY exotics. Beyond 50 pips means the upstream parquet's ``spread``
+# column is in pips (pre-commit 412edf9) rather than price units, and the
+# per-pip division has multiplied the value by 1/pip. Bail rather than
+# silently shipping a poisoned cost table.
 _ABSURD_SPREAD_PIPS: float = 50.0
+#
+# Lower bounds: real IC Markets Raw spreads are bounded below by physical
+# broker quotes. USD-quoted majors can run as tight as ~0.05 pips average;
+# crosses and exotics never undercut ~0.3 pips. Below those floors means
+# the input data is bottoming out at a quote-rounding floor (the symptom of
+# the median-on-floor-biased-distribution bug shipped 2026-04-26 in
+# cost_table.json: every survivor of every pair received a positive
+# overlay_delta because per-session "median" returned the broker's 1-point
+# minimum quote increment, not the realistic typical spread).
+_USD_MAJORS: frozenset[str] = frozenset({"EUR_USD", "GBP_USD", "USD_JPY", "AUD_USD", "USD_CHF", "USD_CAD", "NZD_USD"})
+_TIGHT_SPREAD_FLOOR_USD_MAJOR_PIPS: float = 0.05
+_TIGHT_SPREAD_FLOOR_OTHER_PIPS: float = 0.3
 
 
-def _per_session_median_spread_pips(df: pd.DataFrame, pair: str) -> dict[str, float]:
-    """Return {session_name: median_spread_pips} from an MT5 M1 parquet.
+def _tight_spread_floor_pips(pair: str) -> float:
+    return _TIGHT_SPREAD_FLOOR_USD_MAJOR_PIPS if pair.upper() in _USD_MAJORS else _TIGHT_SPREAD_FLOOR_OTHER_PIPS
+
+
+def _per_session_mean_spread_pips(df: pd.DataFrame, pair: str) -> dict[str, float]:
+    """Return {session_name: mean_spread_pips} from an MT5 M1 parquet.
+
+    Uses the per-session **mean**, not the median: real MT5 M1 ``spread``
+    values are heavily biased toward the broker's 1-point quote-rounding
+    floor during liquid periods (over half of EUR_USD bars sit at 0). The
+    median therefore reports the floor, not the typical execution cost. The
+    mean weights the long tail of wider quotes correctly. Spike sessions
+    (Rollover) are bucketed separately so they do not contaminate the
+    in-session means.
 
     Timestamps are coerced to UTC so broker-local tz-aware data (e.g. MT5
     server time at +02:00 / +03:00) is bucketed by UTC hour, not local hour.
-    Non-finite spreads are dropped before the per-session median.
+    Non-finite spreads are dropped before the per-session mean.
     """
     if df.empty:
         return {}
@@ -72,11 +98,11 @@ def _per_session_median_spread_pips(df: pd.DataFrame, pair: str) -> dict[str, fl
     df["session"] = df["hour"].map(_HOUR_TO_SESSION)
     df["spread_pips"] = df["spread"] / pip
     # Drop NaN AND +/-inf — the docstring promised non-finite values are
-    # excluded, and a trailing +inf median would poison the JSON output.
+    # excluded, and a trailing +inf mean would poison the JSON output.
     df = df[np.isfinite(df["spread_pips"]) & (df["spread_pips"] >= 0)]
     if df.empty:
         return {}
-    grouped = df.groupby("session")["spread_pips"].median()
+    grouped = df.groupby("session")["spread_pips"].mean()
     # Filter NaN out of the dict — json.dumps emits a bare `NaN` token that
     # is not valid JSON and breaks downstream parsers.
     out = {session: float(round(val, 4)) for session, val in grouped.items() if pd.notna(val)}
@@ -88,6 +114,23 @@ def _per_session_median_spread_pips(df: pd.DataFrame, pair: str) -> dict[str, fl
             f"(threshold {_ABSURD_SPREAD_PIPS} pips). "
             f"Likely the upstream parquet's `spread` column is in pips, "
             f"not price units — re-fetch with the post-412 MT5 downloader."
+        )
+    # Catch the median-on-floor-biased-distribution regression (2026-04-26):
+    # if any session's spread is below the per-pair plausible floor, the
+    # input data is bottoming out at a quote-rounding floor and the table
+    # would silently understate execution cost.
+    floor = _tight_spread_floor_pips(pair)
+    too_tight = {s: v for s, v in out.items() if v < floor}
+    if too_tight:
+        raise ValueError(
+            f"[cost_table] {pair}: implausibly tight per-session spreads "
+            f"{too_tight} (floor {floor} pips for "
+            f"{'USD-major' if pair.upper() in _USD_MAJORS else 'cross/exotic'} "
+            f"pair). Real broker quotes do not undercut this. Likely the "
+            f"input distribution is dominated by the broker's 1-point "
+            f"quote-rounding floor; verify the MT5 parquet's `spread` "
+            f"column is in price units and contains real quote samples, "
+            f"not pre-aggregated floors."
         )
     return out
 
@@ -124,7 +167,14 @@ def build_cost_table(
         if df.empty:
             LOG.warning("[cost_table] empty parquet %s — skipping", path)
             continue
-        sessions = _per_session_median_spread_pips(df, pair)
+        try:
+            sessions = _per_session_mean_spread_pips(df, pair)
+        except ValueError as exc:
+            # Per-pair validation failure (e.g. unit error or floor-biased
+            # data). Log loudly and skip rather than aborting the whole
+            # rebuild — other pairs may still be valid.
+            LOG.warning("[cost_table] %s — skipping (%s)", pair, exc)
+            continue
         if not sessions:
             continue
         pairs_block[pair] = {

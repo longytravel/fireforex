@@ -7,6 +7,14 @@
 ## Goal
 Make Dukascopy backtests show what live IC Markets would actually have made — cost-realism overlay (3-pip spread cap, 3-pip slippage cap, 21:00–24:00 UTC rollover skip, MT5 session-median spreads, per-pair commission, telemetry-fed slippage), with one source of truth (`gate_rules.py`) shared between the backtest gate and live runner. The UI now decomposes adjusted P&L so users can see *why* adjusted differs from raw.
 
+## Late-afternoon update (cost-table validator + structural data-source finding)
+
+A second cost-realism PR shipped after the morning's #35/#36: `fix/cost-table-mean-spread-validator` switches the cost-table builder from `median()` to `mean()` per session and adds a per-pair lower-bound floor (USD-majors ≥ 0.05 pips, crosses ≥ 0.3 pips). Discovered while debugging why `Cost` overhead was *positive* (i.e. overlay was *refunding* pips) on every survivor of every run: median on the MT5 M1 `spread` distribution returns the broker's 1-point quote-rounding floor (50%+ of bars sit there), making real cost look like 0.1 pips on AUD/NZD, CHF/JPY, etc. Overlay then computed `bt_cost - real_cost` ≈ +0.7 pips/trade on every pair.
+
+Mean is the right statistic but doesn't fully rescue the data: 25 of the 28 default pairs still fail the lower-bound floor because **only the NY session contains genuine quote variation in the MT5 M1 `spread` field**. Non-NY bars almost always close on a 1-point tick (broker's quote-rounding minimum) regardless of true bid/ask. This is a structural limitation of MT5 OHLC data — `spread` is sampled once per bar at close, not time-averaged. Follow-up tracked in PROGRESS as "MT5 M1 spread is structurally floor-biased". Until resolved, the local `artifacts/cost_table.json` will contain ~3 pairs and the overlay will skip the rest (raw + gate effect only, no cost adjustment shown for skipped pairs).
+
+`scripts/inspect_cost_overhead.py` is a forensic diagnostic created during the investigation; left untracked (ad-hoc local tool).
+
 ## Completed this session
 - **PR #31 merged** as commit `63a3faa` — full cost-realism subsystem (5 PRs bundled): BT post-pass gate/overlay, cost table, telemetry-fed slippage, live execution guard sharing `ff/cost_realism/gate_rules.py`.
 - **PR #35 merged** as commit `c6c66da` — History tab now shows:
