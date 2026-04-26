@@ -30,7 +30,7 @@ Living milestone register. Tick boxes as things ship. Never rewritten — only a
 - [ ] **Address review-flagged bugs**:
   - [ ] #12 Path-traversal validation in `app/routes.py`
   - [ ] #13 Out-of-bounds bounds check on `sig_bar_index`
-  - [ ] #14 Metric key mismatch (`win_rate` vs `win_rate_pct`)
+  - [x] #14 Metric key mismatch — METRIC_COLUMNS canonical key is now `win_rate_pct`; `app/routes.py` `get_scatter` / `get_trial` convert engine column 1 (fraction) to percentage at the API boundary; UI no longer guesses unit. Regression tests in `tests/test_metric_key_consistency.py`.
 - [ ] **Triage 10 dependabot PRs** auto-opened on 2026-04-25
 - [ ] **Pin test fixtures** so CI can run `test_golden_baseline` and `test_trade_log_roundtrip` (currently skipped on Linux for missing data)
 - [x] **Cost-realism overlay** (shipped 2026-04-26, PR #31) — post-pass spread/commission/slippage adjustment from MT5 medians + slippage telemetry feedback loop. Dukascopy stays the BT engine; overlay surfaces raw + `adjusted_pnl_total_pips` side-by-side with a `cost_realism_status` health field. Spec: `docs/superpowers/specs/2026-04-25-cost-realism-design.md`.

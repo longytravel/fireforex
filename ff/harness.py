@@ -93,7 +93,11 @@ DATA_ROOT = Path(os.environ.get("FF_DATA_ROOT", r"G:\My Drive\BackTestData"))
 # Order MUST match M_* indices in constants.rs.
 METRIC_COLUMNS: list[tuple[str, str, str]] = [
     ("trades", "Trades", "Activity"),
-    ("win_rate", "Win rate", "Activity"),
+    # Engine column 1 (M_WIN_RATE) is a fraction (0..1). Surfaced as a
+    # percentage at the API boundary (see `app.routes.get_scatter` /
+    # `get_trial`) so the UI key, the history.csv column, and the run
+    # summary all agree on a single name.
+    ("win_rate_pct", "Win rate", "Activity"),
     ("profit_factor", "Profit factor", "Return"),
     ("sharpe", "Sharpe", "Risk-Adjusted"),
     ("sortino", "Sortino", "Risk-Adjusted"),

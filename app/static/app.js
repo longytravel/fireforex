@@ -1071,7 +1071,7 @@ function drawEquityCurve(series) {
 // equity curve + metrics and replace the equity chart + KPI tiles above.
 // Fallback labels for legacy API responses missing metric_labels.
 const SCATTER_METRIC_LABELS_FALLBACK = {
-  trades: 'Trades', win_rate: 'Win rate', profit_factor: 'Profit factor',
+  trades: 'Trades', win_rate_pct: 'Win rate', profit_factor: 'Profit factor',
   sharpe: 'Sharpe', sortino: 'Sortino', max_dd_pct: 'Max DD %',
   return_pct: 'Return %', r_squared: 'R²', ulcer: 'Ulcer',
   quality: 'Quality v1 (legacy)', total_pips: 'Total pips',
@@ -1365,15 +1365,15 @@ function renderTrialView(trial) {
   drawEquityCurve(equity);
   $('equity-sub').textContent = `Trial #${trial.trial_idx} · ${trial.n_trades} trades`;
 
-  // Swap KPI tiles with per-trial values. Derive win_rate_pct, total_pips,
-  // expectancy from the trial metrics row + equity curve (Rust metrics
-  // expose win_rate as a fraction; total pips is the final equity value).
+  // Per-trial KPI tiles. The /trial endpoint surfaces win_rate_pct as a
+  // percentage already (engine column 1 is converted at the API
+  // boundary in app/routes.py::get_trial — see issue #14).
   const m = trial.metrics || {};
   const totalPips = equity.length ? equity[equity.length - 1] : 0;
   const trades = m.trades || 0;
   const kpis = {
     trades: trades,
-    win_rate_pct: m.win_rate != null ? (m.win_rate <= 1 ? m.win_rate * 100 : m.win_rate) : null,
+    win_rate_pct: m.win_rate_pct != null ? m.win_rate_pct : null,
     total_pips: totalPips,
     expectancy_pips: trades ? totalPips / trades : 0,
     max_dd_pct: m.max_dd_pct,
