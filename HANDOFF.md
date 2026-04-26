@@ -1,6 +1,12 @@
-# Handoff — 2026-04-26 evening (cost-realism UI shipped + merge guardrails)
+# Handoff — 2026-04-26 night (path-traversal hardening)
 
-**Branch:** `docs/pr35-handoff-automerge-guardrails` while this refresh is in review. If this file is on `main`, the docs/tooling refresh has merged.
+**Branch:** `fix/path-traversal-routes` (PR #46) layered alongside #44 (live-reconcile-and-guards) and #45 (metric key mismatch). All three are queued for auto-merge.
+
+## Tonight — issue #12 closed
+
+`/runs/...` endpoints used inconsistent path-traversal guards. `_resolve_run_npz` now resolves the joined path and asserts it lives under the resolved `artifacts/runs` directory (defends against the symlink-escape case the regex alone cannot catch). `/runs/{run_id}/trades.csv` reuses the helper instead of its weaker ad-hoc `if "/" or "\\" or ".." in run_id` check. Brings every `/runs/...` endpoint onto a single validator. Regression tests in `tests/test_path_traversal_routes.py`.
+
+**Branch (older snapshot):** `docs/pr35-handoff-automerge-guardrails` while this refresh is in review. If this file is on `main`, the docs/tooling refresh has merged.
 **Main status:** `origin/main` includes PR #35 as squash commit `c6c66da` — History tab cost-realism decomposition columns are shipped.
 **Local sync note:** pre-sync local edits to `HANDOFF.md` / `artifacts/history.csv` were protected in stash `pre-sync local handoff/history before PR35 docs refresh` before fast-forwarding local `main`.
 
