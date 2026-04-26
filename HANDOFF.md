@@ -1,6 +1,12 @@
-# Handoff — 2026-04-26 evening (cost-realism UI shipped + merge guardrails)
+# Handoff — 2026-04-26 night (metric key mismatch + cost-realism follow-ups in flight)
 
-**Branch:** `docs/pr35-handoff-automerge-guardrails` while this refresh is in review. If this file is on `main`, the docs/tooling refresh has merged.
+**Branch:** `fix/metric-key-mismatch` for the latest stack. PRs #44 (live-reconcile-and-guards) and #45 (metric key mismatch) are open and queued for auto-merge.
+
+## Tonight — issue #14 closed
+
+`win_rate` (engine column key) and `win_rate_pct` (history.csv + UI key) used to disagree. Standardised on `win_rate_pct` everywhere. The Rust engine still emits a fraction in column 1; `app/routes.py::get_scatter` and `get_trial` multiply by 100 at the API boundary so the JS no longer needs to defend against either shape. Legacy NPZs that already store percentage are not double-converted (`mask = column <= 1.0`). Regression tests in `tests/test_metric_key_consistency.py`.
+
+**Branch (older snapshot):** `docs/pr35-handoff-automerge-guardrails` while this refresh is in review. If this file is on `main`, the docs/tooling refresh has merged.
 **Main status:** `origin/main` includes PR #35 as squash commit `c6c66da` — History tab cost-realism decomposition columns are shipped.
 **Local sync note:** pre-sync local edits to `HANDOFF.md` / `artifacts/history.csv` were protected in stash `pre-sync local handoff/history before PR35 docs refresh` before fast-forwarding local `main`.
 
