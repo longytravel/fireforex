@@ -26,7 +26,7 @@ dev = [
 ]
 # Live-trading runner: only installable on Windows (MetaTrader5 is win-only).
 live = [
-    "MetaTrader5>=5.0; platform_system == 'Windows'",
+    "MetaTrader5>=5.0.5735; platform_system == 'Windows'",
 ]
 
 [tool.maturin]
